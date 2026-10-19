@@ -7,6 +7,7 @@
     "eval": "tsx src/run-eval.ts",
     "sweep": "tsx src/sweep.ts",
     "latency-report": "tsx src/latency-report.ts",
+    "tiers-table": "tsx src/tiers-table.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
