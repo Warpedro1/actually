@@ -24,7 +24,7 @@ const FILLER = new Set([
   "senhor", "senhora", "presidente", "sim", "nao", "claro", "olha", "veja", "bem", "entao", "ne", "ok",
   "pois", "e", "o", "a", "os", "as", "de", "do", "da", "que", "eu", "voce", "aqui", "agora", "ai",
   "certo", "exatamente", "perfeito", "isso", "ta", "tudo", "pessoal", "gente", "brasileiros", "brasileiras",
-  "povo", "brasileiro", "telespectador", "telespectadores", "mediador", "mediadora", "tempo", "palavra",
+  "povo", "brasileiro", "todos", "todas", "voces", "telespectador", "telespectadores", "mediador", "mediadora", "tempo", "palavra",
 ]);
 
 export function prefilter(text: string): PrefilterResult {
