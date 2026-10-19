@@ -1,0 +1,33 @@
+# Manifesto de documentos L3 — `pnpm --filter @actually/kb-ingest start -- documents`
+#
+# Cada entrada:
+#   url:          URL pública (http/https) — vira kb_documents.url (única)
+#   title:        título
+#   doc_type:     programa | entrevista | discurso | debate | lei | votacao | noticia | dado | outro
+#   person:       "Lula" | "Flávio Bolsonaro" | "Jair Bolsonaro" | null
+#   source_name:  opcional (padrão: nome em source_tiers pelo domínio)
+#   tier:         opcional (padrão: tier do domínio em source_tiers; desconhecido = 4)
+#   topics:       opcional (padrão: detecção por palavras-chave)
+#   published_at: opcional (AAAA-MM-DD)
+#   format:       opcional: html | pdf | text (padrão: pelo Content-Type)
+#
+# REGRA: só entra aqui URL conferida (abrir no navegador e checar que é o documento certo).
+#
+# Em 19/10/2026 NENHUMA URL pôde ser conferida deste ambiente: divulgacandcontas.tse.jus.br,
+# planalto.gov.br, gov.br e os sites de campanha estão bloqueados pelo proxy da sessão.
+# Por isso a lista ativa está vazia e as fontes desejadas ficam como PENDÊNCIAS abaixo.
+#
+# PENDÊNCIAS (conferir a URL e mover para `documents:`):
+#   - Programa de governo de Lula registrado no TSE (eleições 2026) — DivulgaCandContas,
+#     página da candidatura → "Proposta de governo" (PDF). doc_type: programa, person: Lula.
+#   - Programa de governo de Flávio Bolsonaro registrado no TSE (eleições 2026) — idem.
+#     doc_type: programa, person: Flávio Bolsonaro.
+#   - Programas de governo de 2022 (Lula e Jair Bolsonaro) no DivulgaCandContas — contexto
+#     para "prometeu e não cumpriu". doc_type: programa.
+#   - Sites oficiais de campanha (páginas de propostas). doc_type: programa, tier 3.
+#   - Transcrição do debate de ontem (18/10): usar `documents --file` com a transcrição
+#     revisada, ou `transcribe --ingest`, ou `apify-youtube` (ver README).
+#   - Debates presidenciais de 2022 (transcrições) — idem.
+#   - Leis citadas com frequência (Planalto/legislação): reforma tributária, isenção do IR,
+#     Estatuto do Desarmamento e decretos de armas. doc_type: lei, tier 1.
+documents: []

@@ -1,0 +1,171 @@
+# kb-ingest — cargas da base de conhecimento
+
+CLI que carrega as camadas L1 (checagens), L2 (indicadores oficiais) e L3 (documentos) no Supabase.
+Todos os comandos são **idempotentes** (upsert por chave natural) e aceitam `--dry-run`, que não grava
+nada e imprime o que seria gravado.
+
+```bash
+pnpm --filter @actually/kb-ingest start -- <comando> [opções]
+pnpm --filter @actually/kb-ingest start -- --help
+```
+
+## Variáveis de ambiente
+
+| Variável | Para quê | Obrigatória |
+|---|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` (ou `SUPABASE_URL`), `SUPABASE_SERVICE_ROLE_KEY` | gravar no banco | sim, exceto em `--dry-run`, `indicators --list/--check` |
+| `VOYAGE_API_KEY` | embeddings (voyage-3.5, 1024 dim.) | não: sem ela os embeddings ficam nulos; rode `embed-missing` depois |
+| `GOOGLE_FACTCHECK_API_KEY` | `factchecks --source google` | só para o Google |
+| `DEEPGRAM_API_KEY` | `transcribe` | só para transcrever |
+| `APIFY_TOKEN` | `apify-*` | só para Apify |
+| `APIFY_MAX_CHARGE_USD` | teto de custo por execução de Actor (padrão 5) | não |
+| `KB_INGEST_CONTACT` | contato acrescentado ao User-Agent (ex.: URL do projeto) | recomendado |
+| `KB_INGEST_MAX_PER_HOST`, `KB_INGEST_MIN_INTERVAL_MS` | concorrência por host (padrão 2) e intervalo mínimo (400 ms) | não |
+| `NODE_USE_ENV_PROXY=1` | só se a máquina sai por proxy HTTP(S) (o `fetch` do Node ignora `HTTPS_PROXY` sem isso) | não |
+
+As páginas (checagens, documentos, feeds) respeitam `robots.txt` (inclusive `Crawl-delay`); APIs
+documentadas (BCB, IBGE, Senado, Google, Voyage, Deepgram) não passam pelo robots.
+
+## Ordem recomendada de carga (dia do ensaio e véspera do debate)
+
+1. `tiers` — sincroniza `SOURCE_TIERS` → `source_tiers` (segundos).
+2. `indicators --check` — **sem gravar**: imprime os 6 últimos valores de cada série e confere a desocupação
+   móvel × trimestral. Compare 2–3 valores com a página pública da série antes de seguir.
+3. `indicators` — grava séries e valores desde 2003 (alguns minutos; séries diárias vão em janelas de 3 anos).
+4. `factchecks --since 2025-01-01` — Google Fact Check Tools + feeds das agências. Antes, uma vez:
+   `factchecks --verify-feeds` para ver quais feeds as agências anunciam.
+5. `senado` (e `senado --discursos`, mais demorado) — votações nominais de Flávio Bolsonaro desde 02/2019.
+6. Debate de ontem: `transcribe --url <link> --out data/transcripts` → revisar o `.txt` → mapear falantes →
+   `documents --file data/transcripts/<arquivo>.json --speakers "0=...,1=..." --meta '{...}'`.
+   Alternativa mais barata: `apify-youtube` (legendas do YouTube) — ver abaixo.
+7. `documents` — manifesto `sources/documents.yaml` (programas de governo etc., quando as URLs forem conferidas).
+8. `apify-crawl` / `apify-search` — complemento de L1 onde feeds/Google não cobrem.
+9. `embed-missing` — preenche os embeddings que ficaram nulos.
+10. `status` — contagens por tabela, fonte, pessoa, tópico e série.
+
+Rodar de novo qualquer passo é seguro: o que já existe é atualizado, não duplicado.
+
+## Comandos
+
+### `tiers`
+Upsert de `SOURCE_TIERS` (`packages/db/src/tiers.ts`) em `source_tiers`.
+
+### `factchecks` (L1)
+- **Google Fact Check Tools** (`claims:search`, `languageCode=pt`, `maxAgeDays` a partir de `--since`):
+  consultas sobre Lula, Flávio Bolsonaro, Jair Bolsonaro, governo e tópicos-guia (`GOOGLE_QUERIES` em
+  `src/factchecks/google.ts`; `--query` acrescenta). `--max-pages` (padrão 3 × 100 resultados por consulta).
+- **Feeds das agências**: nenhuma URL de feed está fixada (não deu para conferir daqui). O coletor descobre o feed
+  na página inicial de cada agência (`<link rel="alternate" type="application/rss+xml">`); feeds conferidos à mão
+  podem ser fixados em `sources/feeds.yaml`.
+- Para cada checagem: baixa a página, extrai o texto principal (Readability + linkedom) → `body`; lê o
+  `ClaimReview` em JSON-LD quando existe (rating e afirmação); escolhe `quote` = **sentença literal** do corpo que
+  sustenta o veredito (menção ao rating, pistas de refutação/fonte, números, sobreposição com a afirmação). Sem
+  trecho literal, a checagem é descartada.
+- Rating → `verdict` pela tabela de `src/factchecks/rating.ts`: Falso/Fake/Montagem ⇒ `contradito`;
+  Enganoso/Distorcido/Exagerado/Sem contexto/Impreciso/Verdadeiro, mas/Parcialmente falso/Não é bem assim ⇒
+  `impreciso`; Verdadeiro/Fato/Comprovado ⇒ `confirmado`; Insustentável/Contraditório/Sátira/De olho/desconhecido
+  ⇒ `inconclusivo`.
+- `person` ("Lula", "Flávio Bolsonaro", "Jair Bolsonaro"; "Bolsonaro" sozinho é ambíguo ⇒ nulo) e `topic`
+  (economia, impostos, programas_sociais, seguranca, corrupcao_justica, saude, meio_ambiente, educacao,
+  politica_externa) por regras em `src/lib/classify.ts`. Sem pessoa nem tópico ⇒ descartada (use `--all-topics`).
+- Já gravadas são puladas (`--refresh` reprocessa). Embedding = `claim_text`.
+
+### `indicators` (L2)
+Catálogo em `src/indicators/catalog.ts` (code, name, aliases, unit, periodicity, source_name, source_url, tier, notes
+e a origem de cada código). `--list` mostra ativas e pendentes; `--only a,b`; `--since`; `--check`;
+`--include-pending`.
+
+Períodos: mensal → mês; trimestral → trimestre civil; trimestre móvel → 3 meses terminando no mês de referência;
+anual → ano. Séries diárias do SGS (Selic meta, dólar) viram o **último valor de cada mês**.
+
+| Série | Fonte | Situação |
+|---|---|---|
+| ipca_mensal / ipca_12m | SGS 433 / 13522 | ativa |
+| selic_meta | SGS 432 (diária → fim do mês) | ativa |
+| dolar_venda | SGS 1 (diária → fim do mês) | ativa |
+| dlsp_pib / dlgg_pib | SGS 4513 / 4536 | ativa |
+| primario_12m_pib | SGS 5793 (NFSP: positivo = déficit) | ativa |
+| desocupacao_pnadc_trimestral | SIDRA 4099 v4099 | ativa |
+| desocupacao_pnadc_movel | SGS 24369 | ativa (conferida contra a trimestral no `--check`) |
+| pib_variacao_trimestral / pib_corrente_trimestral | SIDRA 5932 v6561 / 1846 v585 (c11255/90707) | ativa |
+| pib_per_capita / populacao_estimada | SIDRA 6784 v9812 / 6579 v9324 | ativa |
+| rendimento_medio_real | SIDRA 6387 v5935 (trimestre móvel) | ativa |
+| caged_saldo | SGS 28561 | ativa (nome herdado; conferir) |
+| dbgg_pib (dívida bruta) | — | **pendente**: código não confirmado |
+| pib_variacao_anual | — | **pendente**: variável não confirmada |
+| desmatamento PRODES, salário mínimo, homicídios, Bolsa Família | — | **pendentes** (ver `--list`) |
+
+O SIDRA é consultado primeiro pela API de Agregados v3 (`servicodados.ibge.gov.br`, `view=flat`) e, se falhar,
+pelo `apisidra.ibge.gov.br` (que desde 09/2026 pode responder com desafio anti-robô).
+
+### `documents` (L3)
+- Manifesto `sources/documents.yaml` (url, title, doc_type, person, source_name, tier, topics, published_at,
+  format). Baixa HTML (Readability) ou PDF (`unpdf`), tier por `lookupSource` (ou explícito), chunking por
+  sentenças (~800 tokens, sobreposição ~100, cada chunk é trecho literal do texto), embeddings e upsert em
+  `kb_documents`/`kb_chunks`. Corpo igual ao já gravado ⇒ só atualiza metadados; corpo novo ⇒ refaz os chunks.
+- Arquivo local: `--file transcricao.txt|.json --meta '{"url":"https://...","title":"...","doc_type":"debate","published_at":"2026-10-18"}'`.
+  O `.json` pode ser a saída do `transcribe`, a resposta crua do Deepgram ou `{ "text": ... }`.
+  `url` é obrigatória (kb_documents exige http/https): use o link público do vídeo/da fonte.
+
+### `senado`
+Acha o código do senador pelo nome em `/senador/lista/atual` (ou `/senador/afastados`) — nada fixado —, busca
+`/votacao?codigoParlamentar=…` ano a ano desde `--since` (padrão 2019-02-01) e grava cada votação como documento
+`doc_type=votacao`, `person="Flávio Bolsonaro"`, com corpo montado só com campos da fonte (matéria, ementa,
+resultado, placar e o voto dele). `--discursos` também baixa o texto integral dos pronunciamentos (`doc_type=discurso`).
+
+### `transcribe`
+Deepgram pré-gravado (`nova-3`, `pt-BR`, `diarize`, `smart_format`, `utterances`) de `--file` local ou `--url`.
+URL do YouTube: baixa o áudio com `yt-dlp -x` (precisa de `yt-dlp` + `ffmpeg` no PATH). Grava
+`data/transcripts/<nome>.json` (falas com falante e tempos) e `.txt` (`[mm:ss] Falante N: ...`). `--speakers
+"0=Lula,1=Flávio Bolsonaro"` troca os rótulos **depois de conferir** quem é quem. `--ingest --doc-type
+debate|entrevista --person ... --title ... --source-url ... --published-at ...` já grava como documento.
+
+### `embed-missing`
+Preenche `embedding` nulo em `kb_chunks` (texto) e `kb_factchecks` (`claim_text`), em lotes de até 64 textos,
+com retry/backoff (429/5xx) e pausa entre lotes. `--table`, `--max`.
+
+### `status`
+Contagens por tabela; L1 por fonte/veredito/pessoa/tópico; L2 por série (com último período); L3 por
+tipo/pessoa/fonte/tópico; embeddings faltando.
+
+## Apify
+
+Manifesto `sources/apify.yaml`. Toda execução tem teto de custo (`APIFY_MAX_CHARGE_USD`, padrão US$ 5) e pode
+ser reprocessada sem custo com `--dataset <id>` (dataset de uma execução anterior) ou `--items export.json`.
+
+| Comando | Actor | Saída |
+|---|---|---|
+| `apify-check --actor <id>` | qualquer | existe? deprecated? preço (`pricingInfos`) e campos de input |
+| `apify-crawl [--only job]` | `apify/website-content-crawler` | jobs `factcheck` ⇒ L1 (mesma normalização: rating, `quote` literal, veredito); jobs `document` ⇒ L3 |
+| `apify-youtube` | `curious_coder/youtube-transcript-scraper` | legendas/transcrições ⇒ documentos `debate`/`entrevista` |
+| `apify-search` | `apify/google-search-scraper` | descobre checagens recentes; só domínios tier 1–2 (`webSearchDomains()`); páginas das agências seguem o caminho do `factchecks` |
+
+**Situação da confirmação:** a Apify Store (`api.apify.com`) estava bloqueada no ambiente em que isto foi escrito.
+Os nomes dos Actors vêm do índice do plugin Apify, e os campos de input (`startUrls`, `maxCrawlPages`, `queries`)
+da documentação de workflows do mesmo plugin. **Rode `apify-check` para cada Actor antes do primeiro uso** e ajuste
+`input` no manifesto. O `input` do Actor de YouTube está vazio de propósito: o comando se recusa a rodar até ele
+ser preenchido. A leitura da saída é tolerante a vários nomes de campo (`src/apify/map.ts`, testada).
+
+**Quando usar Apify × coletores diretos**
+- Checagens: prefira `factchecks` (Google + feeds; grátis, com ClaimReview). Use `apify-crawl` para agência sem feed
+  ou que bloqueia o download direto; `apify-search` para varrer o que saiu nas últimas horas.
+- Indicadores e Senado: sempre os coletores diretos (APIs oficiais, sem custo).
+- Debate/entrevistas no YouTube: `apify-youtube` é mais rápido e barato (pega a legenda pronta), mas legenda
+  automática erra e não separa falantes — por isso entra como tier 4 (nunca sustenta alerta sozinho). Para o
+  debate de referência, prefira `transcribe` (Deepgram, com diarização) e revise.
+
+**Custo/limites:** a Store não pôde ser consultada, então não há estimativa confirmada. `apify-check` mostra o
+modelo de preço de cada Actor; Actors pay-per-event cobram por resultado. Comece com `max_pages` baixo (o
+manifesto usa 150 por agência) e acompanhe no painel da Apify.
+
+## Testes
+
+```bash
+pnpm --filter @actually/kb-ingest typecheck
+pnpm --filter @actually/kb-ingest test
+```
+
+Sem rede. Cobrem: tabela de rating, chunker (trechos literais, limite e sobreposição), divisão em sentenças,
+HTML → texto + JSON-LD + escolha do `quote`, parsers SGS (valores reais) e SIDRA/Agregados (formato), resolução de
+períodos, catálogo, feeds, Google, Senado, Deepgram, robots.txt, pessoa/tópico e mapeamentos da Apify.
+A proveniência dos fixtures está no topo de `test/indicators.test.ts`.

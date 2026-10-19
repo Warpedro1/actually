@@ -1,0 +1,27 @@
+{
+  "name": "@actually/kb-ingest",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@actually/db": "workspace:*",
+    "@mozilla/readability": "^0.6.0",
+    "apify-client": "^2.25.0",
+    "fast-xml-parser": "^5.11.2",
+    "linkedom": "^0.18.13",
+    "unpdf": "^1.9.1",
+    "yaml": "^2.9.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.7"
+  }
+}

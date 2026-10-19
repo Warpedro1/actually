@@ -1,0 +1,93 @@
+# Coletores via Apify — `apify-crawl`, `apify-youtube`, `apify-search` (env APIFY_TOKEN).
+#
+# ESTADO DA CONFIRMAÇÃO (19/10/2026): api.apify.com e apify.com estão BLOQUEADOS neste
+# ambiente, então a Apify Store não pôde ser consultada. Os nomes de Actor abaixo vêm do
+# índice de Actors do plugin Apify instalado (apify-ultimate-scraper/references/actor-index.md)
+# e os campos de input da documentação de workflows do mesmo plugin. Antes de gastar:
+#
+#   pnpm --filter @actually/kb-ingest start -- apify-check --actor apify/website-content-crawler
+#
+# imprime se o Actor existe, se está deprecated, o preço (pricingInfos) e os campos de input.
+# Ajuste `input` conforme o que aparecer. Toda execução tem teto de custo
+# APIFY_MAX_CHARGE_USD (padrão US$ 5).
+#
+# Marcadores aceitos em `input`: $START_URLS ([{url}]), $URLS ([url]), $MAX_PAGES,
+# $QUERIES_NEWLINE ("q1\nq2"), $QUERIES ([q1, q2]).
+
+crawl:
+  actor: apify/website-content-crawler
+  # startUrls e maxCrawlPages: citados como "key input" na doc do plugin (não confirmados na Store).
+  input:
+    startUrls: $START_URLS
+    maxCrawlPages: $MAX_PAGES
+  jobs:
+    # Agências de checagem: L1. Só viram checagem as páginas com rating reconhecível
+    # (título "É falso que...", linha "Classificação: Falso" etc.) e trecho literal.
+    # Domínios vêm de packages/db/src/tiers.ts. Padrões de inclusão (ex.: includeUrlGlobs)
+    # ficam PENDENTES até confirmar o nome do campo com apify-check; use input_extra.
+    - name: lupa
+      kind: factcheck
+      start_urls: [https://lupa.uol.com.br/]
+      max_pages: 150
+    - name: aos-fatos
+      kind: factcheck
+      start_urls: [https://aosfatos.org/]
+      max_pages: 150
+    - name: estadao-verifica
+      kind: factcheck
+      start_urls: [https://estadao.com.br/estadao-verifica/]
+      max_pages: 150
+    - name: fato-ou-fake
+      kind: factcheck
+      start_urls: [https://g1.globo.com/fato-ou-fake/]
+      max_pages: 150
+    - name: comprova
+      kind: factcheck
+      start_urls: [https://projetocomprova.com.br/]
+      max_pages: 150
+    - name: uol-confere
+      kind: factcheck
+      start_urls: [https://noticias.uol.com.br/confere/]
+      max_pages: 150
+    - name: afp-checamos
+      kind: factcheck
+      start_urls: [https://checamos.afp.com/]
+      max_pages: 150
+    # Sites de campanha / programas: L3. PENDENTE — URLs não conferidas daqui.
+    # - name: campanha-lula
+    #   kind: document
+    #   doc_type: programa
+    #   person: Lula
+    #   start_urls: [https://...]
+    #   max_pages: 50
+    # - name: campanha-flavio
+    #   kind: document
+    #   doc_type: programa
+    #   person: Flávio Bolsonaro
+    #   start_urls: [https://...]
+    #   max_pages: 50
+
+youtube:
+  # Actor de transcrição listado no índice do plugin Apify ("transcripts, captions", community).
+  # Schema de input/saída NÃO documentado no plugin ⇒ `input` PENDENTE: rode apify-check e preencha.
+  actor: curious_coder/youtube-transcript-scraper
+  # input:
+  #   <campo-das-urls>: $URLS        # ou $START_URLS, conforme apify-check
+  videos: []
+  # - url: https://www.youtube.com/watch?v=...   # debate de 18/10 (link oficial da emissora)
+  #   doc_type: debate
+  #   title: Debate presidencial — 18/10/2026
+  #   published_at: 2026-10-18
+  # - url: https://www.youtube.com/watch?v=...
+  #   doc_type: entrevista
+  #   person: Flávio Bolsonaro
+
+search:
+  actor: apify/google-search-scraper
+  # `queries` é citado como "key input" na doc do plugin; o formato (texto com uma consulta
+  # por linha vs. lista) NÃO foi confirmado — troque para $QUERIES se apify-check indicar array.
+  # Limite de resultados por consulta: a doc do plugin cita `maxResultsPerPage`; não incluído
+  # até confirmar com apify-check.
+  input:
+    queries: $QUERIES_NEWLINE
+  # queries: []   # padrão: DEFAULT_SEARCH_QUERIES em src/commands/apify.ts

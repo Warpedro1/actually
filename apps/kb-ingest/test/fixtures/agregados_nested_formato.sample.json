@@ -1,0 +1,15 @@
+[
+  {
+    "id": "4099",
+    "variavel": "Taxa de desocupação",
+    "unidade": "%",
+    "resultados": [
+      {
+        "classificacoes": [],
+        "series": [
+          { "localidade": { "id": "1", "nivel": { "id": "N1", "nome": "Brasil" }, "nome": "Brasil" }, "serie": { "203001": "11.1", "203002": "22.2", "203003": "..." } }
+        ]
+      }
+    ]
+  }
+]

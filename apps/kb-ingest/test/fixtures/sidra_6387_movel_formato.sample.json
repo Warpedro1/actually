@@ -1,0 +1,5 @@
+[
+  {"NC":"Nível Territorial (Código)","NN":"Nível Territorial","MC":"Unidade de Medida (Código)","MN":"Unidade de Medida","V":"Valor","D1C":"Brasil (Código)","D1N":"Brasil","D2C":"Variável (Código)","D2N":"Variável","D3C":"Trimestre Móvel (Código)","D3N":"Trimestre Móvel"},
+  {"NC":"1","NN":"Brasil","MC":"38","MN":"Reais","V":"1111","D1C":"1","D1N":"Brasil","D2C":"5935","D2N":"Rendimento médio real","D3C":"203001","D3N":"nov-dez-jan 2030"},
+  {"NC":"1","NN":"Brasil","MC":"38","MN":"Reais","V":"2222","D1C":"1","D1N":"Brasil","D2C":"5935","D2N":"Rendimento médio real","D3C":"203002","D3N":"dez-jan-fev 2030"}
+]
