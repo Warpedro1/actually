@@ -81,7 +81,10 @@ export function machineWarnings(
     if (silence !== null && silence > SILENCE_ALERT_S) {
       out.push({ tone: active ? "bad" : "warn", text: `Áudio em silêncio há ${formatDuration(silence)}.` });
     }
-    if (m.reported.state === "error") out.push({ tone: "bad", text: m.reported.error ? `Erro: ${m.reported.error}` : "Erro na captura." });
+  }
+  // Erro reportado aparece mesmo offline: é o último relato antes de sumir.
+  if (m.reported.state === "error") {
+    out.push({ tone: "bad", text: m.reported.error ? `Erro: ${m.reported.error}` : "Erro na captura." });
   }
   return out;
 }

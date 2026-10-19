@@ -1,7 +1,7 @@
 "use client";
 
 import type { CaptureMachine, MachineDesired } from "@actually/db";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { demoAdminData } from "@/lib/demo/fixtures";
 import { MachinesPanel } from "./MachinesPanel";
 import { useNow } from "./useStaffData";
@@ -9,11 +9,13 @@ import { useNow } from "./useStaffData";
 /** /admin/demo: painel de máquinas com dados fictícios; comandos só mudam o estado local. */
 export function MachinesDemo() {
   const now = useNow(1000);
-  // Fixtures ancoradas no carregamento; o relógio corre e as idades crescem.
-  const [data, setData] = useState(() => demoAdminData(Date.now()));
+  // Fixtures ancoradas no carregamento (só no navegador: idades dependem do relógio
+  // e divergiriam entre SSR e hidratação); o relógio corre e as idades crescem.
+  const [data, setData] = useState<ReturnType<typeof demoAdminData> | null>(null);
+  useEffect(() => setData(demoAdminData(Date.now())), []);
 
   async function onSaveDesired(machineId: string, desired: MachineDesired) {
-    setData((d) => ({
+    setData((d) => d && ({
       ...d,
       machines: d.machines.map((m): CaptureMachine =>
         m.id === machineId ? { ...m, desired, desired_updated_at: new Date().toISOString() } : m,
@@ -23,9 +25,11 @@ export function MachinesDemo() {
   }
 
   async function onSetActive(agentId: string) {
-    setData((d) => ({ ...d, agents: d.agents.map((a) => ({ ...a, active: a.id === agentId })) }));
+    setData((d) => d && { ...d, agents: d.agents.map((a) => ({ ...a, active: a.id === agentId })) });
     return null;
   }
+
+  if (!data) return <p className="mx-auto max-w-6xl px-4 py-4 text-sm text-muted">Carregando…</p>;
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-4 px-4 py-4">
