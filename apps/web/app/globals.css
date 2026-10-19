@@ -1,0 +1,144 @@
+@import "tailwindcss";
+
+/* Tema: claro por padrão, escuro pelo sistema ou por escolha explícita
+   (data-theme no <html>, definido antes da pintura pelo script do layout). */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+:root {
+  --bg: #f6f6f4;
+  --surface: #ffffff;
+  --surface-2: #efefec;
+  --fg: #18191a;
+  --muted: #5a5c60;
+  --border: #dedfdb;
+  --accent: #2f3b4c;
+  --focus: #3a5a8c;
+  --red-bg: #fbeceb;
+  --red-fg: #8f1d1d;
+  --red-border: #efc4c1;
+  --yellow-bg: #fbf4e1;
+  --yellow-fg: #6d4f00;
+  --yellow-border: #e8d6a2;
+  --ok-fg: #1f6b3a;
+  --ok-bg: #e8f4ec;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111213;
+    --surface: #1a1b1d;
+    --surface-2: #232427;
+    --fg: #ececea;
+    --muted: #a3a5a9;
+    --border: #2f3134;
+    --accent: #c9d2de;
+    --focus: #8fb0e0;
+    --red-bg: #361a1a;
+    --red-fg: #f4b0ab;
+    --red-border: #5c2a28;
+    --yellow-bg: #31290f;
+    --yellow-fg: #f0d68c;
+    --yellow-border: #594a1c;
+    --ok-fg: #9bd8ae;
+    --ok-bg: #18301f;
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #111213;
+  --surface: #1a1b1d;
+  --surface-2: #232427;
+  --fg: #ececea;
+  --muted: #a3a5a9;
+  --border: #2f3134;
+  --accent: #c9d2de;
+  --focus: #8fb0e0;
+  --red-bg: #361a1a;
+  --red-fg: #f4b0ab;
+  --red-border: #5c2a28;
+  --yellow-bg: #31290f;
+  --yellow-fg: #f0d68c;
+  --yellow-border: #594a1c;
+  --ok-fg: #9bd8ae;
+  --ok-bg: #18301f;
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-border: var(--border);
+  --color-accent: var(--accent);
+  --color-focus: var(--focus);
+  --color-red-bg: var(--red-bg);
+  --color-red-fg: var(--red-fg);
+  --color-red-border: var(--red-border);
+  --color-yellow-bg: var(--yellow-bg);
+  --color-yellow-fg: var(--yellow-fg);
+  --color-yellow-border: var(--yellow-border);
+  --color-ok-fg: var(--ok-fg);
+  --color-ok-bg: var(--ok-bg);
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+a {
+  text-underline-offset: 2px;
+}
+
+/* Aviso já aceito nesta máquina: o script do layout marca o <html> antes da
+   pintura e o modal não pisca para quem volta. */
+html[data-disclaimer="v1"] [data-disclaimer-gate] {
+  display: none;
+}
+
+@keyframes alert-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes alert-flash {
+  from {
+    box-shadow: 0 0 0 3px var(--focus);
+  }
+  to {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+.alert-enter {
+  animation:
+    alert-in 320ms ease-out,
+    alert-flash 1.6s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .alert-enter {
+    animation: none;
+  }
+}
