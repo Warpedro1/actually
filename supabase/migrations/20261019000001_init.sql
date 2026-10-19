@@ -2,9 +2,9 @@
 -- Princípios: (1) correção sem fonte não existe — garantido por trigger;
 -- (2) trilha de auditoria append-only; (3) anon só enxerga o que foi publicado.
 
-create extension if not exists vector;
-create extension if not exists pg_trgm;
-create extension if not exists unaccent;
+create extension if not exists vector with schema extensions;
+create extension if not exists pg_trgm with schema extensions;
+create extension if not exists unaccent with schema extensions;
 
 -- ---------------------------------------------------------------------------
 -- Tipos
