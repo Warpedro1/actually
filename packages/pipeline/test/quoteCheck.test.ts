@@ -11,7 +11,7 @@ describe("normalizeForQuote", () => {
   });
 });
 
-describe("quoteCheck", () => {
+describe("[RF05] quoteCheck", () => {
   it("substring exata após normalização", () => {
     const r = quoteCheck("a taxa de desocupacao no brasil ficou em 7,8% na media de 2023", SOURCE);
     expect(r).toMatchObject({ verified: true, method: "exact", similarity: 1 });
@@ -65,7 +65,7 @@ describe("distâncias", () => {
   });
 });
 
-describe("numbersSupported", () => {
+describe("[RF05] numbersSupported", () => {
   it("todo número da correção precisa estar nas fontes", () => {
     expect(numbersSupported("Segundo o IBGE, a desocupação em 2023 foi de 7,8%.", [SOURCE]).ok).toBe(true);
     expect(numbersSupported("A desocupação foi 7,76% em 2023", ["média de 7,8% em 2023"]).ok).toBe(true); // arredondamento

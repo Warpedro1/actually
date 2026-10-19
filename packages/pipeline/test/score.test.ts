@@ -27,7 +27,7 @@ const base = (over: Partial<ScoreInput> = {}): ScoreInput => ({
   ...over,
 });
 
-describe("scoreDecision — fórmula", () => {
+describe("[RF07] scoreDecision — fórmula", () => {
   it("0,5·conf + 0,2·tier + 0,2·concordância + 0,1·citações", () => {
     // uma camada só ⇒ concordância 0,5
     const r = scoreDecision(base());
@@ -51,7 +51,7 @@ describe("scoreDecision — fórmula", () => {
   });
 });
 
-describe("scoreDecision — regras duras", () => {
+describe("[RF07] [RF05] scoreDecision — regras duras", () => {
   it("confirmado e inconclusivo nunca geram alerta", () => {
     expect(scoreDecision(base({ verdict: "confirmado" }))).toMatchObject({ alert: null, silence_reason: "confirmado" });
     expect(scoreDecision(base({ verdict: "inconclusivo" }))).toMatchObject({ alert: null, silence_reason: "inconclusivo" });

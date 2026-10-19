@@ -53,7 +53,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("runPipeline", () => {
+describe("[RF02] [RF03] [RF04] [RF05] runPipeline", () => {
   it("L2: comparador + modelo concordam ⇒ vermelho em pending_review (HITL ligado), com evidência verificada", async () => {
     const { store, pipeline } = setup(
       { extract: extracting(L2_CLAIM), verify: () => L2_VERDICT },
@@ -193,7 +193,7 @@ describe("runPipeline", () => {
   });
 });
 
-describe("falhas e timeouts ⇒ silêncio, sem exceção", () => {
+describe("[RNF03] falhas e timeouts ⇒ silêncio, sem exceção", () => {
   const kbL2 = { series: [PNAD], values: PNAD_VALUES };
 
   async function runWithFakeTimers(p: Promise<unknown>) {
@@ -309,7 +309,7 @@ describe("falhas e timeouts ⇒ silêncio, sem exceção", () => {
   });
 });
 
-describe("evaluateText (modo seco)", () => {
+describe("[RF02] evaluateText (modo seco)", () => {
   const BF_CLAIM = claimOut("o Bolsa Família atende 30 milhões de famílias", "O Bolsa Família atende 30 milhões de famílias.");
   const BF_VERDICT = verdict({
     verdict: "impreciso", confidence: 0.9,
@@ -364,7 +364,7 @@ describe("evaluateText (modo seco)", () => {
   });
 });
 
-describe("orçamento de latência (paralelismo)", () => {
+describe("[RNF01] orçamento de latência (paralelismo)", () => {
   it("L1–L3 concorrentes e afirmações concorrentes: total bem abaixo da soma sequencial", async () => {
     const D = { extract: 60, embed: 40, L1: 120, L2: 120, L3: 120, verify: 120 };
     const store = new MemoryStore(
@@ -400,5 +400,20 @@ describe("orçamento de latência (paralelismo)", () => {
     for (const v of store.verifications) {
       expect(v.latency_ms.retrieve).toBeLessThan(D.L1 + D.L2 + D.L3 - 60);
     }
+  });
+});
+
+describe("[RNF04] neutralidade", () => {
+  it("[RNF04] mesma afirmação e evidência com speakers diferentes ⇒ mesma decisão e mesmo score", async () => {
+    const run = async (speaker: string) => {
+      const { store, pipeline } = setup(
+        { extract: extracting(L2_CLAIM), verify: () => L2_VERDICT },
+        { series: [PNAD], values: PNAD_VALUES },
+      );
+      await pipeline.runPipeline(store.addSegment(L2_SEGMENT, { speaker_label: speaker }).id);
+      const v = store.verifications[0]!;
+      return { verdict: v.verdict, score: v.final_score, status: store.alerts[0]?.status ?? null };
+    };
+    expect(await run("SPEAKER_0")).toEqual(await run("SPEAKER_1"));
   });
 });

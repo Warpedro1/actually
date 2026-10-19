@@ -46,7 +46,7 @@ function args(text: string, embedding: number[] | null = fakeVector(text)): Dedu
   return { debate_id: DEBATE_ID, segment: SEG, claim: claim(text), hash: claimHash(text), embedding, settings: DEFAULT_SETTINGS };
 }
 
-describe("trava de repetição", () => {
+describe("[RF06] trava de repetição", () => {
   it("mesmo hash no debate ⇒ duplicata, reusa a verificação e cria alerta de repetição", async () => {
     const store = new MemoryStore();
     const deps = makeDeps({ store, anthropic: noLLM });
@@ -137,7 +137,7 @@ describe("trava de repetição", () => {
   });
 });
 
-describe("publish: trigger do banco", () => {
+describe("[RF05] [RF08] publish: trigger do banco", () => {
   it("publicar sem evidência verificada ⇒ log de BUG e grava como pending_review", async () => {
     const store = new MemoryStore();
     const deps = makeDeps({ store, anthropic: noLLM });

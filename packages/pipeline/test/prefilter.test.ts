@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { prefilter } from "../src/prefilter";
 
-describe("prefilter (conservador)", () => {
+describe("[RF02] prefilter (conservador)", () => {
   it.each([
     ["", "vazio"],
     ["Obrigado.", "curto"],

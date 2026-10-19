@@ -129,7 +129,7 @@ export interface ExtractInput {
 export function buildExtractMessage(input: ExtractInput): string {
   const speaker = input.speaker_label ? ` locutor="${input.speaker_label}"` : "";
   return [
-    `Data do debate: 23/10/2026. Hoje: ${input.today}.`,
+    `Data da fala: ${input.today}. Contexto: debate eleitoral presidencial de 2026.`,
     `<contexto>\n${input.context.trim() || "(sem contexto)"}\n</contexto>`,
     `<fala_atual${speaker}>\n${input.text.trim()}\n</fala_atual>`,
     "Extraia as afirmações checáveis da fala atual.",

@@ -61,7 +61,7 @@ export interface VerifyInput {
 
 export function buildVerifyMessage(input: VerifyInput): string {
   return [
-    `Hoje: ${input.today}. Debate presidencial de 23/10/2026.`,
+    `Data da fala: ${input.today}. Contexto: debate eleitoral presidencial de 2026.`,
     `Afirmação a verificar: "${input.claim_normalized}"`,
     `Trecho original da fala: "${input.claim_original}"`,
     input.context.trim() ? `<contexto>\n${input.context.trim()}\n</contexto>` : null,

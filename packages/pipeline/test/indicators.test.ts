@@ -66,7 +66,7 @@ describe("valuesForPeriod", () => {
   });
 });
 
-describe("tolerância", () => {
+describe("[RF03] tolerância", () => {
   it("% ⇒ max(0,3 p.p.; 5% relativo); demais ⇒ 10%", () => {
     expect(toleranceFor(true, 4)).toBe(0.3);
     expect(toleranceFor(true, 20)).toBe(1);
@@ -84,7 +84,7 @@ describe("tolerância", () => {
   });
 });
 
-describe("compareIndicator", () => {
+describe("[RF03] compareIndicator (L2 determinístico)", () => {
   it("nível anual: aceita média OU último valor", () => {
     expect(compareIndicator(ref({ claimed_value: 8 }), pnad, VALUES).status).toBe("match");
     expect(compareIndicator(ref({ claimed_value: 7.5 }), pnad, VALUES).status).toBe("match");
