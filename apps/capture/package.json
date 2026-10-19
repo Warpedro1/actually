@@ -1,0 +1,23 @@
+{
+  "name": "@actually/capture",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Captura de áudio (YouTube, dispositivo local ou arquivo) → Deepgram → /api/ingest",
+  "scripts": {
+    "start": "tsx src/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@actually/db": "workspace:*",
+    "tsx": "^4.20.6",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.0",
+    "@types/ws": "^8.18.1",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}
