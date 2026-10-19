@@ -3,7 +3,11 @@
 // A fila envia um segmento por vez, em ordem de seq. Falha transitória
 // (rede, 5xx, 429) → retry com backoff exponencial, sem pular: o servidor é
 // idempotente por (agent_id, seq), então "duplicate" conta como sucesso.
-// "standby" também é sucesso — outro agente é o ativo e isso é normal.
+// "standby" também é resultado final: outro agente é o ativo e está entregando
+// essa mesma fala. O segmento é descartado e nunca reenviado, nem se este
+// agente virar o ativo depois — o servidor só deduplica por (agent_id, seq),
+// então o reenvio gravaria de novo fala que o outro agente já entregou e o
+// pipeline publicaria um alerta "Repetido" falso (docs/arquitetura.md).
 
 import { EventEmitter } from "node:events";
 import {
@@ -61,8 +65,9 @@ export class IngestClient {
     return this.post("/api/ingest/register", RegisterAgentRequest, req, RegisterAgentResponse);
   }
 
-  heartbeat(req: HeartbeatRequest) {
-    return this.post("/api/ingest/heartbeat", HeartbeatRequest, req, HeartbeatResponse);
+  /** timeoutMs por chamada: o heartbeat precisa de um prazo bem menor que a janela de failover. */
+  heartbeat(req: HeartbeatRequest, o: { timeoutMs?: number } = {}) {
+    return this.post("/api/ingest/heartbeat", HeartbeatRequest, req, HeartbeatResponse, o.timeoutMs);
   }
 
   segment(req: SegmentRequest) {
@@ -82,7 +87,13 @@ export class IngestClient {
     return res.status;
   }
 
-  private async post<Req, Res>(path: string, reqSchema: Schema<Req>, body: Req, resSchema: Schema<Res>): Promise<Res> {
+  private async post<Req, Res>(
+    path: string,
+    reqSchema: Schema<Req>,
+    body: Req,
+    resSchema: Schema<Res>,
+    timeoutMs?: number,
+  ): Promise<Res> {
     const valid = reqSchema.safeParse(body);
     if (!valid.success) throw new ApiError(`request inválido para ${path}: ${valid.error.message}`, null, false);
     let res: Response;
@@ -91,7 +102,7 @@ export class IngestClient {
         method: "POST",
         headers: { "content-type": "application/json", [INGEST_TOKEN_HEADER]: this.opts.token },
         body: JSON.stringify(valid.data),
-        signal: AbortSignal.timeout(this.opts.timeoutMs ?? 15_000),
+        signal: AbortSignal.timeout(timeoutMs ?? this.opts.timeoutMs ?? 15_000),
       });
     } catch (err) {
       throw new ApiError(`${path}: falha de rede (${(err as Error).message})`, null, true);
@@ -245,5 +256,98 @@ export class SegmentQueue extends EventEmitter<SegmentQueueEvents> {
       this.idleWaiters = [];
       for (const w of waiters) w();
     }
+  }
+}
+
+/**
+ * Menor failover_after_s que o /admin aceita (apps/web/components/staff/SettingsForm.tsx).
+ * O cliente não conhece a janela do debate, então o heartbeat é dimensionado para ela.
+ */
+export const MIN_FAILOVER_AFTER_S = 3;
+/**
+ * Intervalo do heartbeat. Os beats não esperam o anterior terminar: o banco
+ * recebe um sinal por segundo mesmo com um beat lento, e perder um beat inteiro
+ * deixa ~2 s sem registro, abaixo da menor janela de failover (3 s).
+ */
+export const HEARTBEAT_MS = 1000;
+/**
+ * Prazo de cada heartbeat (com o prazo padrão do cliente, 15 s, um beat travado
+ * segurava os seguintes e o agente saudável "morria" para o banco). Só limita
+ * quanto tempo um beat fica em voo; o próximo sai no tick seguinte de qualquer jeito.
+ */
+export const HEARTBEAT_TIMEOUT_MS = 2500;
+/**
+ * Teto de beats em voo ao mesmo tempo. Com HEARTBEAT_TIMEOUT_MS <
+ * HEARTBEAT_MAX_IN_FLIGHT × HEARTBEAT_MS o teto nunca pula um tick enquanto o
+ * prazo for respeitado; ele só protege contra um fetch que ignore o abort.
+ */
+export const HEARTBEAT_MAX_IN_FLIGHT = 3;
+
+export interface HeartbeatLoopEvents {
+  beat: [r: { active: boolean }];
+  fail: [err: Error];
+}
+
+export interface HeartbeatLoopOptions {
+  client: Pick<IngestClient, "heartbeat">;
+  agentId: string;
+  intervalMs?: number;
+  timeoutMs?: number;
+  maxInFlight?: number;
+}
+
+/**
+ * Heartbeat periódico de um agente. Sai um beat a cada intervalMs sem esperar
+ * o anterior (até maxInFlight em voo); vale o resultado do beat mais novo, e
+ * resposta de um beat mais velho que chega depois é ignorada. stop() libera o
+ * papel de ativo: sem heartbeat, o banco promove outro agente vivo após
+ * failover_after_s; respostas que chegarem depois do stop() são ignoradas.
+ */
+export class HeartbeatLoop extends EventEmitter<HeartbeatLoopEvents> {
+  private timer: NodeJS.Timeout | null = null;
+  private inFlight = 0;
+  private stopped = false;
+  /** Número do último beat enviado e do mais novo cujo resultado já valeu. */
+  private sent = 0;
+  private applied = 0;
+
+  constructor(private readonly opts: HeartbeatLoopOptions) {
+    super();
+  }
+
+  start(): void {
+    if (this.timer || this.stopped) return;
+    void this.beat();
+    this.timer = setInterval(() => void this.beat(), this.opts.intervalMs ?? HEARTBEAT_MS);
+  }
+
+  stop(): void {
+    this.stopped = true;
+    if (this.timer) clearInterval(this.timer);
+    this.timer = null;
+  }
+
+  private async beat(): Promise<void> {
+    if (this.stopped || this.inFlight >= (this.opts.maxInFlight ?? HEARTBEAT_MAX_IN_FLIGHT)) return;
+    const n = ++this.sent;
+    this.inFlight++;
+    try {
+      const r = await this.opts.client.heartbeat(
+        { agent_id: this.opts.agentId },
+        { timeoutMs: this.opts.timeoutMs ?? HEARTBEAT_TIMEOUT_MS },
+      );
+      if (this.isNewest(n)) this.emit("beat", { active: r.active });
+    } catch (err) {
+      if (this.isNewest(n)) this.emit("fail", err instanceof Error ? err : new Error(String(err)));
+    } finally {
+      this.inFlight--;
+    }
+  }
+
+  /** Resultado de um beat mais velho que o último aplicado não vale (o banco já viu um mais novo). */
+  private isNewest(n: number): boolean {
+    if (this.stopped || n <= this.applied) return false;
+    this.applied = n;
+    return true;
   }
 }

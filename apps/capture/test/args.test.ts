@@ -14,6 +14,7 @@ describe("parsing de argumentos", () => {
         role: "primary",
         source: { kind: "youtube", url: "https://youtu.be/x", format: "bestaudio/best" },
         api: "https://actually.vercel.app",
+        apiFromFlag: false,
         sttModel: "nova-3",
         sttFallbackModel: "nova-2",
         dryRun: false,
@@ -36,6 +37,7 @@ describe("parsing de argumentos", () => {
     expect(c.args.role).toBe("standby");
     expect(c.args.source).toEqual({ kind: "device", device: ":1" });
     expect(c.args.api).toBe("http://localhost:3000");
+    expect(c.args.apiFromFlag).toBe(true);
     expect(c.args.sttModel).toBe("nova-2");
   });
 

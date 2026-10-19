@@ -1,7 +1,7 @@
 import type { CaptureAgent, CaptureMachine } from "@actually/db";
 import { describe, expect, it } from "vitest";
 import { isoToLocalInput, localInputToIso } from "@/lib/format";
-import { audioPercent, machineOnline, machineWarnings, silenceSeconds, suggestStartAt } from "@/lib/staff/machines";
+import { audioPercent, machineOnline, machineWarnings, pendingStopAt, silenceSeconds, suggestStartAt } from "@/lib/staff/machines";
 import { countByPerson, latencyStats, percentile } from "@/lib/staff/stats";
 
 const NOW = Date.parse("2026-10-24T00:00:00.000Z");
@@ -76,6 +76,17 @@ describe("[RF13] máquinas de captura", () => {
   it("datetime-local ↔ ISO no fuso de Brasília", () => {
     expect(localInputToIso("2026-10-23T21:45")).toBe("2026-10-24T00:45:00.000Z");
     expect(isoToLocalInput("2026-10-24T00:45:00.000Z")).toBe("2026-10-23T21:45");
+  });
+});
+
+describe("[RF13] formulário de comando: stop_at vencido não vai no 'Iniciar agora'", () => {
+  it("só pré-preenche/envia stop_at que ainda está no futuro", () => {
+    // fim do ensaio de ontem, que fica no desejado depois que a captura para sozinha
+    expect(pendingStopAt(ago(24 * 3600), NOW)).toBeNull();
+    expect(pendingStopAt(new Date(NOW).toISOString(), NOW)).toBeNull();
+    expect(pendingStopAt("2026-10-24T03:00:00.000Z", NOW)).toBe("2026-10-24T03:00:00.000Z");
+    expect(pendingStopAt(undefined, NOW)).toBeNull();
+    expect(pendingStopAt("lixo", NOW)).toBeNull();
   });
 });
 

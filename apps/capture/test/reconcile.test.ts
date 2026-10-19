@@ -68,6 +68,29 @@ describe("[RF13] reconcile (daemon remoto)", () => {
     expect(reconcile(input({ ...yt, stop_at: "2026-10-23T23:00:00Z" }))).toMatchObject({ action: "start" });
   });
 
+  it("stop_at atingido depois que o comando chegou ⇒ fim normal do horário (idle, sem erro)", () => {
+    const d = { ...yt, stop_at: "2026-10-23T20:59:59Z" };
+    const r = reconcile(input(d, { desiredSince: Date.parse("2026-10-23T19:00:00Z") }));
+    expect(r).toEqual({ action: "idle" });
+    expect(idleReportedState(r, null)).toBe("idle");
+  });
+
+  it("comando que chega com stop_at já vencido ⇒ erro visível, nunca no-op silencioso", () => {
+    // ex.: "Iniciar agora" com o stop_at do ensaio de ontem
+    const d = { ...yt, stop_at: "2026-10-22T21:00:00Z" };
+    const r = reconcile(input(d, { desiredSince: T - 2000 }));
+    expect(r).toMatchObject({ action: "invalid", error: expect.stringMatching(/stop_at já tinha passado/) });
+    expect(idleReportedState(r, null)).toBe("error");
+    // rodando, o stop_at vencido continua parando
+    expect(reconcile(input(d, { runningKey: keyOf(d), desiredSince: T - 2000 }))).toEqual({ action: "stop", reason: "stop_at atingido" });
+  });
+
+  it("stop_at antes do start_at ⇒ inválido (ou stop se rodando)", () => {
+    const d = { ...yt, start_at: "2026-10-23T22:00:00Z", stop_at: "2026-10-23T21:30:00Z" };
+    expect(reconcile(input(d))).toMatchObject({ action: "invalid", error: expect.stringMatching(/não é depois do start_at/) });
+    expect(reconcile(input(d, { runningKey: keyOf(d) }))).toMatchObject({ action: "stop" });
+  });
+
   it("após falha respeita o backoff", () => {
     expect(reconcile(input(yt, { retryAt: T + 5000 }))).toEqual({ action: "backoff", until: T + 5000 });
     expect(reconcile(input(yt, { retryAt: T - 1 }))).toMatchObject({ action: "start" });

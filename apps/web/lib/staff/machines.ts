@@ -103,6 +103,17 @@ export function suggestStartAt(scheduledAt: string | null | undefined): string |
   return new Date(t - START_LEAD_MIN * 60_000).toISOString();
 }
 
+/**
+ * stop_at que ainda vale para um comando novo: só se estiver no futuro. Um
+ * horário vencido (ex.: o fim do ensaio de ontem, que fica no desejado depois
+ * que a captura para sozinha) faria o "Iniciar agora" virar no-op.
+ */
+export function pendingStopAt(stopAt: string | null | undefined, now: number): string | null {
+  if (!stopAt) return null;
+  const t = Date.parse(stopAt);
+  return Number.isNaN(t) || t <= now ? null : stopAt;
+}
+
 export function describeDesired(d: MachineDesired): string {
   if (d.state === "stopped") return "Parada";
   const parts = [`Capturar /${d.debate_slug ?? "?"}`];

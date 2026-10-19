@@ -1,7 +1,8 @@
 // `capture doctor` — checagem antes do debate: dependências, variáveis, API,
 // e opcionalmente se o yt-dlp resolve a live e se o dispositivo tem som.
 
-import { IngestClient } from "./api";
+import { randomUUID } from "node:crypto";
+import { ApiError, IngestClient } from "./api";
 import {
   buildProbeArgs,
   buildYtDlpArgs,
@@ -11,9 +12,49 @@ import {
   peakDbfs,
   ytDlpBin,
 } from "./audio";
+import { apiUrlConflict, envFileValues } from "./env";
 import { runCmd } from "./proc";
 
 type Level = "ok" | "aviso" | "FALHA";
+
+/**
+ * Valida o INGEST_TOKEN de verdade, sem efeito colateral: heartbeat de um
+ * agent_id aleatório. A rota checa o token, depois a configuração do Supabase
+ * (service role) e chama capture_heartbeat, que não acha o agente e não grava
+ * nada ⇒ 404 "agente desconhecido" significa que token, servidor e banco
+ * responderam. GET /api/health é público e não serve para isso.
+ */
+export async function probeIngestToken(
+  client: Pick<IngestClient, "heartbeat">,
+  agentId: string = randomUUID(),
+): Promise<{ level: Level; detail: string }> {
+  try {
+    await client.heartbeat({ agent_id: agentId });
+    return { level: "ok", detail: "aceito pela API" };
+  } catch (err) {
+    const e = err instanceof ApiError ? err : new ApiError(String(err), null, true);
+    if (e.status === 404 && /agente desconhecido/.test(e.message)) {
+      return { level: "ok", detail: "aceito pela API (token, Supabase e banco respondendo)" };
+    }
+    if (e.status === 401 || e.status === 403) {
+      return {
+        level: "FALHA",
+        detail: `recusado pela API (HTTP ${e.status}) — o token de ~/.actually/capture.env tem de ser igual ao INGEST_TOKEN da Vercel`,
+      };
+    }
+    if (e.status === 503) {
+      return {
+        level: "FALHA",
+        detail: `API sem configuração (HTTP 503) — confira INGEST_TOKEN e SUPABASE_SERVICE_ROLE_KEY na Vercel: ${e.message}`,
+      };
+    }
+    if (e.status === 404) {
+      return { level: "FALHA", detail: `rota de ingestão não encontrada (HTTP 404) — a URL da API é a do site? ${e.message}` };
+    }
+    if (e.status === null) return { level: "FALHA", detail: `não deu para validar: ${e.message}` };
+    return { level: "FALHA", detail: `não deu para validar (HTTP ${e.status}): ${e.message}` };
+  }
+}
 
 export interface DoctorOptions {
   api: string | null;
@@ -57,9 +98,6 @@ export async function doctor(o: DoctorOptions, env: NodeJS.ProcessEnv = process.
     }
   }
 
-  if (!env.INGEST_TOKEN) report("FALHA", "INGEST_TOKEN", "ausente");
-  else report("ok", "INGEST_TOKEN", "presente");
-
   if (!o.api) report("FALHA", "API", "sem --api nem ACTUALLY_API_URL");
   else {
     try {
@@ -70,6 +108,16 @@ export async function doctor(o: DoctorOptions, env: NodeJS.ProcessEnv = process.
     } catch (err) {
       report("FALHA", "API", `${o.api} inacessível (${(err as Error).message})`);
     }
+  }
+
+  const apiConflict = apiUrlConflict(envFileValues("ACTUALLY_API_URL"));
+  if (apiConflict) report("aviso", "ACTUALLY_API_URL", `${apiConflict} — o daemon usa a primeira; \`run\` sem --api recusa`);
+
+  if (!env.INGEST_TOKEN) report("FALHA", "INGEST_TOKEN", "ausente");
+  else if (!o.api) report("aviso", "INGEST_TOKEN", "presente, mas não validado (sem API)");
+  else {
+    const r = await probeIngestToken(new IngestClient({ baseUrl: o.api, token: env.INGEST_TOKEN, timeoutMs: 10_000 }));
+    report(r.level, "INGEST_TOKEN", r.detail);
   }
 
   if (o.url) {

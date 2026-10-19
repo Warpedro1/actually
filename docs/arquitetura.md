@@ -76,7 +76,7 @@ pnpm --filter @actually/capture start -- run --debate <slug> --name reserva  --r
 
 ### Redundância e failover
 
-- Cada processo de captura se registra (`/api/ingest/register`) como agente do debate, com papel `primary` ou `standby`, e manda **heartbeat a cada 2 s**.
+- Cada processo de captura se registra (`/api/ingest/register`) como agente do debate, com papel `primary` ou `standby`, e manda **heartbeat a cada 1 s** (sem esperar o anterior; um beat lento não atrasa os seguintes).
 - A função `capture_heartbeat` (no banco, com lock por debate) mantém **no máximo um agente ativo** por debate (índice único parcial). Se o ativo fica sem heartbeat por `failover_after_s` (padrão 10 s), promove o agente vivo mais adequado (primary antes de standby).
 - `/api/ingest/segment` só aceita segmentos do agente **ativo**; os do standby voltam `{status: "standby"}` e são descartados. Assim não há duplicação mesmo com as duas máquinas transcrevendo.
 - Troca manual: /admin → “tornar ativo” (`capture_set_active`, só editor).
