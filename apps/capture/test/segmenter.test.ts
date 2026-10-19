@@ -8,10 +8,13 @@ import {
   type Word,
 } from "../src/segmenter";
 
-const w = (text: string, start: number, end: number, speaker: number | null = 0): Word => ({ text, start, end, speaker });
+/** Speaker: número vira o rótulo curto "S<n>"; string é o rótulo completo (com sessão do STT). */
+type Sp = number | string | null;
+const label = (sp: Sp): string | null => (typeof sp === "number" ? `S${sp}` : sp);
+const w = (text: string, start: number, end: number, speaker: Sp = 0): Word => ({ text, start, end, speaker: label(speaker) });
 
 /** Frase com uma palavra por 0,4 s a partir de t0. */
-function phrase(textWords: string[], t0: number, speaker: number | null = 0): Word[] {
+function phrase(textWords: string[], t0: number, speaker: Sp = 0): Word[] {
   return textWords.map((t, i) => w(t, t0 + i * 0.4, t0 + i * 0.4 + 0.3, speaker));
 }
 
@@ -132,5 +135,26 @@ describe("[RF01] [RNF09] segmentador", () => {
   it("ignora palavras vazias e speech_final sem palavras", () => {
     const segs = run([{ type: "final", words: [w(" ", 0, 0.1)], speechFinal: true }]);
     expect(segs).toEqual([]);
+  });
+});
+
+describe("[RF09] speaker_label carrega a sessão do STT", () => {
+  it("o rótulo do segmento é o da sessão (nunca o número cru)", () => {
+    const segs = run([{ type: "final", words: phrase(["Boa", "noite."], 0, "s3-a1b2c3:S0"), speechFinal: true }]);
+    expect(segs.map((s) => s.speaker_label)).toEqual(["s3-a1b2c3:S0"]);
+  });
+
+  it("mesmo número em sessões diferentes (reconexão) é outro speaker: corta e não herda o rótulo", () => {
+    // fala atravessa uma reconexão: o Deepgram renumera e o novo "S0" pode ser outro candidato
+    const antes = phrase(["Eu", "reduzi", "o", "desemprego."], 0, "s1-a1b2c3:S0");
+    const depois = phrase(["Isso", "não", "é", "verdade."], 2, "s2-a1b2c3:S0");
+    const segs = run([
+      { type: "final", words: antes, speechFinal: false },
+      { type: "final", words: depois, speechFinal: true },
+    ]);
+    expect(segs.map((s) => [s.speaker_label, s.text])).toEqual([
+      ["s1-a1b2c3:S0", "Eu reduzi o desemprego."],
+      ["s2-a1b2c3:S0", "Isso não é verdade."],
+    ]);
   });
 });

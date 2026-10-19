@@ -1,4 +1,5 @@
 import { ControlPollRequest, ControlPollResponse, MachineDesiredSchema } from "@actually/db";
+import { desiredSourceError } from "@/lib/captureSource";
 import { errorMessage, json, jsonError, parseJson, serviceOr503 } from "@/lib/server/http";
 import { checkIngestToken } from "@/lib/server/ingestAuth";
 
@@ -35,14 +36,18 @@ export async function POST(req: Request): Promise<Response> {
   if (error || !data) return jsonError(500, `falha ao registrar máquina: ${errorMessage(error)}`);
 
   const desired = MachineDesiredSchema.safeParse(data.desired);
+  // URL fora de http(s) do YouTube (ou começando com "-") nunca chega ao daemon
+  const sourceError = desired.success ? desiredSourceError(desired.data) : null;
   if (!desired.success) {
     console.warn(`[control] desejado inválido para "${machine_name}" — devolvendo stopped`, desired.error.issues);
+  } else if (sourceError) {
+    console.warn(`[control] fonte recusada para "${machine_name}" (${sourceError}) — devolvendo stopped`);
   }
 
   return json(
     ControlPollResponse.parse({
       machine_id: data.id,
-      desired: desired.success ? desired.data : SAFE_DESIRED,
+      desired: desired.success && !sourceError ? desired.data : SAFE_DESIRED,
       server_time: new Date().toISOString(),
     }),
   );

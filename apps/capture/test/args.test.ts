@@ -89,3 +89,17 @@ describe("parsing de argumentos", () => {
     expect(parseCli([], {})).toEqual({ cmd: "help" });
   });
 });
+
+describe("[RNF05] [RF01] fonte recusada já no parsing (antes de abrir o Deepgram)", () => {
+  it("URL que não é do YouTube ou que viraria opção do yt-dlp", () => {
+    const run = (url: string) => () => parseCli(["run", "--debate", "d", "--name", "n", "--source", "youtube", `--url=${url}`], ENV);
+    expect(run("--update-to=atacante/repo@v1")).toThrow(CliError);
+    expect(run("--update-to=atacante/repo@v1")).toThrow(/recusada/);
+    expect(run("https://example.com/live")).toThrow(/recusada/);
+    expect(run("https://www.youtube.com/watch?v=dQw4w9WgXcQ")).not.toThrow();
+  });
+
+  it("caminho de arquivo começando com \"-\"", () => {
+    expect(() => parseCli(["run", "--debate", "d", "--name", "n", "--source", "file", "--file=-i"], ENV)).toThrow(/'-'/);
+  });
+});

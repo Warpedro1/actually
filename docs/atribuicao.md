@@ -4,25 +4,26 @@ Atribuir uma afirmação falsa ao candidato errado é um erro grave — pior, em
 
 ## Opção atual (MVP)
 
-1. **Diarização**: o Deepgram separa os falantes e cada segmento chega com um `speaker_label` genérico (`0`, `1`, `2`…). O rótulo é estável dentro de uma sessão de captura, mas **não** sabe quem é quem, pode trocar após uma reconexão e pode confundir falas sobrepostas, apartes e o mediador.
+1. **Diarização**: o Deepgram separa os falantes e cada segmento chega com um `speaker_label` genérico qualificado pela **sessão do STT**: `s<n>-<agente>:S<k>` (ex.: `s1-a1b2c3:S0`, `s1-a1b2c3:S1`), onde `s<n>` é a n-ésima conexão do capture agent ao Deepgram, `<agente>` uma marca aleatória do agente (principal e standby têm marcas diferentes) e `S<k>` o falante dentro daquela sessão. O rótulo é estável dentro de uma sessão, mas **não** sabe quem é quem e pode confundir falas sobrepostas, apartes e o mediador. Toda reconexão ao Deepgram (queda do WS, watchdog do STT, reinício do agente) e todo failover abrem uma sessão nova e, portanto, **rótulos novos, sempre sem mapeamento**: o Deepgram renumera os falantes a cada sessão, então `S0` da sessão nova pode ser outra pessoa.
 2. O `speaker_label` vai de `segments` para `claims` e `alerts`.
 3. **Por padrão** o alerta diz **“Afirmação feita no debate”**, sem nome.
 4. Para mostrar o nome, duas condições, **ambas**:
    - `show_attribution = true` nas settings do debate (`/admin`); e
-   - o `speaker_label` do alerta está **mapeado** em `speaker_map` (`/editor` → mapeamento de speakers: `0 → Lula`, `1 → Flávio Bolsonaro`, `2 → mediador`), com `confirmed_by` preenchido pelo editor que confirmou.
+   - o `speaker_label` do alerta está **mapeado** em `speaker_map` (`/editor` → mapeamento de speakers: `s1-a1b2c3:S0 → Lula`, `s1-a1b2c3:S1 → Flávio Bolsonaro`, `s1-a1b2c3:S2 → mediador`), com `confirmed_by` preenchido pelo editor que confirmou.
    Faltou qualquer uma → volta para “Afirmação feita no debate”.
 5. O nome é resolvido **na leitura** (`AlertWithEvidence.person`), não gravado no alerta: corrigir o mapa corrige todos os alertas exibidos daquele `speaker_label`.
 
 ### Como o editor mapeia
 
 - No início do debate (apresentação dos candidatos), o editor ouve as primeiras falas, confere o `speaker_label` delas na transcrição do `/editor` e grava o mapa.
-- **Reconferir** após: reconexão do capture agent, failover para o standby (outra sessão do Deepgram ⇒ rótulos podem mudar), blocos com muitos apartes.
+- **Remapear** (não só reconferir) após **toda** reconexão do capture agent ao Deepgram e **todo** failover para o standby: os segmentos passam a chegar com rótulos de uma sessão nova (`s2-…`, ou a marca do outro agente), que nunca herdam o mapa da sessão anterior — até o editor mapeá-los, os alertas saem como “Afirmação feita no debate”. A troca de sessão aparece no prefixo do rótulo (transcrição e mapeamento de speakers no `/editor`) e no contador de reconexões da máquina no `/admin`.
+- **Reconferir** em blocos com muitos apartes.
 - Na dúvida sobre um rótulo, **apagar o mapeamento** dele: os alertas voltam a sair sem nome.
 
 ### Limitações conhecidas
 
 - Diarização erra em falas sobrepostas e em apartes curtos; um segmento pode conter dois falantes.
-- Após failover, o standby tem outra sessão do Deepgram e outros rótulos. O mapa é por `(debate, speaker_label)`, então o rótulo `0` do standby pode ser outra pessoa — por isso a reconferência é obrigatória depois de failover.
+- Após reconexão ou failover, a sessão nova do Deepgram tem outros rótulos. O mapa é por `(debate, speaker_label)` e o rótulo leva a sessão, então nada do mapa antigo vale para a sessão nova (o `S0` dela pode ser outra pessoa): sem remapear, a atribuição some (nunca fica errada por isso). Reconexões frequentes (rede instável) significam remapear a cada uma.
 - O mediador lendo uma pergunta com dados (“segundo o IBGE…”) pode gerar afirmação checável sem ser de candidato.
 
 ## Alternativa para depois dos testes: HITL de atribuição
@@ -70,7 +71,7 @@ alter table alerts
 
 | Risco | Mitigação |
 |---|---|
-| Diarização troca falantes (MVP com nome) | Nome só com mapa confirmado; reconferir após reconexão/failover; na dúvida, sem nome. |
+| Diarização troca falantes (MVP com nome) | Nome só com mapa confirmado; rótulo leva a sessão do STT, então reconexão/failover zera a atribuição até o editor remapear; na dúvida, sem nome. |
 | Editor atribui errado sob pressão (HITL de atribuição) | Opção “não sei” sempre disponível e sem custo; trecho com tempo para conferir no player. |
 | Afirmação de mediador atribuída a candidato | Mediador mapeado explicitamente; afirmações do mediador podem ser rejeitadas pelo editor. |
 | Correção pública de atribuição errada | Rejeitar o alerta (sai do ar para todos) + nota pública; nunca apagar (trilha de auditoria). Ver [runbook](runbook-debate.md#alerta-errado-publicado). |
