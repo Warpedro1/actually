@@ -1,0 +1,25 @@
+{
+  "name": "@actually/eval",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "eval": "tsx src/run-eval.ts",
+    "sweep": "tsx src/sweep.ts",
+    "latency-report": "tsx src/latency-report.ts",
+    "tiers-table": "tsx src/tiers-table.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@actually/db": "workspace:*",
+    "@actually/pipeline": "workspace:*",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}

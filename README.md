@@ -17,6 +17,20 @@ Prioridades: **precisão > latência > cobertura**. Na dúvida, silêncio.
 | `eval` | Conjunto rotulado e avaliação de precisão e latência |
 | `docs` | Arquitetura, HITL, atribuição, metodologia, fontes e runbook |
 
+## Documentação
+
+| Documento | Conteúdo |
+|---|---|
+| [docs/arquitetura.md](docs/arquitetura.md) | Visão geral, diagrama, fluxo por segmento, camadas L1–L4, garantias no banco, entrega, decisões |
+| [docs/requisitos.md](docs/requisitos.md) | Requisitos RF/RNF com critérios de aceite e testes |
+| [docs/human-in-the-loop.md](docs/human-in-the-loop.md) | Aprovação humana dos alertas e critérios para ligar/desligar no dia 23 |
+| [docs/atribuicao.md](docs/atribuicao.md) | Quem disse: opção atual e alternativa com HITL de atribuição |
+| [docs/metodologia.md](docs/metodologia.md) | Texto-base da página pública `/metodologia` |
+| [docs/fontes.md](docs/fontes.md) | Catálogo das fontes e cargas da base (inclui Apify) |
+| [docs/setup.md](docs/setup.md) | Supabase, Vercel, chaves, editores com 2FA, base, máquinas de captura |
+| [docs/runbook-debate.md](docs/runbook-debate.md) | Cronograma e checklist do dia, failover, incidentes |
+| [eval/README.md](eval/README.md) | Conjunto rotulado, métricas, calibração de thresholds e latência |
+
 ## Começando
 
 ```bash
