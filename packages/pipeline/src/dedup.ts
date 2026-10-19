@@ -1,6 +1,7 @@
 // TRAVA DE REPETIÇÃO: afirmação já verificada não é reprocessada.
 // (1) mesmo claim_hash no debate; (2) match_verified_claims com similaridade
-// ≥ dedup_similarity E mesmos números/período/polaridade. Corrida entre
+// ≥ dedup_similarity E mesma redação essencial (sameFacts: mesmas palavras na
+// mesma ordem, mesmos números, período e tipo de indicador). Corrida entre
 // invocações paralelas: o índice único claims_unique_hash (23505) decide.
 // A trava só vale dentro do debate (metodologia: "já verificada neste debate"):
 // afirmação de outro debate (ensaio, debate anterior) é verificada de novo.
@@ -17,7 +18,10 @@ export type DedupOutcome =
   /**
    * Seguir para a verificação. `retry_of`: a original (mesmo hash) nunca teve
    * verificação concluída (erro, timeout, sem evidência) — esta claim é gravada
-   * como duplicata dela, mas é verificada de novo.
+   * como duplicata dela, mas é verificada de novo, e a verificação é gravada na
+   * ORIGINAL (verifications.claim_id = retry_of): é lá que findClaimByHash e
+   * match_verified_claims procuram, então as repetições seguintes reaproveitam
+   * este veredito (RF06) em vez de verificar de novo a cada vez.
    */
   | { kind: "new"; claim_id: string; retry_of?: string }
   | {
@@ -50,16 +54,23 @@ export const ORIGINAL_IN_PROGRESS_MS =
   TIMEOUTS_MS.L3 + TIMEOUTS_MS.L4 + TIMEOUTS_MS.verify_total + TIMEOUTS_MS.publish + 5_000;
 
 /**
- * `created_at` da original, quando o store informa (HashMatch ainda não traz;
- * sem ele, original sem verificação é sempre verificada de novo).
+ * `created_at`: horário da última tentativa com este hash (o ideal é a claim mais
+ * recente com o hash — a original ou uma repetição dela; no mínimo, a da
+ * original). HashMatch ainda não traz: sem ele, não dá para saber se a original
+ * ainda está em andamento, e a repetição fica em silêncio.
  */
 type HashOriginal = HashMatch & { created_at?: string | null };
 
-/** A original (por hash) já tem verificação, ou ainda pode estar sendo verificada. */
+/**
+ * A original (por hash) já tem verificação, ou ainda pode estar sendo verificada.
+ * Sem o horário, conta como em andamento: verificar de novo em paralelo daria um
+ * segundo alerta completo para a mesma afirmação (na dúvida, silêncio).
+ */
 function settledOrInProgress(deps: PipelineDeps, o: HashOriginal): boolean {
   if (o.verification_id) return true;
   const created = o.created_at ? Date.parse(o.created_at) : NaN;
-  return Number.isFinite(created) && deps.now() - created < ORIGINAL_IN_PROGRESS_MS;
+  if (!Number.isFinite(created)) return true;
+  return deps.now() - created < ORIGINAL_IN_PROGRESS_MS;
 }
 
 /**
@@ -83,7 +94,7 @@ export async function findOriginal(
     if (m.similarity < settings.dedup_similarity) continue;
     // outro debate: nunca reaproveita veredito nem alerta (status, HITL e horário são de lá)
     if (m.debate_id !== debateId) continue;
-    // nunca juntar "desemprego 6%" com "desemprego 8%", nem "subiu" com "caiu"
+    // embedding parecido não basta: só a mesma redação ("6%" x "8%", "exportou" x "importou" ⇒ verifica de novo)
     if (!sameFacts(claim, { text_normalized: m.text_normalized, indicator: m.indicator })) continue;
     return {
       original: {

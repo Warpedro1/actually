@@ -31,7 +31,14 @@ export async function insertAlertSafe(store: PipelineStore, row: NewAlert, logge
 
 export interface PublishInput {
   debate_id: string;
+  /** Claim do alerta (a fala deste segmento). */
   claim_id: string;
+  /**
+   * Claim da verificação, se não for `claim_id`: na nova tentativa de uma
+   * original sem verificação, a verificação vai para a original (a trava por
+   * hash a reaproveita nas repetições seguintes).
+   */
+  verification_claim_id?: string;
   claim_text: string;
   speaker_label: string | null;
   segment_t_end: number | null;
@@ -57,7 +64,7 @@ export interface PublishResult {
 
 export async function publishVerification(store: PipelineStore, input: PublishInput, logger: Logger): Promise<PublishResult> {
   const ver = await store.insertVerification({
-    claim_id: input.claim_id,
+    claim_id: input.verification_claim_id ?? input.claim_id,
     verdict: input.verdict,
     correction: input.correction || null,
     model_confidence: input.model_confidence,

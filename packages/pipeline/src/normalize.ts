@@ -86,11 +86,16 @@ const NUMBER_RE = new RegExp(
   "giu",
 );
 
-/** Extrai números de um texto em pt-BR ("1,5 milhão", "6%", "quase 10 milhões", "R$ 600"). */
-export function extractNumbers(text: string): ClaimNumber[] {
-  const out: ClaimNumber[] = [];
+/** Número achado no texto, com a posição do trecho casado e o qualificador ("quase", "mais de"). */
+interface NumberMatch extends ClaimNumber {
+  index: number;
+  length: number;
+  qualifier: string | null;
+}
+
+function* numberMatches(text: string): Generator<NumberMatch> {
   for (const m of text.matchAll(NUMBER_RE)) {
-    const [raw, , currency, lit, word, mult, unitRaw] = m;
+    const [raw, qualifier, currency, lit, word, mult, unitRaw] = m;
     let base: number | null = null;
     if (lit) base = parseNumericLiteral(lit);
     else if (word) base = WORD_NUMBERS[word.toLowerCase()] ?? null;
@@ -99,9 +104,13 @@ export function extractNumbers(text: string): ClaimNumber[] {
     const unit = canonicalUnit(currency ?? unitRaw ?? null);
     // trailing "." ou "," capturado pelo literal (fim de frase) já foi rejeitado pelo \d final
     const value = roundSig(base * multiplierOf(mult));
-    out.push({ value, unit, raw: raw.trim() });
+    yield { value, unit, raw: raw.trim(), index: m.index ?? 0, length: raw.length, qualifier: qualifier ?? null };
   }
-  return out;
+}
+
+/** Extrai números de um texto em pt-BR ("1,5 milhão", "6%", "quase 10 milhões", "R$ 600"). */
+export function extractNumbers(text: string): ClaimNumber[] {
+  return [...numberMatches(text)].map(({ value, unit, raw }) => ({ value, unit, raw }));
 }
 
 /** Interpreta um número isolado ("1,5 milhão"); null se não houver número. */
@@ -155,8 +164,8 @@ export function numberSignature(textNormalized: string, indicator: IndicatorRef 
  * Polos de direção/posição (texto já sem acento e em minúsculas). Duas
  * afirmações só são a mesma se acionarem exatamente os mesmos polos: "subiu" x
  * "caiu", "a favor" x "contra", "maior" x "menor", "superávit" x "déficit",
- * "aprovou" x "rejeitou", "sim" x "não"... A lista é larga de propósito: palavra
- * de polo a mais de um lado já basta para não ser repetição (verifica de novo).
+ * "aprovou" x "rejeitou", "sim" x "não"... Defesa em profundidade: a chave de
+ * redação (`wordingKey`) já separa qualquer palavra trocada.
  */
 const POLES: readonly (readonly [string, RegExp])[] = [
   ["sobe", /\b(aument\w*|sub\w*|sob(?:e|em)|cresc\w*|alta|altas|elev\w*|dobr\w*|tripl\w*|quadrupl\w*|ampli\w*|recorde\w*|avanc\w*|expan\w*|dispar\w*|acelera\w*)\b/],
@@ -192,75 +201,50 @@ const POLES: readonly (readonly [string, RegExp])[] = [
   ["todos", /\b(todos|todas|tudo|sempre)\b/],
 ];
 
-/** Polos de comparação: a ordem dos termos importa ("A cresceu mais que B" ≠ "B cresceu mais que A"). */
-const RELATIONAL_POLES = new Set(["mais", "menos", "melhor", "pior", "antes", "depois", "ganha", "perde"]);
-
 /** Direção, posição e negação — "caiu"/"subiu", "a favor"/"contra" nunca são a mesma afirmação. */
 export function polaritySignature(textNormalized: string): string {
   const t = normalizeText(textNormalized);
   return POLES.filter(([, re]) => re.test(t)).map(([name]) => name).join("|");
 }
 
-// Palavras sem conteúdo próprio (e números/unidades, que já entram na assinatura numérica).
-const STOPWORDS = new Set([
-  "o", "a", "os", "as", "um", "uma", "uns", "umas", "de", "do", "da", "dos", "das", "em", "no", "na", "nos", "nas",
-  "por", "pelo", "pela", "pelos", "pelas", "para", "pra", "com", "e", "ou", "que", "se", "ao", "aos", "ate", "entre",
-  "sobre", "seu", "sua", "seus", "suas", "este", "esta", "esse", "essa", "isso", "isto", "ja",
-]);
-const NUMBER_TOKENS = new Set([
-  ...Object.keys(WORD_NUMBERS).map(normalizeText),
-  "mil", "milhao", "milhoes", "bilhao", "bilhoes", "trilhao", "trilhoes",
-  "cento", "porcento", "pct", "ponto", "pontos", "percentual", "percentuais", "pp", "p",
-  "r", "rs", "us", "usd", "brl", "real", "reais", "dolar", "dolares",
-]);
-
-/** Palavras de conteúdo (sem acento, em minúsculas), na ordem; `caps` = as que aparecem com inicial maiúscula. */
-function contentWords(text: string): { words: string[]; caps: Set<string> } {
-  const raw = text.normalize("NFD").replace(/\p{M}/gu, "").replace(/[^\p{L}\p{N}\s]/gu, " ").split(/\s+/).filter(Boolean);
-  const words: string[] = [];
-  const caps = new Set<string>();
-  for (const w of raw) {
-    const lw = w.toLowerCase();
-    if (STOPWORDS.has(lw) || NUMBER_TOKENS.has(lw) || /^\d+$/.test(lw)) continue;
-    words.push(lw);
-    if (/^\p{Lu}/u.test(w)) caps.add(lw);
-  }
-  return { words, caps };
-}
-
-/** "legal"/"ilegal", "constitucional"/"inconstitucional", "emprego"/"desemprego". */
-const NEG_PREFIXES = ["in", "im", "i", "ir", "des", "anti"];
-function negatedPair(x: string, y: string): boolean {
-  if (Math.min(x.length, y.length) < 4) return false;
-  return NEG_PREFIXES.some((p) => x === p + y || y === p + x);
-}
-
 /**
- * Diferenças de redação que mudam o fato mesmo com os mesmos polos: palavra
- * com prefixo de negação de um lado só, nome próprio diferente ("Lula criou" x
- * "Bolsonaro criou") e, em comparação, os mesmos termos em outra ordem.
+ * Artigos: a única palavra que pode faltar ou sobrar de um lado. Preposição não
+ * ("caiu para 4%" x "caiu 4%" x "caiu até 2022"), nem "a" (artigo e preposição).
  */
-function sameWording(a: string, b: string, poles: string): boolean {
-  const wa = contentWords(a);
-  const wb = contentWords(b);
-  const setA = new Set(wa.words);
-  const setB = new Set(wb.words);
-  const onlyA = wa.words.filter((w) => !setB.has(w));
-  const onlyB = wb.words.filter((w) => !setA.has(w));
-  if (onlyA.some((x) => onlyB.some((y) => negatedPair(x, y)))) return false;
-  if (onlyA.some((w) => wa.caps.has(w)) || onlyB.some((w) => wb.caps.has(w))) return false;
-  if (poles.split("|").some((p) => RELATIONAL_POLES.has(p))) {
-    const orderA = wa.words.filter((w) => setB.has(w)).join(" ");
-    const orderB = wb.words.filter((w) => setA.has(w)).join(" ");
-    if (orderA !== orderB) return false;
+const ARTICLES = new Set(["o", "os", "as", "um", "uma", "uns", "umas"]);
+
+/**
+ * Redação essencial, na ordem: palavras sem acento e em minúsculas (menos
+ * artigos), com cada número trocado por `#unidade:valor` no lugar em que aparece
+ * (o qualificador — "quase", "mais de" — continua como palavra). Só tolera grafia
+ * de número ("R$ 1.518" = "1.518 reais", "12%" = "12 por cento"), artigo, caixa,
+ * acento e pontuação. Qualquer palavra trocada, a mais ou fora de ordem muda a
+ * chave: "exportou"/"importou", "o PT"/"o PL", "A deve a B"/"B deve a A",
+ * "de 10% para 15%"/"de 15% para 10%".
+ */
+export function wordingKey(text: string): string {
+  const out: string[] = [];
+  const words = (s: string) => {
+    for (const w of normalizeText(s).split(" ")) if (w && !ARTICLES.has(w)) out.push(w);
+  };
+  let last = 0;
+  for (const n of numberMatches(text)) {
+    words(text.slice(last, n.index));
+    if (n.qualifier) words(n.qualifier);
+    out.push(`#${n.unit ?? ""}:${roundSig(n.value, 6)}`);
+    last = n.index + n.length;
   }
-  return true;
+  words(text.slice(last));
+  return out.join(" ");
 }
 
 /**
- * Duas afirmações semelhantes só são a mesma se números, período, tipo de
- * indicador, polaridade e redação essencial baterem. Na dúvida, não são
- * (a afirmação é verificada de novo — custa latência, nunca um veredito errado).
+ * Trava por similaridade: duas afirmações só são a mesma se a redação essencial
+ * for idêntica (`wordingKey`: mesmas palavras, na mesma ordem, e os mesmos
+ * números) e período/tipo do indicador e polaridade baterem. Embedding parecido
+ * não basta — "exportou"/"importou", "condenado"/"absolvido" dão cosseno alto. Na
+ * dúvida, não são (a afirmação é verificada de novo — custa latência, nunca um
+ * veredito errado).
  */
 export function sameFacts(
   a: { text_normalized: string; indicator: IndicatorRef | null },
@@ -269,7 +253,6 @@ export function sameFacts(
   const sa = numberSignature(a.text_normalized, a.indicator);
   const sb = numberSignature(b.text_normalized, b.indicator);
   if (sa.length !== sb.length || sa.some((k, i) => k !== sb[i])) return false;
-  const pa = polaritySignature(a.text_normalized);
-  if (pa !== polaritySignature(b.text_normalized)) return false;
-  return sameWording(a.text_normalized, b.text_normalized, pa);
+  if (polaritySignature(a.text_normalized) !== polaritySignature(b.text_normalized)) return false;
+  return wordingKey(a.text_normalized) === wordingKey(b.text_normalized);
 }

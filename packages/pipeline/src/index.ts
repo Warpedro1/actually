@@ -278,6 +278,8 @@ export function createPipeline(deps: PipelineDeps) {
     const res = await withTimeout(publishVerification(store, {
       debate_id: segment.debate_id,
       claim_id: dedup.claim_id,
+      // nova tentativa: a verificação fica na original, para as próximas repetições a reaproveitarem
+      verification_claim_id: dedup.retry_of,
       claim_text: claim.text_normalized,
       speaker_label: segment.speaker_label,
       segment_t_end: segment.t_end,
@@ -301,7 +303,7 @@ export function createPipeline(deps: PipelineDeps) {
     latency.e2e = sinceSpeech(segment);
 
     logger("info", "claim_decision", {
-      segment_id: segment.id, claim_id: dedup.claim_id, verification_id: res.verification_id,
+      segment_id: segment.id, claim_id: dedup.claim_id, retry_of: dedup.retry_of ?? null, verification_id: res.verification_id,
       verdict: a.decision.verdict, final_score: a.decision.final_score, alert: a.decision.alert,
       alert_status: res.alert_status, silence_reason: a.decision.silence_reason, layer, latency_ms: latency,
     });

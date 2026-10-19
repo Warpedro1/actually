@@ -111,13 +111,22 @@ describe("[RF06] trava de repetição", () => {
     expect(store.alerts).toHaveLength(0);
   });
 
-  it("similaridade alta + mesmos números ⇒ duplicata", async () => {
+  it("similaridade alta + mesma redação (só a grafia do número muda) ⇒ duplicata", async () => {
     const store = new MemoryStore();
     const vec = fakeVector("desemprego 2023 12%");
     const orig = await seedOriginal(store, "O desemprego foi de 12% em 2023.", "published", vec);
     const deps = makeDeps({ store, anthropic: noLLM });
-    const out = await dedupAndRecord(deps, args("Em 2023, a taxa de desemprego chegou a 12%.", vec));
+    const out = await dedupAndRecord(deps, args("O desemprego foi de 12 por cento em 2023.", vec));
     expect(out).toMatchObject({ kind: "duplicate", via: "similarity", original_claim_id: orig.claimId });
+  });
+
+  it("similaridade alta + paráfrase com outras palavras ⇒ verifica de novo (nunca reusa veredito de outra redação)", async () => {
+    const store = new MemoryStore();
+    const vec = fakeVector("desemprego 2023 12%");
+    await seedOriginal(store, "O desemprego foi de 12% em 2023.", "published", vec);
+    const out = await dedupAndRecord(makeDeps({ store, anthropic: noLLM }), args("Em 2023, a taxa de desemprego chegou a 12%.", vec));
+    expect(out.kind).toBe("new");
+    expect(store.alerts.filter((a) => a.is_repeat)).toHaveLength(0);
   });
 
   it("NUNCA junta números diferentes, mesmo com embedding idêntico", async () => {
@@ -231,6 +240,12 @@ describe("[RF06] trava por similaridade nunca junta afirmações opostas", () =>
     ["O governo teve superávit primário em 2023.", "O governo teve déficit primário em 2023."],
     ["A Câmara aprovou a reforma tributária em 2023.", "A Câmara rejeitou a reforma tributária em 2023."],
     ["O deputado votou sim na reforma da Previdência em 2019.", "O deputado votou não na reforma da Previdência em 2019."],
+    // trocas fora de qualquer lista de antônimos
+    ["O Brasil exportou 1 milhão de barris de petróleo por dia em 2023.", "O Brasil importou 1 milhão de barris de petróleo por dia em 2023."],
+    ["O candidato foi condenado em 2017.", "O candidato foi absolvido em 2017."],
+    ["O governo comprou 10 mil vacinas em 2021.", "O governo vendeu 10 mil vacinas em 2021."],
+    ["o pt votou pela pec em 2022.", "o pl votou pela pec em 2022."],
+    ["O Brasil deve 10 bilhões à Venezuela.", "A Venezuela deve 10 bilhões ao Brasil."],
   ];
   it.each(PAIRS)("%s × %s ⇒ não é repetição, mesmo com embedding idêntico", async (first, second) => {
     const store = new MemoryStore();
@@ -258,16 +273,26 @@ describe("[RF06] trava por similaridade nunca junta afirmações opostas", () =>
 });
 
 describe("[RF06] original sem verificação concluída não silencia as repetições", () => {
-  it("original sem verificação (erro/timeout/sem evidência) ⇒ repetição gravada como duplicata, mas verificada de novo", async () => {
+  it("store sem o horário da original ⇒ conta como em andamento: duplicata silenciosa, nunca verificação em paralelo", async () => {
     const store = new MemoryStore();
-    const deps = makeDeps({ store, anthropic: noLLM });
+    const deps = makeDeps({ store, anthropic: noLLM, now: () => Date.now() + 3_600_000 });
     const origId = await seedUnverified(store, "O salário mínimo é de R$ 1.518.");
     const out = await dedupAndRecord(deps, args("O salário mínimo é de R$ 1.518."));
+    expect(out).toMatchObject({ kind: "duplicate", via: "hash", original_claim_id: origId, verification_id: null, repeat_alert: null });
+    expect(deps.logs.some((l) => l.event === "claim_retry_unverified_original")).toBe(false);
+  });
+
+  it("original sem verificação (erro/timeout/sem evidência) e fora do prazo ⇒ repetição gravada como duplicata, mas verificada de novo", async () => {
+    const store = new AgedStore();
+    const text = "O salário mínimo é de R$ 1.518.";
+    const origId = await seedUnverified(store, text);
+    const deps = makeDeps({ store, anthropic: noLLM, now: () => Date.now() + ORIGINAL_IN_PROGRESS_MS + 1_000 });
+    const out = await dedupAndRecord(deps, args(text));
     expect(out).toMatchObject({ kind: "new", retry_of: origId });
     expect(store.claims.at(-1)!.duplicate_of).toBe(origId);
     expect(deps.logs.some((l) => l.event === "claim_retry_unverified_original")).toBe(true);
-    // a seguinte também (nada fica em silêncio para sempre)
-    expect(await dedupAndRecord(deps, args("O salário mínimo é de R$ 1.518."))).toMatchObject({ kind: "new", retry_of: origId });
+    // enquanto nenhuma tentativa concluir, a seguinte também (nada fica em silêncio para sempre)
+    expect(await dedupAndRecord(deps, args(text))).toMatchObject({ kind: "new", retry_of: origId });
   });
 
   it("com o horário da original: em andamento (dentro do prazo) ⇒ duplicata silenciosa; depois do prazo ⇒ verifica de novo", async () => {

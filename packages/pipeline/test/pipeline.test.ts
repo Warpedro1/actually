@@ -2,6 +2,7 @@
 import type { DebateSettings, IndicatorRef } from "@actually/db";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ExtractionOutput } from "../src/extract";
+import { ORIGINAL_IN_PROGRESS_MS } from "../src/dedup";
 import { createPipeline } from "../src/index";
 import type { VerifyOutput } from "../src/verify";
 import {
@@ -48,6 +49,25 @@ function setup(script: FakeAnthropicScript, kb: ConstructorParameters<typeof Mem
   const deps = makeDeps({ store, anthropic });
   return { store, anthropic, deps, pipeline: createPipeline(deps) };
 }
+
+/** Store que informa o horário da original no caminho por hash (o MemoryStore não informa). */
+class TimedStore extends MemoryStore {
+  override async findClaimByHash(debateId: string, hash: string) {
+    const m = await super.findClaimByHash(debateId, hash);
+    return m && { ...m, created_at: this.claims.find((c) => c.id === m.claim_id)!.created_at };
+  }
+}
+
+/** Como `setup`, com TimedStore e relógio adiantável (`clock.offset`). */
+function timedSetup(script: FakeAnthropicScript, kb: ConstructorParameters<typeof MemoryStore>[0] = {}, settings: Partial<DebateSettings> = {}) {
+  const store = new TimedStore(kb, settings);
+  const anthropic = fakeAnthropic(script);
+  const clock = { offset: 0 };
+  const deps = makeDeps({ store, anthropic, now: () => Date.now() + clock.offset });
+  return { store, anthropic, deps, clock, pipeline: createPipeline(deps) };
+}
+
+const sonnetCalls = (anthropic: { calls: { model: string }[] }) => anthropic.calls.filter((c) => c.model.includes("sonnet")).length;
 
 afterEach(() => {
   vi.useRealTimers();
@@ -418,9 +438,9 @@ describe("[RF06] [RF08] repetição no runPipeline", () => {
     expect(store.alerts[1]).toMatchObject({ is_repeat: true, repeat_of: store.alerts[0]!.id, status: "pending_review", published_at: null });
   });
 
-  it("[RF06] verificação da original falhou (erro) ⇒ a repetição é verificada de novo e o alerta sai", async () => {
+  it("[RF06] verificação da original falhou (erro) ⇒ a repetição (fora do prazo) é verificada de novo e o alerta sai", async () => {
     let calls = 0;
-    const { store, pipeline, anthropic } = setup(
+    const { store, pipeline, anthropic, clock } = timedSetup(
       { extract: extracting(L2_CLAIM), verify: () => (++calls === 1 ? { error: new Error("529 overloaded") } : L2_VERDICT) },
       { series: [PNAD], values: PNAD_VALUES },
     );
@@ -428,12 +448,57 @@ describe("[RF06] [RF08] repetição no runPipeline", () => {
     expect(r1.alerts).toBe(0);
     expect(store.verifications).toHaveLength(0);
 
+    clock.offset = ORIGINAL_IN_PROGRESS_MS + 1_000;
     const r2 = await pipeline.runPipeline(store.addSegment(L2_SEGMENT).id);
     expect(r2.alerts).toBe(1);
-    expect(anthropic.calls.filter((c) => c.model.includes("sonnet"))).toHaveLength(2);
+    expect(sonnetCalls(anthropic)).toBe(2);
     expect(store.claims[1]!.duplicate_of).toBe(store.claims[0]!.id);
-    expect(store.verifications).toEqual([expect.objectContaining({ claim_id: store.claims[1]!.id, verdict: "contradito" })]);
+    // a verificação fica na original (onde a trava procura); o alerta, na fala que o gerou
+    expect(store.verifications).toEqual([expect.objectContaining({ claim_id: store.claims[0]!.id, verdict: "contradito" })]);
     expect(store.alerts).toEqual([expect.objectContaining({ claim_id: store.claims[1]!.id, is_repeat: false, status: "pending_review" })]);
+  });
+
+  it("[RF06] depois da nova tentativa, as repetições seguintes reaproveitam o veredito (Repetido), sem verificar de novo", async () => {
+    let calls = 0;
+    const { store, pipeline, anthropic, clock } = timedSetup(
+      { extract: extracting(L2_CLAIM), verify: () => (++calls === 1 ? { error: new Error("529 overloaded") } : L2_VERDICT) },
+      { series: [PNAD], values: PNAD_VALUES },
+      { require_red_approval: false },
+    );
+    await pipeline.runPipeline(store.addSegment(L2_SEGMENT).id);
+    clock.offset = ORIGINAL_IN_PROGRESS_MS + 1_000;
+    for (let i = 0; i < 3; i++) await pipeline.runPipeline(store.addSegment(L2_SEGMENT).id);
+
+    expect(sonnetCalls(anthropic)).toBe(2);
+    expect(store.verifications).toHaveLength(1);
+    const [first, ...repeats] = store.alerts;
+    expect(first).toMatchObject({ claim_id: store.claims[1]!.id, is_repeat: false, status: "published" });
+    expect(repeats).toEqual([
+      expect.objectContaining({ claim_id: store.claims[2]!.id, is_repeat: true, repeat_of: first!.id, verification_id: first!.verification_id }),
+      expect.objectContaining({ claim_id: store.claims[3]!.id, is_repeat: true, repeat_of: first!.id, verification_id: first!.verification_id }),
+    ]);
+  });
+
+  it.each([
+    ["store sem o horário da original", false],
+    ["store com o horário da original", true],
+  ] as const)("[RF06] repetição enquanto a original ainda está sendo verificada (%s) ⇒ uma só verificação e um só alerta", async (_label, timed) => {
+    let n = 0;
+    const script: FakeAnthropicScript = {
+      extract: extracting(L2_CLAIM),
+      verify: () => ({ ...(L2_VERDICT as { output: VerifyOutput }), delayMs: ++n === 1 ? 300 : 0 }),
+    };
+    const kb = { series: [PNAD], values: PNAD_VALUES };
+    const { store, pipeline, anthropic } = timed ? timedSetup(script, kb) : setup(script, kb);
+    const first = pipeline.runPipeline(store.addSegment(L2_SEGMENT).id);
+    await new Promise((r) => setTimeout(r, 100));
+    const second = pipeline.runPipeline(store.addSegment(L2_SEGMENT).id);
+    await Promise.all([first, second]);
+
+    expect(sonnetCalls(anthropic)).toBe(1);
+    expect(store.verifications).toHaveLength(1);
+    expect(store.alerts).toEqual([expect.objectContaining({ claim_id: store.claims[0]!.id, is_repeat: false })]);
+    expect(store.claims[1]!.duplicate_of).toBe(store.claims[0]!.id);
   });
 });
 
