@@ -146,20 +146,122 @@ export function numberSignature(textNormalized: string, indicator: IndicatorRef 
   for (const n of extractNumbers(textNormalized)) keys.add(`${n.unit ?? ""}:${roundSig(n.value, 6)}`);
   if (indicator?.period) keys.add(`periodo:${indicator.period}`);
   if (indicator?.claimed_value != null) keys.add(`${canonicalUnit(indicator.unit) ?? ""}:${roundSig(indicator.claimed_value, 6)}`);
+  // "maior da série" (max) e "menor da série" (min), nível e variação: fatos diferentes
+  if (indicator?.kind) keys.add(`tipo:${indicator.kind}`);
   return [...keys].sort();
 }
 
-const UP = /\b(aument\w*|sub\w*|cresc\w*|alta|elev\w*|dobr\w*|tripl\w*|ampli\w*|recorde)\b/;
-const DOWN = /\b(ca[iíu]\w*|queda|diminu\w*|reduz\w*|redu[cç]\w*|baix\w*|recu\w*|despenc\w*|encolh\w*)\b/;
-const NEG = /\b(nao|nunca|jamais|nenhum\w*|nem)\b/;
+/**
+ * Polos de direção/posição (texto já sem acento e em minúsculas). Duas
+ * afirmações só são a mesma se acionarem exatamente os mesmos polos: "subiu" x
+ * "caiu", "a favor" x "contra", "maior" x "menor", "superávit" x "déficit",
+ * "aprovou" x "rejeitou", "sim" x "não"... A lista é larga de propósito: palavra
+ * de polo a mais de um lado já basta para não ser repetição (verifica de novo).
+ */
+const POLES: readonly (readonly [string, RegExp])[] = [
+  ["sobe", /\b(aument\w*|sub\w*|sob(?:e|em)|cresc\w*|alta|altas|elev\w*|dobr\w*|tripl\w*|quadrupl\w*|ampli\w*|recorde\w*|avanc\w*|expan\w*|dispar\w*|acelera\w*)\b/],
+  ["desce", /\b(ca[iu]\w*|queda\w*|diminu\w*|reduz\w*|reduc\w*|baix\w*|recu\w*|despenc\w*|encolh\w*|desc(?:e|eu|er|ida|endo)|retra\w*|desaceler\w*|cort\w*|enxug\w*)\b/],
+  ["nega", /\b(nao|nunca|jamais|nenhum\w*|nem|ninguem|nada|sem)\b/],
+  ["sim", /\bsim\b/],
+  ["favor", /\b(a favor|favorave\w*|apoi\w*|defend\w*)\b/],
+  ["contra", /\b(contra|contrari\w*|op(?:os|or|oe|oem|ondo|unha|unham|useram))\b/],
+  ["aprova", /\b(aprov\w*|sancion\w*|promulg\w*|ratific\w*|acat\w*)\b/],
+  ["rejeita", /\b(rejeit\w*|reprov\w*|vet(?:o|os|ou|ar|ado|ada|aram)|derrub\w*|arquiv\w*|recus\w*|revog\w*|barr(?:ou|ar|ado|ada|aram))\b/],
+  ["mais", /\b(mais|maior\w*|acima|superior\w*|super(?:ou|a|am|aram|ar|ando|ado|ada)|ultrapass\w*|exced\w*)\b/],
+  ["menos", /\b(menos|menor\w*|abaixo|inferior\w*)\b/],
+  ["melhor", /\bmelhor\w*\b/],
+  ["pior", /\bpior\w*\b/],
+  ["maximo", /\bmaxim\w*\b/],
+  ["minimo", /\bminim\w*\b/],
+  ["superavit", /\b(superavit\w*|lucr\w*)\b/],
+  ["deficit", /\b(deficit\w*|prejuiz\w*|rombo\w*)\b/],
+  ["positivo", /\bpositiv\w*\b/],
+  ["negativo", /\bnegativ\w*\b/],
+  ["ganha", /\b(ganh\w*|venc\w*)\b/],
+  ["perde", /\b(perd\w*|derrot\w*)\b/],
+  ["cria", /\b(cri(?:ou|ar|ado|ada|ados|adas|acao|aram|ei|amos)|implant\w*|inaugur\w*|fund(?:ou|ado|ada|aram))\b/],
+  ["extingue", /\b(extin\w*|acab(?:ou|ar|ado|ada|aram)|encerr\w*|elimin\w*|abol\w*|fech(?:ou|ar|ado|ada|aram))\b/],
+  ["permite", /\b(permit\w*|liber\w*|autoriz\w*|legaliz\w*)\b/],
+  ["proibe", /\b(proib\w*|bloque\w*|impedi\w*|imped(?:e|em)|criminaliz\w*)\b/],
+  ["privatiza", /\bprivatiz\w*\b/],
+  ["estatiza", /\b(estatiz\w*|reestatiz\w*|nacionaliz\w*)\b/],
+  ["primeiro", /\bprimeir\w*\b/],
+  ["ultimo", /\bultim\w*\b/],
+  ["antes", /\b(antes|anterior\w*)\b/],
+  ["depois", /\b(depois|apos|posterior\w*)\b/],
+  ["todos", /\b(todos|todas|tudo|sempre)\b/],
+];
 
-/** Direção (subiu/caiu) e negação — "caiu" e "subiu" nunca são a mesma afirmação. */
+/** Polos de comparação: a ordem dos termos importa ("A cresceu mais que B" ≠ "B cresceu mais que A"). */
+const RELATIONAL_POLES = new Set(["mais", "menos", "melhor", "pior", "antes", "depois", "ganha", "perde"]);
+
+/** Direção, posição e negação — "caiu"/"subiu", "a favor"/"contra" nunca são a mesma afirmação. */
 export function polaritySignature(textNormalized: string): string {
   const t = normalizeText(textNormalized);
-  return `${UP.test(t) ? "U" : ""}${DOWN.test(t) ? "D" : ""}${NEG.test(t) ? "N" : ""}`;
+  return POLES.filter(([, re]) => re.test(t)).map(([name]) => name).join("|");
 }
 
-/** Duas afirmações semelhantes só são a mesma se números, período e polaridade baterem. */
+// Palavras sem conteúdo próprio (e números/unidades, que já entram na assinatura numérica).
+const STOPWORDS = new Set([
+  "o", "a", "os", "as", "um", "uma", "uns", "umas", "de", "do", "da", "dos", "das", "em", "no", "na", "nos", "nas",
+  "por", "pelo", "pela", "pelos", "pelas", "para", "pra", "com", "e", "ou", "que", "se", "ao", "aos", "ate", "entre",
+  "sobre", "seu", "sua", "seus", "suas", "este", "esta", "esse", "essa", "isso", "isto", "ja",
+]);
+const NUMBER_TOKENS = new Set([
+  ...Object.keys(WORD_NUMBERS).map(normalizeText),
+  "mil", "milhao", "milhoes", "bilhao", "bilhoes", "trilhao", "trilhoes",
+  "cento", "porcento", "pct", "ponto", "pontos", "percentual", "percentuais", "pp", "p",
+  "r", "rs", "us", "usd", "brl", "real", "reais", "dolar", "dolares",
+]);
+
+/** Palavras de conteúdo (sem acento, em minúsculas), na ordem; `caps` = as que aparecem com inicial maiúscula. */
+function contentWords(text: string): { words: string[]; caps: Set<string> } {
+  const raw = text.normalize("NFD").replace(/\p{M}/gu, "").replace(/[^\p{L}\p{N}\s]/gu, " ").split(/\s+/).filter(Boolean);
+  const words: string[] = [];
+  const caps = new Set<string>();
+  for (const w of raw) {
+    const lw = w.toLowerCase();
+    if (STOPWORDS.has(lw) || NUMBER_TOKENS.has(lw) || /^\d+$/.test(lw)) continue;
+    words.push(lw);
+    if (/^\p{Lu}/u.test(w)) caps.add(lw);
+  }
+  return { words, caps };
+}
+
+/** "legal"/"ilegal", "constitucional"/"inconstitucional", "emprego"/"desemprego". */
+const NEG_PREFIXES = ["in", "im", "i", "ir", "des", "anti"];
+function negatedPair(x: string, y: string): boolean {
+  if (Math.min(x.length, y.length) < 4) return false;
+  return NEG_PREFIXES.some((p) => x === p + y || y === p + x);
+}
+
+/**
+ * Diferenças de redação que mudam o fato mesmo com os mesmos polos: palavra
+ * com prefixo de negação de um lado só, nome próprio diferente ("Lula criou" x
+ * "Bolsonaro criou") e, em comparação, os mesmos termos em outra ordem.
+ */
+function sameWording(a: string, b: string, poles: string): boolean {
+  const wa = contentWords(a);
+  const wb = contentWords(b);
+  const setA = new Set(wa.words);
+  const setB = new Set(wb.words);
+  const onlyA = wa.words.filter((w) => !setB.has(w));
+  const onlyB = wb.words.filter((w) => !setA.has(w));
+  if (onlyA.some((x) => onlyB.some((y) => negatedPair(x, y)))) return false;
+  if (onlyA.some((w) => wa.caps.has(w)) || onlyB.some((w) => wb.caps.has(w))) return false;
+  if (poles.split("|").some((p) => RELATIONAL_POLES.has(p))) {
+    const orderA = wa.words.filter((w) => setB.has(w)).join(" ");
+    const orderB = wb.words.filter((w) => setA.has(w)).join(" ");
+    if (orderA !== orderB) return false;
+  }
+  return true;
+}
+
+/**
+ * Duas afirmações semelhantes só são a mesma se números, período, tipo de
+ * indicador, polaridade e redação essencial baterem. Na dúvida, não são
+ * (a afirmação é verificada de novo — custa latência, nunca um veredito errado).
+ */
 export function sameFacts(
   a: { text_normalized: string; indicator: IndicatorRef | null },
   b: { text_normalized: string; indicator: IndicatorRef | null },
@@ -167,5 +269,7 @@ export function sameFacts(
   const sa = numberSignature(a.text_normalized, a.indicator);
   const sb = numberSignature(b.text_normalized, b.indicator);
   if (sa.length !== sb.length || sa.some((k, i) => k !== sb[i])) return false;
-  return polaritySignature(a.text_normalized) === polaritySignature(b.text_normalized);
+  const pa = polaritySignature(a.text_normalized);
+  if (pa !== polaritySignature(b.text_normalized)) return false;
+  return sameWording(a.text_normalized, b.text_normalized, pa);
 }

@@ -232,12 +232,17 @@ async function safeExtract(
 export function createPipeline(deps: PipelineDeps) {
   const { logger, store } = deps;
 
+  /** Fim da fala (captured_at) → agora. */
+  const sinceSpeech = (segment: Segment) => deps.now() - Date.parse(segment.captured_at);
+
   async function processClaim(
     claim: ExtractedClaim,
     embedding: number[] | null,
     segment: Segment,
     context: string,
     settings: DebateSettings,
+    /** Etapas do segmento (filter, context, extract, embed), compartilhadas pelas afirmações dele. */
+    segmentLatency: Record<string, number>,
   ): Promise<number> {
     const t0 = deps.now();
     const hash = claimHash(claim.text_normalized);
@@ -245,10 +250,17 @@ export function createPipeline(deps: PipelineDeps) {
       debate_id: segment.debate_id, segment, claim, hash, embedding, settings,
     });
     const tDedup = deps.now() - t0;
-    if (dedup.kind === "duplicate") return dedup.repeat_alert ? 1 : 0;
+    if (dedup.kind === "duplicate") {
+      // repetição não grava verificação: a latência (até o alerta de repetição gravado) fica no log
+      logger("info", "claim_duplicate_latency", {
+        segment_id: segment.id, claim_id: dedup.claim_id, repeat_alert_id: dedup.repeat_alert?.id ?? null,
+        latency_ms: { ...segmentLatency, dedup: tDedup, e2e: sinceSpeech(segment) },
+      });
+      return dedup.repeat_alert ? 1 : 0;
+    }
 
     const a = await assessClaim(deps, claim, embedding, context, settings);
-    const latency: Record<string, number> = { dedup: tDedup, ...a.latency_ms };
+    const latency: Record<string, number> = { ...segmentLatency, dedup: tDedup, ...a.latency_ms };
     if (!a.verify_ran) {
       logger("info", "claim_silence", {
         segment_id: segment.id, claim_id: dedup.claim_id, reason: a.decision.silence_reason, latency_ms: latency,
@@ -257,7 +269,11 @@ export function createPipeline(deps: PipelineDeps) {
     }
 
     const tPub = deps.now();
-    latency.e2e = deps.now() - Date.parse(segment.captured_at);
+    // verifications é append-only e é gravada antes de evidence/alerts: o que vai para
+    // verifications.latency_ms é o que já se sabe aqui. O e2e de verdade (fim da fala →
+    // alerta gravado) só existe depois do publish — fica no log e em alerts.created_at.
+    latency.e2e_pre_publish = sinceSpeech(segment);
+    const persisted = { ...latency };
     const layer: KbLayer = a.decision.layer ?? "L1";
     const res = await withTimeout(publishVerification(store, {
       debate_id: segment.debate_id,
@@ -276,12 +292,13 @@ export function createPipeline(deps: PipelineDeps) {
       },
       layer,
       model: MODEL_VERIFY,
-      latency_ms: latency,
+      latency_ms: persisted,
       evidence: a.evidence,
       alert: a.decision.alert,
       settings,
     }, logger), TIMEOUTS_MS.publish, "publish");
     latency.publish = deps.now() - tPub;
+    latency.e2e = sinceSpeech(segment);
 
     logger("info", "claim_decision", {
       segment_id: segment.id, claim_id: dedup.claim_id, verification_id: res.verification_id,
@@ -312,7 +329,7 @@ export function createPipeline(deps: PipelineDeps) {
 
     let t = deps.now();
     const pf = prefilter(segment.text);
-    latency.prefilter = deps.now() - t;
+    latency.filter = deps.now() - t;
     if (!pf.pass) {
       logger("debug", "segment_prefiltered", { segment_id: segmentId, reason: pf.reason });
       return result(0, 0);
@@ -334,7 +351,7 @@ export function createPipeline(deps: PipelineDeps) {
     const claims = await safeExtract(deps, segment.text, context, segment.speaker_label);
     latency.extract = deps.now() - t;
     if (!claims.length) {
-      latency.e2e = deps.now() - Date.parse(segment.captured_at);
+      latency.e2e = sinceSpeech(segment);
       logger("info", "segment_done", { segment_id: segmentId, claims: 0, alerts: 0, latency_ms: latency });
       return result(0, 0);
     }
@@ -343,10 +360,11 @@ export function createPipeline(deps: PipelineDeps) {
     const embeddings = await embedClaims(deps, claims);
     latency.embed = deps.now() - t;
 
+    const segmentLatency = { filter: latency.filter!, context: latency.context!, extract: latency.extract!, embed: latency.embed! };
     t = deps.now();
     const alerts = await Promise.all(
       claims.map((c, i) =>
-        processClaim(c, embeddings[i] ?? null, segment, context, settings).catch((err) => {
+        processClaim(c, embeddings[i] ?? null, segment, context, settings, segmentLatency).catch((err) => {
           logger("error", "claim_failed", { segment_id: segmentId, claim: c.text_normalized, ...errorFields(err) });
           return 0;
         }),
@@ -354,7 +372,7 @@ export function createPipeline(deps: PipelineDeps) {
     );
     latency.claims = deps.now() - t;
     latency.total = deps.now() - t0;
-    latency.e2e = deps.now() - Date.parse(segment.captured_at);
+    latency.e2e = sinceSpeech(segment);
     const n = alerts.reduce((s, x) => s + x, 0);
     logger("info", "segment_done", { segment_id: segmentId, claims: claims.length, alerts: n, latency_ms: latency });
     return result(claims.length, n);

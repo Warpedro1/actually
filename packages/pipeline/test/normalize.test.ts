@@ -1,3 +1,4 @@
+import type { IndicatorRef } from "@actually/db";
 import { describe, expect, it } from "vitest";
 import {
   canonicalUnit, claimHash, extractNumbers, normalizeClaimNumbers, normalizeText, numberSignature,
@@ -94,5 +95,57 @@ describe("assinatura numérica e polaridade", () => {
     expect(polaritySignature("o desemprego caiu")).not.toBe(polaritySignature("o desemprego subiu"));
     expect(sameFacts({ text_normalized: "O desmatamento caiu no governo", indicator: ind }, { text_normalized: "O desmatamento aumentou no governo", indicator: ind })).toBe(false);
     expect(sameFacts({ text_normalized: "Ele votou a favor da PEC", indicator: ind }, { text_normalized: "Ele não votou a favor da PEC", indicator: ind })).toBe(false);
+  });
+});
+
+describe("[RF06] trava por similaridade: polaridade e direção opostas nunca são a mesma afirmação", () => {
+  const same = (a: string, b: string, ia: IndicatorRef | null = null, ib: IndicatorRef | null = null) =>
+    sameFacts({ text_normalized: a, indicator: ia }, { text_normalized: b, indicator: ib });
+
+  it.each([
+    ["O senador Flávio Bolsonaro votou a favor da PEC da Transição em 2022.", "O senador Flávio Bolsonaro votou contra a PEC da Transição em 2022."],
+    ["Em 2024 o Brasil teve a menor taxa de desemprego da série histórica.", "Em 2024 o Brasil teve a maior taxa de desemprego da série histórica."],
+    ["A dívida pública aumentou em 2023.", "A dívida pública diminuiu em 2023."],
+    ["O governo teve superávit primário em 2023.", "O governo teve déficit primário em 2023."],
+    ["A Câmara aprovou a reforma tributária em 2023.", "A Câmara rejeitou a reforma tributária em 2023."],
+    ["O deputado votou sim na reforma da Previdência em 2019.", "O deputado votou não na reforma da Previdência em 2019."],
+    ["O presidente sancionou a lei do marco temporal em 2023.", "O presidente vetou a lei do marco temporal em 2023."],
+    ["Mais de 10 milhões de famílias recebem o Bolsa Família.", "Menos de 10 milhões de famílias recebem o Bolsa Família."],
+    ["A inflação ficou acima da meta em 2024.", "A inflação ficou abaixo da meta em 2024."],
+    ["O saldo da balança comercial foi positivo em 2023.", "O saldo da balança comercial foi negativo em 2023."],
+    ["O governo Lula criou o programa Mais Médicos.", "O governo Lula extinguiu o programa Mais Médicos."],
+    ["O governo privatizou a Eletrobras em 2022.", "O governo estatizou a Eletrobras em 2022."],
+    ["O STF considerou a lei constitucional em 2024.", "O STF considerou a lei inconstitucional em 2024."],
+    ["O emprego industrial caiu em 2023.", "O desemprego industrial caiu em 2023."],
+  ])("%s × %s ⇒ fatos diferentes", (a, b) => {
+    expect(same(a, b)).toBe(false);
+    expect(same(b, a)).toBe(false);
+  });
+
+  it("mesmos termos em outra ordem numa comparação ⇒ fatos diferentes", () => {
+    expect(same("O Brasil cresceu mais que a Argentina em 2023.", "A Argentina cresceu mais que o Brasil em 2023.")).toBe(false);
+    expect(same(
+      "No governo Lula foram criados mais empregos do que no governo Bolsonaro.",
+      "No governo Bolsonaro foram criados mais empregos do que no governo Lula.",
+    )).toBe(false);
+  });
+
+  it("sujeito diferente (nome próprio) ⇒ fatos diferentes", () => {
+    expect(same("Lula criou o Bolsa Família em 2003.", "Fernando Henrique criou o Bolsa Família em 2003.")).toBe(false);
+  });
+
+  it("indicador: min x max, nível x variação ⇒ fatos diferentes", () => {
+    const base: IndicatorRef = { query: "desemprego", period: "2024", claimed_value: null, unit: "%", kind: "min" };
+    const text = "Em 2024 o desemprego foi o recorde da série.";
+    expect(same(text, text, base, { ...base, kind: "max" })).toBe(false);
+    expect(same(text, text, { ...base, claimed_value: 6, kind: "level" }, { ...base, claimed_value: 6, kind: "change_pct" })).toBe(false);
+    expect(numberSignature(text, base)).toContain("tipo:min");
+  });
+
+  it("paráfrase com os mesmos fatos continua sendo a mesma afirmação", () => {
+    expect(same("O desemprego foi de 12% em 2023.", "Em 2023, a taxa de desemprego chegou a 12%.")).toBe(true);
+    expect(same("Foram criados 1,5 milhão de empregos em 2023", "Em 2023 foram criados 1.500.000 empregos")).toBe(true);
+    expect(same("O senador Flávio Bolsonaro votou contra a PEC da Transição.", "O senador Flávio Bolsonaro votou contra a PEC da Transição em plenário.")).toBe(true);
+    expect(same("Em 2023, o Brasil cresceu mais que a Argentina.", "O Brasil cresceu mais que a Argentina em 2023.")).toBe(true);
   });
 });
