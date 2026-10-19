@@ -3,7 +3,8 @@
 import { DEFAULT_SETTINGS, resolveSettings, type Debate, type DebateSettings } from "@actually/db";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { useEffect, useState, type FormEvent } from "react";
-import { Button, Card, ErrorText, OkText, errMsg, inputCls } from "./ui";
+import { confirmMessages, saveSettingsPatch, settingsPatch, type SettingsKey } from "@/lib/staff/settings";
+import { Button, Card, ErrorText, OkText, inputCls } from "./ui";
 
 type BoolKey = { [K in keyof DebateSettings]: DebateSettings[K] extends boolean ? K : never }[keyof DebateSettings];
 type NumKey = { [K in keyof DebateSettings]: DebateSettings[K] extends number ? K : never }[keyof DebateSettings];
@@ -35,6 +36,8 @@ const NUMS: { key: NumKey; label: string; help: string; min: number; max: number
   { key: "failover_after_s", label: "Failover da captura", help: "Sem heartbeat do agente ativo por este tempo, o banco promove o standby.", min: 3, max: 120, step: 1, unit: "s" },
 ];
 
+const LABELS: Partial<Record<SettingsKey, string>> = Object.fromEntries([...BOOLS, ...NUMS].map((x) => [x.key, x.label]));
+
 /** Formulário de settings do debate (vale para o próximo segmento processado). */
 export function SettingsForm({ client, debate, onSaved }: { client: SupabaseClient; debate: Debate; onSaved: () => Promise<void> | void }) {
   const [s, setS] = useState<DebateSettings>(() => resolveSettings(debate.settings));
@@ -50,13 +53,29 @@ export function SettingsForm({ client, debate, onSaved }: { client: SupabaseClie
       const v = s[n.key];
       if (!Number.isFinite(v) || v < n.min || v > n.max) return setError(`${n.label}: valor entre ${n.min} e ${n.max}.`);
     }
-    if (!window.confirm("Aplicar as novas configurações? Valem para todos os participantes a partir do próximo trecho.")) return;
+    // Só o que mudou em relação ao que esta aba carregou; o banco aplica sobre o
+    // valor atual e recusa se essas chaves mudaram em outra sessão.
+    const base = resolveSettings(debate.settings);
+    const patch = settingsPatch(base, s);
+    if (Object.keys(patch).length === 0) {
+      setError(null);
+      return setOk("Nenhuma configuração foi alterada.");
+    }
+    for (const msg of confirmMessages(base, patch, LABELS)) {
+      if (!window.confirm(msg)) return;
+    }
     setBusy(true);
     setError(null);
     setOk(null);
-    const { error: err } = await client.from("debates").update({ settings: s }).eq("id", debate.id);
+    const r = await saveSettingsPatch(client, debate.id, debate.settings, patch);
     setBusy(false);
-    if (err) return setError(errMsg(err));
+    if (r.status === "conflict") {
+      const which = r.keys.map((k) => LABELS[k as SettingsKey] ?? k).join(", ") || "as configurações";
+      setError(`Nada foi salvo: outra sessão mudou ${which} depois que esta aba carregou. Os valores atuais foram recarregados; revise e salve de novo.`);
+      await onSaved();
+      return;
+    }
+    if (r.status === "error") return setError(r.message);
     setOk("Configurações salvas.");
     await onSaved();
   }
