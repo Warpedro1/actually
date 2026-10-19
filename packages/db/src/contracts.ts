@@ -39,8 +39,8 @@ export const SegmentRequest = z.object({
 export type SegmentRequest = z.infer<typeof SegmentRequest>;
 
 export const SegmentResponse = z.discriminatedUnion("status", [
-  /** Segmento aceito e processado (pipeline rodou). */
-  z.object({ status: z.literal("accepted"), segment_id: z.number(), alerts: z.number() }),
+  /** Segmento gravado; o pipeline roda em segundo plano (after()) para não travar a fila do agente. */
+  z.object({ status: z.literal("accepted"), segment_id: z.number() }),
   /** Retry de um seq já recebido — idempotente. */
   z.object({ status: z.literal("duplicate") }),
   /** Agente não é o ativo (standby); segmento descartado. */
