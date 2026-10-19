@@ -9,3 +9,4 @@ dist
 .DS_Store
 eval/results/
 data/raw/
+.claude/worktrees/

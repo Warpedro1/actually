@@ -67,3 +67,13 @@ ch.length === 1 ? ok("match_chunks híbrido") : fail("match_chunks");
 await db.query(`insert into indicator_series (code,name,aliases,unit,periodicity,source_name,source_url) values ('desocupacao_pnadc','Taxa de desocupação','{desemprego,"taxa de desemprego"}','%','moving_quarter','IBGE','https://sidra.ibge.gov.br')`);
 const ind = (await db.query(`select * from find_indicator('desemprego')`)).rows;
 ind[0]?.code === 'desocupacao_pnadc' && ind[0].score > 0.5 ? ok("find_indicator por alias") : fail("find_indicator " + JSON.stringify(ind));
+
+// Migração 2: controle remoto
+await db.exec(fs.readFileSync(new URL("../../../supabase/migrations/20261019000002_remote_capture.sql", import.meta.url), "utf8"));
+const mid = (await db.query(`insert into capture_machines (name) values ('casa') returning id, desired`)).rows[0];
+mid.desired.state === "stopped" ? ok("máquina nasce parada") : fail("desired default");
+const before = (await db.query(`select desired_updated_at from capture_machines where id=$1`,[mid.id])).rows[0].desired_updated_at;
+await new Promise(r => setTimeout(r, 20));
+await db.query(`update capture_machines set desired='{"state":"running"}' where id=$1`,[mid.id]);
+const after = (await db.query(`select desired_updated_at from capture_machines where id=$1`,[mid.id])).rows[0].desired_updated_at;
+after > before ? ok("desired_updated_at atualiza") : fail("desired_updated_at");

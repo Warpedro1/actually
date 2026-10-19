@@ -53,3 +53,50 @@ export const AlertsQuery = z.object({
   debate: z.string().min(1),
   since: z.string().datetime().optional(),
 });
+
+// Controle remoto ------------------------------------------------------------
+
+export const MachineDesiredSchema = z.object({
+  state: z.enum(["running", "stopped"]),
+  debate_slug: z.string().min(1).optional(),
+  source: z.enum(["youtube", "device", "file"]).optional(),
+  url: z.string().min(1).optional(),
+  device: z.string().min(1).optional(),
+  role: z.enum(["primary", "standby"]).optional(),
+  start_at: z.string().datetime().optional(),
+  stop_at: z.string().datetime().optional(),
+});
+
+export const MachineReportedSchema = z.object({
+  state: z.enum(["idle", "waiting_start", "starting", "running", "stopping", "error"]),
+  agent_id: z.string().uuid().nullable().optional(),
+  active: z.boolean().optional(),
+  debate_slug: z.string().nullable().optional(),
+  source: z.enum(["youtube", "device", "file"]).nullable().optional(),
+  last_segment_at: z.string().datetime().nullable().optional(),
+  segments_sent: z.number().int().nonnegative().optional(),
+  audio_level_db: z.number().nullable().optional(),
+  reconnects: z.number().int().nonnegative().optional(),
+  error: z.string().max(2000).nullable().optional(),
+  log_tail: z.array(z.string().max(500)).max(20).optional(),
+});
+
+/**
+ * POST /api/control/poll — o daemon chama a cada ~3 s com x-ingest-token.
+ * Faz upsert da máquina pelo nome, grava reported/last_seen e devolve o desejado.
+ */
+export const ControlPollRequest = z.object({
+  machine_name: z.string().min(1).max(80),
+  platform: z.string().max(40),
+  version: z.string().max(40),
+  reported: MachineReportedSchema,
+});
+export type ControlPollRequest = z.infer<typeof ControlPollRequest>;
+
+export const ControlPollResponse = z.object({
+  machine_id: z.string().uuid(),
+  desired: MachineDesiredSchema,
+  /** Hora do servidor (ISO) — o daemon compara start_at/stop_at com ela, não com o relógio local. */
+  server_time: z.string().datetime(),
+});
+export type ControlPollResponse = z.infer<typeof ControlPollResponse>;
