@@ -10,8 +10,12 @@ export interface Word {
   text: string;
   start: number;
   end: number;
-  /** Speaker da diarização; null quando o Deepgram não informou. */
-  speaker: number | null;
+  /**
+   * Rótulo do speaker da diarização, já qualificado pela sessão do STT (ex.:
+   * "s3-a1b2c3:S0"; veja speakerLabel em deepgram.ts) — o mesmo número em
+   * sessões diferentes é speaker diferente. null quando o Deepgram não informou.
+   */
+  speaker: string | null;
 }
 
 export type SegmenterEvent =
@@ -172,14 +176,14 @@ function lengthCut(words: Word[], opts: SegmenterOptions): number | null {
   return limit;
 }
 
-export function dominantSpeaker(words: Word[]): number | null {
-  const dur = new Map<number, number>();
+export function dominantSpeaker(words: Word[]): string | null {
+  const dur = new Map<string, number>();
   for (const w of words) {
     if (w.speaker === null) continue;
     // duração mínima para palavras com timestamps colados
     dur.set(w.speaker, (dur.get(w.speaker) ?? 0) + Math.max(w.end - w.start, 0.01));
   }
-  let best: number | null = null;
+  let best: string | null = null;
   let bestDur = -1;
   for (const [sp, d] of dur) {
     if (d > bestDur) {
@@ -194,7 +198,7 @@ function toDraft(words: Word[]): SegmentDraft {
   const sp = dominantSpeaker(words);
   return {
     text: words.map((w) => w.text.trim()).join(" ").slice(0, 4000),
-    speaker_label: sp === null ? null : `S${sp}`,
+    speaker_label: sp,
     t_start: round3(words[0]!.start),
     t_end: round3(words[words.length - 1]!.end),
   };

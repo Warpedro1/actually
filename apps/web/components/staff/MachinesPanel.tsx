@@ -2,6 +2,7 @@
 
 import { MachineDesiredSchema, type CaptureAgent, type CaptureMachine, type Debate, type MachineDesired } from "@actually/db";
 import { useEffect, useState } from "react";
+import { desiredSourceError } from "@/lib/captureSource";
 import { formatDuration, formatTimeSec, isoToLocalInput, localInputToIso, secondsSince } from "@/lib/format";
 import {
   audioPercent,
@@ -249,6 +250,8 @@ function DesiredForm({
       if (desired.source === "device" ? !desired.device : !desired.url) {
         return setError(desired.source === "device" ? "Informe o dispositivo de áudio." : "Informe a URL ou o arquivo.");
       }
+      const sourceError = desiredSourceError(desired);
+      if (sourceError) return setError(sourceError);
     }
     setBusy(true);
     setError(null);

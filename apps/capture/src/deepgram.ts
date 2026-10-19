@@ -2,8 +2,11 @@
 // para, ao reconectar, reenviar a partir do último resultado final — assim uma
 // queda do WS não perde fala. Os tempos do Deepgram recomeçam em 0 a cada
 // conexão; `offset` (tempo da captura do primeiro pedaço enviado nela) os leva
-// de volta à linha do tempo da captura.
+// de volta à linha do tempo da captura. Os números de speaker da diarização
+// também recomeçam a cada conexão, por isso o rótulo leva a sessão do STT.
+// Um watchdog derruba e reconecta um socket que aceita áudio mas não responde.
 
+import { randomBytes } from "node:crypto";
 import { EventEmitter } from "node:events";
 import WebSocket from "ws";
 import { Backoff } from "./backoff";
@@ -14,6 +17,10 @@ export const DEEPGRAM_URL = "wss://api.deepgram.com/v1/listen";
 export const DEFAULT_STT_MODEL = "nova-3";
 /** Se o modelo pedido recusar pt-BR (HTTP 400 no handshake), cai para este. */
 export const FALLBACK_STT_MODEL = "nova-2";
+/** Sem nenhuma mensagem do Deepgram por isto, com áudio fluindo ⇒ reconecta (ms). */
+export const DEFAULT_STT_STALL_MS = 15_000;
+/** Pausa no envio de áudio maior que isto = fonte parada (não conta para o watchdog). */
+const STALL_AUDIO_GAP_MS = 2000;
 
 export function buildDeepgramUrl(model: string, base: string = DEEPGRAM_URL): string {
   const params = new URLSearchParams({
@@ -56,8 +63,19 @@ interface RawWord {
   speaker?: number;
 }
 
+/**
+ * Rótulo do speaker qualificado pela sessão do STT (ex.: "s3-a1b2c3:S0"). O
+ * Deepgram renumera os speakers a cada conexão — e o standby tem a sua própria
+ * —, então "S0" de outra sessão pode ser outra pessoa: com a sessão no rótulo,
+ * após reconexão ou failover o rótulo novo não herda o speaker_map antigo e a
+ * atribuição volta a "Afirmação feita no debate" até o editor remapear.
+ */
+export function speakerLabel(session: string, speaker: number): string {
+  return `${session}:S${speaker}`;
+}
+
 /** Converte uma mensagem do Deepgram para tempos da captura. null = ignorar. */
-export function parseDeepgramMessage(raw: string, offset: number): DgEvent | null {
+export function parseDeepgramMessage(raw: string, offset: number, session: string): DgEvent | null {
   let msg: Record<string, unknown>;
   try {
     msg = JSON.parse(raw) as Record<string, unknown>;
@@ -72,7 +90,7 @@ export function parseDeepgramMessage(raw: string, offset: number): DgEvent | nul
         text: w.punctuated_word ?? w.word ?? "",
         start: offset + (w.start ?? 0),
         end: offset + (w.end ?? 0),
-        speaker: typeof w.speaker === "number" ? w.speaker : null,
+        speaker: typeof w.speaker === "number" ? speakerLabel(session, w.speaker) : null,
       }));
       const start = typeof msg.start === "number" ? msg.start : 0;
       const duration = typeof msg.duration === "number" ? msg.duration : 0;
@@ -141,6 +159,11 @@ export interface DeepgramStreamOptions {
   /** Áudio mantido para reenvio (s). Limita memória numa queda longa. */
   bufferSeconds?: number;
   keepAliveMs?: number;
+  /**
+   * Com áudio sendo enviado, nenhuma mensagem do Deepgram (nem resultado
+   * vazio) por este tempo ⇒ socket meio-aberto: derruba e reconecta (ms).
+   */
+  stallTimeoutMs?: number;
   /** Outro endpoint (ex.: servidor falso no ensaio local). */
   baseUrl?: string;
   wsFactory?: (url: string, headers: Record<string, string>) => WsLike;
@@ -159,6 +182,14 @@ export class DeepgramStream extends EventEmitter<DeepgramStreamEvents> {
   private lastFinalEnd = 0;
   private connects = 0;
   private keepAlive: NodeJS.Timeout | null = null;
+  private watchdog: NodeJS.Timeout | null = null;
+  /** Sessão do STT da conexão atual (entra no speaker_label). */
+  private session = "";
+  /** Distingue os agentes: cada um conta as suas conexões a partir de 1. */
+  private readonly instanceTag = randomBytes(3).toString("hex");
+  /** Áudio enviado e ainda sem nenhuma resposta desde então (ms), ou null. */
+  private unansweredSince: number | null = null;
+  private lastSentAt = 0;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private readonly backoff = new Backoff({ baseMs: 500, maxMs: 10_000, jitter: 0.2 });
   private openedAt = 0;
@@ -178,6 +209,11 @@ export class DeepgramStream extends EventEmitter<DeepgramStreamEvents> {
     return this.ready;
   }
 
+  /** Sessão do STT da conexão atual ("" antes da primeira). */
+  get currentSession(): string {
+    return this.session;
+  }
+
   /** Bytes ainda não transmitidos pelo socket (para backpressure no replay rápido). */
   get backlogBytes(): number {
     return this.ws?.bufferedAmount ?? 0;
@@ -193,7 +229,16 @@ export class DeepgramStream extends EventEmitter<DeepgramStreamEvents> {
     this.audioClock = t + buf.length / BYTES_PER_SECOND;
     const max = (this.opts.bufferSeconds ?? 120) * BYTES_PER_SECOND;
     while (this.ringBytes > max && this.ring.length > 1) this.ringBytes -= this.ring.shift()!.buf.length;
-    if (this.ready && this.ws) this.ws.send(buf);
+    if (this.ready && this.ws) {
+      this.ws.send(buf);
+      this.markSent(Date.now());
+    }
+  }
+
+  /** Começa a contar a espera por resposta; áudio retomado após pausa recomeça a contagem. */
+  private markSent(now: number): void {
+    if (this.unansweredSince === null || now - this.lastSentAt > STALL_AUDIO_GAP_MS) this.unansweredSince = now;
+    this.lastSentAt = now;
   }
 
   /** CloseStream e espera o servidor mandar os últimos finais e fechar. */
@@ -229,6 +274,7 @@ export class DeepgramStream extends EventEmitter<DeepgramStreamEvents> {
       down = true;
       this.ready = false;
       this.stopKeepAlive();
+      this.unansweredSince = null;
       if (this.ws === ws) this.ws = null;
       if (this.closing) {
         this.closedResolve?.();
@@ -248,6 +294,7 @@ export class DeepgramStream extends EventEmitter<DeepgramStreamEvents> {
       this.openedAt = Date.now();
       const reconnect = this.connects++ > 0;
       if (reconnect) this.reconnects++;
+      this.session = `s${this.connects}-${this.instanceTag}`;
       // reenvia o áudio ainda não finalizado; o offset vira o tempo do 1º pedaço
       const idx = selectResend(this.ring, this.lastFinalEnd);
       this.offset = idx < this.ring.length ? this.ring[idx]!.t : this.audioClock;
@@ -256,13 +303,23 @@ export class DeepgramStream extends EventEmitter<DeepgramStreamEvents> {
         ws.send(this.ring[i]!.buf);
         resent += this.ring[i]!.buf.length;
       }
-      this.startKeepAlive(ws);
+      this.unansweredSince = null;
+      if (resent > 0) this.markSent(this.openedAt);
+      this.startKeepAlive(ws, (reason) => {
+        // derruba com o motivo (o close do terminate já não conta: down=true)
+        this.emit("log", reason);
+        onDown(null, reason);
+        ws.terminate();
+      });
       this.emit("open", { model: this.model, resentSeconds: resent / BYTES_PER_SECOND, reconnect });
     });
 
     ws.on("message", (data: Buffer | string, isBinary?: boolean) => {
+      if (this.ws !== ws) return; // socket já abandonado (watchdog)
+      // qualquer mensagem (inclusive resultado vazio) prova que o socket vive
+      this.unansweredSince = null;
       if (isBinary) return;
-      const ev = parseDeepgramMessage(data.toString(), this.offset);
+      const ev = parseDeepgramMessage(data.toString(), this.offset, this.session);
       if (!ev) return;
       if (ev.type === "results" && ev.isFinal) this.lastFinalEnd = Math.max(this.lastFinalEnd, ev.end);
       this.emit("event", ev);
@@ -298,16 +355,28 @@ export class DeepgramStream extends EventEmitter<DeepgramStreamEvents> {
     ws.on("close", (code: number, reason: Buffer) => onDown(code, reason?.toString() ?? ""));
   }
 
-  private startKeepAlive(ws: WsLike): void {
+  private startKeepAlive(ws: WsLike, kill: (reason: string) => void): void {
     this.stopKeepAlive();
     // Sem KeepAlive o Deepgram fecha após ~10 s sem áudio (ex.: fonte reiniciando).
     this.keepAlive = setInterval(() => {
       if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "KeepAlive" }));
     }, this.opts.keepAliveMs ?? 4000);
+    // Watchdog: socket meio-aberto (ex.: IP mudou) não dá close por minutos;
+    // send() só acumula e nenhum resultado volta. Só conta com áudio fluindo.
+    const stallMs = this.opts.stallTimeoutMs ?? DEFAULT_STT_STALL_MS;
+    this.watchdog = setInterval(() => {
+      if (!this.ready || this.ws !== ws || this.unansweredSince === null) return;
+      const now = Date.now();
+      if (now - this.lastSentAt > STALL_AUDIO_GAP_MS) return; // fonte parada: nada a responder
+      const waitedMs = now - this.unansweredSince;
+      if (waitedMs >= stallMs) kill(`Deepgram sem resposta há ${(waitedMs / 1000).toFixed(0)} s com áudio sendo enviado; reconectando`);
+    }, Math.min(1000, stallMs));
   }
 
   private stopKeepAlive(): void {
     if (this.keepAlive) clearInterval(this.keepAlive);
     this.keepAlive = null;
+    if (this.watchdog) clearInterval(this.watchdog);
+    this.watchdog = null;
   }
 }

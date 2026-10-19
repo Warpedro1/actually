@@ -74,8 +74,10 @@ export async function doctor(o: DoctorOptions, env: NodeJS.ProcessEnv = process.
 
   if (o.url) {
     // --print implica simulação: resolve formato/URL sem baixar
-    const args = buildYtDlpArgs(o.url, o.ytdlpFormat).filter((a) => a !== "-o" && a !== "-");
-    const r = await runCmd(ytDlpBin(env), [...args, "--print", "%(title)s", "--print", "%(live_status)s", "--print", "%(format_id)s"], 60_000);
+    // as opções entram antes do "--" (depois dele tudo é URL)
+    const prints = ["--print", "%(title)s", "--print", "%(live_status)s", "--print", "%(format_id)s"];
+    const args = buildYtDlpArgs(o.url, o.ytdlpFormat, prints).filter((a) => a !== "-o" && a !== "-");
+    const r = await runCmd(ytDlpBin(env), args, 60_000);
     if (r.error || r.code !== 0) report("FALHA", "yt-dlp resolve a URL", (r.error ?? r.stderr.trim().split("\n").slice(-2).join(" ")) || `código ${r.code}`);
     else {
       const [title, live, fmt] = r.stdout.toString().trim().split("\n");

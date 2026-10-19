@@ -219,3 +219,20 @@ describe("[RF13] POST /api/control/poll", () => {
     expect((await controlPoll(post({ ...body, reported: { state: "voando" } }))).status).toBe(400);
   });
 });
+
+describe("[RNF05] [RF13] POST /api/control/poll recusa URL que viraria opção do yt-dlp", () => {
+  const body = { machine_name: "notebook-casa", platform: "linux", version: "0.1.0", reported: { state: "idle" } };
+  const MACHINE = "33333333-3333-4333-8333-333333333333";
+
+  it.each([
+    ["youtube", "--update-to=atacante/repo@v1"],
+    ["youtube", "https://example.com/watch?v=dQw4w9WgXcQ"],
+    ["file", "--config-locations=/tmp/x"],
+  ])("source=%s url=%s ⇒ stopped (nunca chega ao daemon)", async (source, url) => {
+    const desired = { state: "running", debate_slug: "debate-23-10", source, url, role: "primary" };
+    state.db = createMockDb({ capture_machines: () => ok({ id: MACHINE, desired }) }).db;
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const res = await controlPoll(post(body));
+    expect((await res.json()).desired).toEqual({ state: "stopped" });
+  });
+});

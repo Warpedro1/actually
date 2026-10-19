@@ -1,7 +1,16 @@
 import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CHUNK_BYTES } from "../src/audio";
-import { DeepgramStream, buildDeepgramUrl, parseDeepgramMessage, selectResend, type WsLike } from "../src/deepgram";
+import {
+  DEFAULT_STT_STALL_MS,
+  DeepgramStream,
+  buildDeepgramUrl,
+  parseDeepgramMessage,
+  selectResend,
+  speakerLabel,
+  type DgEvent,
+  type WsLike,
+} from "../src/deepgram";
 
 describe("[RF01] URL do Deepgram (pt-BR, diarização)", () => {
   it("leva os parâmetros pedidos", () => {
@@ -45,21 +54,21 @@ describe("parseDeepgramMessage", () => {
         ],
       },
     });
-    const ev = parseDeepgramMessage(raw, 100);
+    const ev = parseDeepgramMessage(raw, 100, "s2-abcdef");
     expect(ev).toMatchObject({ type: "results", isFinal: true, speechFinal: true, end: 103.5 });
     if (ev?.type !== "results") throw new Error();
     expect(ev.words).toEqual([
-      { text: "O", start: 101.6, end: 101.7, speaker: 0 },
-      { text: "desemprego", start: 101.8, end: 102.4, speaker: 0 },
+      { text: "O", start: 101.6, end: 101.7, speaker: "s2-abcdef:S0" },
+      { text: "desemprego", start: 101.8, end: 102.4, speaker: "s2-abcdef:S0" },
       { text: "caiu.", start: 102.5, end: 103, speaker: null },
     ]);
   });
 
   it("UtteranceEnd, SpeechStarted e lixo", () => {
-    expect(parseDeepgramMessage(JSON.stringify({ type: "UtteranceEnd", last_word_end: 2 }), 10)).toEqual({ type: "utterance_end", lastWordEnd: 12 });
-    expect(parseDeepgramMessage(JSON.stringify({ type: "SpeechStarted", timestamp: 1 }), 0)).toEqual({ type: "speech_started", t: 1 });
-    expect(parseDeepgramMessage("não é json", 0)).toBeNull();
-    expect(parseDeepgramMessage(JSON.stringify({ type: "Outro" }), 0)).toBeNull();
+    expect(parseDeepgramMessage(JSON.stringify({ type: "UtteranceEnd", last_word_end: 2 }), 10, "s1-x")).toEqual({ type: "utterance_end", lastWordEnd: 12 });
+    expect(parseDeepgramMessage(JSON.stringify({ type: "SpeechStarted", timestamp: 1 }), 0, "s1-x")).toEqual({ type: "speech_started", t: 1 });
+    expect(parseDeepgramMessage("não é json", 0, "s1-x")).toBeNull();
+    expect(parseDeepgramMessage(JSON.stringify({ type: "Outro" }), 0, "s1-x")).toBeNull();
   });
 });
 
@@ -200,5 +209,150 @@ describe("[RNF09] DeepgramStream", () => {
     vi.advanceTimersByTime(60_000);
     expect(fatal).toHaveLength(1);
     expect(sockets).toHaveLength(1);
+  });
+});
+
+/** Results final com uma palavra do speaker `sp` (tempos da conexão). */
+function result(sp: number, start = 0) {
+  return {
+    type: "Results",
+    start,
+    duration: 0.5,
+    is_final: true,
+    channel: { alternatives: [{ transcript: "x", words: [{ word: "x", start: start + 0.1, end: start + 0.2, speaker: sp }] }] },
+  };
+}
+
+function streamWithSockets(opts: { stallTimeoutMs?: number } = {}) {
+  const sockets: FakeWs[] = [];
+  const dg = new DeepgramStream({
+    apiKey: "k",
+    model: "nova-3",
+    ...opts,
+    wsFactory: () => {
+      const ws = new FakeWs();
+      sockets.push(ws);
+      return ws;
+    },
+  });
+  const events: DgEvent[] = [];
+  const disconnects: { reason: string }[] = [];
+  dg.on("event", (e) => events.push(e));
+  dg.on("disconnected", (d) => disconnects.push(d));
+  return { dg, sockets, events, disconnects };
+}
+
+const wordSpeaker = (ev: DgEvent | undefined) => (ev?.type === "results" ? ev.words[0]?.speaker : undefined);
+
+describe("[RF09] speaker_label com a sessão do STT", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("rótulo = sessão + speaker", () => {
+    expect(speakerLabel("s3-a1b2c3", 0)).toBe("s3-a1b2c3:S0");
+  });
+
+  it("após reconexão o mesmo número do Deepgram vira outro rótulo (não herda o speaker_map)", () => {
+    vi.useFakeTimers();
+    const { dg, sockets, events } = streamWithSockets();
+    dg.start();
+    sockets[0]!.open();
+    const s1 = dg.currentSession;
+    expect(s1).toMatch(/^s1-[0-9a-f]{6}$/);
+    sockets[0]!.message(result(0));
+    const first = wordSpeaker(events.at(-1));
+    expect(first).toBe(`${s1}:S0`);
+
+    sockets[0]!.close();
+    vi.advanceTimersByTime(20_000);
+    sockets[1]!.open();
+    sockets[1]!.message(result(0));
+    const second = wordSpeaker(events.at(-1));
+    expect(dg.currentSession).toMatch(/^s2-[0-9a-f]{6}$/);
+    expect(second).toBe(`${dg.currentSession}:S0`);
+    expect(second).not.toBe(first);
+    expect((second as string).length).toBeLessThanOrEqual(32); // limite de speaker_label no contrato
+    void dg.finish(10);
+  });
+
+  it("agentes diferentes (failover para o standby) nunca geram o mesmo rótulo", () => {
+    const a = streamWithSockets();
+    const b = streamWithSockets();
+    a.dg.start();
+    b.dg.start();
+    a.sockets[0]!.open();
+    b.sockets[0]!.open();
+    a.sockets[0]!.message(result(0));
+    b.sockets[0]!.message(result(0));
+    expect(wordSpeaker(a.events.at(-1))).not.toBe(wordSpeaker(b.events.at(-1)));
+    void a.dg.finish(10);
+    void b.dg.finish(10);
+  });
+});
+
+describe("[RNF09] watchdog do STT (socket meio-aberto)", () => {
+  afterEach(() => vi.useRealTimers());
+
+  /** Manda `seconds` de áudio em pedaços de 100 ms, avançando o relógio junto. */
+  function stream(dg: DeepgramStream, from: number, seconds: number, onTick?: (t: number) => void) {
+    for (let i = 0; i < seconds * 10; i++) {
+      const t = from + i / 10;
+      dg.send(Buffer.alloc(CHUNK_BYTES, 1), t);
+      onTick?.(t);
+      vi.advanceTimersByTime(100);
+    }
+  }
+
+  it("áudio fluindo e nenhuma mensagem do Deepgram ⇒ derruba e reconecta, reenviando o áudio", () => {
+    vi.useFakeTimers();
+    const { dg, sockets, disconnects } = streamWithSockets();
+    dg.start();
+    sockets[0]!.open();
+    stream(dg, 0, 5, (t) => {
+      if (Math.abs(t - 2) < 1e-9) sockets[0]!.message({ type: "Results", start: 0, duration: 2, is_final: true, channel: { alternatives: [{ transcript: "", words: [] }] } });
+    });
+    expect(disconnects).toHaveLength(0);
+    // a partir daqui o socket aceita áudio mas não responde mais
+    stream(dg, 5, DEFAULT_STT_STALL_MS / 1000 + 2);
+    expect(disconnects).toHaveLength(1);
+    expect(disconnects[0]!.reason).toMatch(/sem resposta/);
+    expect(sockets[0]!.readyState).toBe(3); // terminate()
+    vi.advanceTimersByTime(20_000);
+    expect(sockets).toHaveLength(2);
+    sockets[1]!.open();
+    // reenvia a partir do último final (2 s), não perde a fala do período mudo
+    const resent = sockets[1]!.sent.filter(Buffer.isBuffer);
+    expect(resent.length).toBeGreaterThanOrEqual(DEFAULT_STT_STALL_MS / 100);
+    void dg.finish(10);
+  });
+
+  it("resultados (mesmo vazios) chegando ⇒ não derruba", () => {
+    vi.useFakeTimers();
+    const { dg, sockets, disconnects } = streamWithSockets();
+    dg.start();
+    sockets[0]!.open();
+    stream(dg, 0, 60, (t) => {
+      if (Math.round(t * 10) % 10 === 0) sockets[0]!.message({ type: "Results", start: 0, duration: 1, is_final: false, channel: { alternatives: [{ transcript: "", words: [] }] } });
+    });
+    expect(disconnects).toHaveLength(0);
+    void dg.finish(10);
+  });
+
+  it("fonte parada (sem áudio) não conta; ao voltar o áudio, a espera recomeça do zero", () => {
+    vi.useFakeTimers();
+    const { dg, sockets, disconnects } = streamWithSockets({ stallTimeoutMs: 10_000 });
+    dg.start();
+    sockets[0]!.open();
+    stream(dg, 0, 3, (t) => {
+      if (Math.abs(t - 2.9) < 1e-9) sockets[0]!.message({ type: "Results", start: 0, duration: 2.9, is_final: true, channel: { alternatives: [{ transcript: "", words: [] }] } });
+    });
+    // fonte reiniciando: 60 s sem áudio e sem mensagens (só KeepAlive)
+    vi.advanceTimersByTime(60_000);
+    expect(disconnects).toHaveLength(0);
+    // áudio volta; o Deepgram responde em 1 s
+    stream(dg, 3, 1);
+    sockets[0]!.message({ type: "Results", start: 3, duration: 1, is_final: false, channel: { alternatives: [{ transcript: "", words: [] }] } });
+    stream(dg, 4, 5);
+    expect(disconnects).toHaveLength(0);
+    void dg.finish(10);
   });
 });
