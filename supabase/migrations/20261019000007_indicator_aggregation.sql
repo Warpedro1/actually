@@ -1,6 +1,6 @@
 -- L2: como cada série se agrega num período mais longo que a sua periodicidade.
 -- O comparador do pipeline (packages/pipeline/src/retrieve/indicators.ts) lê este
--- campo pelo find_indicator; o kb-ingest grava o valor do catálogo
+-- campo pelo find_indicator_v2; o kb-ingest grava o valor do catálogo
 -- (apps/kb-ingest/src/indicators/catalog.ts). Valores = INDICATOR_AGGREGATIONS em
 -- packages/db/src/types.ts:
 --   sum          fluxo (Caged, PIB nominal): ano/trimestre = soma do período completo
@@ -15,20 +15,20 @@
 -- antigo é a única com o alias "inflação") comparar o último mês com "a inflação
 -- está em 4,5%" e acusar "contradito".
 alter table indicator_series
-  add column aggregation text
+  add column if not exists aggregation text
   check (aggregation in ('sum', 'mean_or_last', 'last', 'accum_12m', 'none'));
 
 comment on column indicator_series.aggregation is
   'Agregação em período mais longo que a periodicidade: sum | mean_or_last | last | accum_12m | none. '
   'null = não declarada: o pipeline não compara (L2 em silêncio). Gravada pelo kb-ingest indicators.';
 
--- RETURNS TABLE não muda com create or replace: recria a função com a coluna nova.
-drop function find_indicator(text, int);
-
-create function find_indicator(q text, match_count int default 3)
+-- RETURNS TABLE não muda com create or replace, e recriar find_indicator exigiria
+-- DROP (operação destrutiva). A versão com a agregação ganha nome próprio; o
+-- pipeline chama find_indicator_v2 e a antiga fica só por compatibilidade.
+create or replace function find_indicator_v2(q text, match_count int default 3)
 returns table (code text, name text, unit text, periodicity text, aggregation text, source_name text,
                source_url text, tier smallint, score real)
-language sql stable as $$
+language sql stable set search_path = public, extensions as $$
   select s.code, s.name, s.unit, s.periodicity, s.aggregation, s.source_name, s.source_url, s.tier,
          greatest(
            similarity(unaccent(lower(s.name)), unaccent(lower(q))),
@@ -38,6 +38,3 @@ language sql stable as $$
   order by score desc
   limit match_count;
 $$;
-
--- como em 20261019000003_hardening.sql (o drop leva a configuração junto)
-alter function find_indicator(text, int) set search_path = public, extensions;

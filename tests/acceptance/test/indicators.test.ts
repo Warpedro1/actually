@@ -30,7 +30,7 @@ describe("[RF15] indicator_series.aggregation (L2)", () => {
     for (const s of activeSeries()) await insertSeries(toSeriesRow(s) as unknown as Record<string, unknown>);
     for (const s of activeSeries()) {
       const m = await one<{ code: string; aggregation: string | null; score: number }>(
-        db, `select * from find_indicator($1, 1)`, [s.name]);
+        db, `select * from find_indicator_v2($1, 1)`, [s.name]);
       expect(m).toMatchObject({ code: s.code, aggregation: s.aggregation });
       expect(m.score).toBeGreaterThan(0.99);
     }
@@ -44,20 +44,20 @@ describe("[RF15] indicator_series.aggregation (L2)", () => {
 
   it("[RF15] linha anterior à coluna fica sem agregação (null, nunca 'none') até o próximo `kb-ingest indicators`", async () => {
     await insertSeries(base("antiga"));
-    const m = await one<{ aggregation: string | null }>(db, `select aggregation from find_indicator('antiga', 1)`);
+    const m = await one<{ aggregation: string | null }>(db, `select aggregation from find_indicator_v2('antiga', 1)`);
     expect(m.aggregation).toBeNull();
   });
 
-  it("[RF15] find_indicator recriado mantém o search_path fixo do hardening", async () => {
+  it("[RF15] find_indicator_v2 mantém o search_path fixo do hardening", async () => {
     const f = await one<{ cfg: string[] | null }>(
-      db, `select proconfig as cfg from pg_proc where proname = 'find_indicator'`);
+      db, `select proconfig as cfg from pg_proc where proname = 'find_indicator_v2'`);
     expect(f.cfg).toEqual(["search_path=public, extensions"]);
   });
 
   it("[RNF05] anon e authenticated não leem séries pelo find_indicator (RLS sem políticas)", async () => {
     await insertSeries({ ...base("desemprego"), aggregation: "mean_or_last" });
     for (const role of ["anon", "authenticated"] as const) {
-      const rows = await asRole(db, role, null, async () => (await db.query(`select * from find_indicator('desemprego', 5)`)).rows);
+      const rows = await asRole(db, role, null, async () => (await db.query(`select * from find_indicator_v2('desemprego', 5)`)).rows);
       expect(rows).toEqual([]);
     }
   });

@@ -262,7 +262,7 @@ export function supabaseStore(sb: Sb): PipelineStore {
     },
 
     async findIndicator(q, count) {
-      const rows = check(await sb.rpc("find_indicator", { q, match_count: count }), "find_indicator");
+      const rows = check(await sb.rpc("find_indicator_v2", { q, match_count: count }), "find_indicator_v2");
       return ((rows ?? []) as IndicatorMatch[]).map((r) => ({ ...r, score: num(r.score) }));
     },
 
