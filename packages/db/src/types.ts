@@ -57,6 +57,8 @@ export interface Debate {
   created_at: string;
   started_at: string | null;
   ended_at: string | null;
+  /** Horário previsto de início (o /admin usa para sugerir o start_at da captura). */
+  scheduled_at: string | null;
 }
 
 export interface CaptureAgent {
@@ -274,3 +276,52 @@ export interface IndicatorMatch {
 
 /** Dimensão dos embeddings (Voyage voyage-3.5). Mudou o modelo? Mude a migration também. */
 export const EMBEDDING_DIM = 1024;
+
+// Controle remoto da captura ------------------------------------------------
+
+/** Estado desejado de uma máquina de captura, definido no /admin. */
+export interface MachineDesired {
+  state: "running" | "stopped";
+  debate_slug?: string;
+  source?: CaptureSource;
+  /** URL da live (source=youtube) ou caminho do arquivo (source=file). */
+  url?: string;
+  /** Especificação do dispositivo de áudio (source=device). */
+  device?: string;
+  role?: CaptureRole;
+  /** ISO-8601. Com state=running, o daemon só inicia a partir deste horário. */
+  start_at?: string;
+  /** ISO-8601. Para sozinho neste horário (segurança contra esquecer ligado). */
+  stop_at?: string;
+}
+
+/** Estado reportado pelo daemon a cada poll. */
+export interface MachineReported {
+  state: "idle" | "waiting_start" | "starting" | "running" | "stopping" | "error";
+  agent_id?: string | null;
+  /** Se este agente é o ativo do debate (heartbeat). */
+  active?: boolean;
+  debate_slug?: string | null;
+  source?: CaptureSource | null;
+  last_segment_at?: string | null;
+  segments_sent?: number;
+  /** dBFS médio dos últimos segundos; ~-90 = silêncio. */
+  audio_level_db?: number | null;
+  reconnects?: number;
+  error?: string | null;
+  /** Últimas linhas de log (máx. ~20) para diagnóstico remoto. */
+  log_tail?: string[];
+}
+
+export interface CaptureMachine {
+  id: string;
+  name: string;
+  platform: string | null;
+  version: string | null;
+  desired: MachineDesired;
+  reported: Partial<MachineReported>;
+  last_seen: string | null;
+  desired_updated_at: string;
+  desired_updated_by: string | null;
+  created_at: string;
+}
