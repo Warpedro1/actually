@@ -14,6 +14,7 @@ set search_path = public, extensions;
 create table auth.users (id uuid primary key);
 create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub', true),'')::uuid $$;
 create function auth.role() returns text language sql stable as $$ select coalesce(nullif(current_setting('request.jwt.claim.role', true),''),'service_role') $$;
+create function auth.jwt() returns jsonb language sql stable as $$ select coalesce(nullif(current_setting('request.jwt.claim', true),''), nullif(current_setting('request.jwt.claims', true),''))::jsonb $$;
 create publication supabase_realtime;
 `);
 await db.exec(fs.readFileSync(new URL("../../../supabase/migrations/20261019000001_init.sql", import.meta.url), "utf8"));
@@ -85,3 +86,20 @@ after > before ? ok("desired_updated_at atualiza") : fail("desired_updated_at");
 await db.exec(fs.readFileSync(new URL("../../../supabase/migrations/20261019000003_hardening.sql", import.meta.url), "utf8"));
 const priv = (await db.query(`select has_function_privilege('anon','capture_heartbeat(uuid)','execute') as hb, has_function_privilege('anon','is_editor()','execute') as ie`)).rows[0];
 !priv.hb && priv.ie ? ok("anon não chama capture_heartbeat; is_editor segue liberado para RLS") : fail("privilégios " + JSON.stringify(priv));
+
+// Migração 5: 2FA no banco (editors.mfa_required → is_editor() exige aal2)
+await db.exec(fs.readFileSync(new URL("../../../supabase/migrations/20261019000005_mfa.sql", import.meta.url), "utf8"));
+const ed = "00000000-0000-4000-8000-0000000000aa";
+await db.query(`insert into auth.users (id) values ($1)`, [ed]);
+await db.query(`insert into editors (user_id, name) values ($1, 'E')`, [ed]);
+const isEd = async (aal) => {
+  await db.query(`select set_config('request.jwt.claim.sub', $1, false), set_config('request.jwt.claims', $2, false)`,
+    [ed, JSON.stringify({ sub: ed, role: "authenticated", aal })]);
+  return (await db.query(`select is_editor() as ok`)).rows[0].ok;
+};
+(await isEd("aal1")) === true ? ok("mfa_required padrão false: aal1 segue editor") : fail("mfa_required padrão");
+await db.query(`update editors set mfa_required = true where user_id = $1`, [ed]);
+(await isEd("aal1")) === false ? ok("mfa_required: aal1 não é editor") : fail("mfa_required aceitou aal1");
+(await isEd(undefined)) === false ? ok("mfa_required: JWT sem aal não é editor") : fail("mfa_required aceitou JWT sem aal");
+(await isEd("aal2")) === true ? ok("mfa_required: aal2 é editor") : fail("mfa_required recusou aal2");
+await db.query(`select set_config('request.jwt.claim.sub', '', false), set_config('request.jwt.claims', '', false)`);

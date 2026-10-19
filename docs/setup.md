@@ -14,7 +14,8 @@ Passo a passo para subir o ambiente do zero. Ordem: Supabase → chaves → Verc
 2. Aplicar as migrations, **em ordem**:
    - `supabase/migrations/20261019000001_init.sql` — schema, trigger de evidência, append-only, RLS, RPCs, Realtime;
    - `supabase/migrations/20261019000002_remote_capture.sql` — `capture_machines` (controle remoto) e `debates.scheduled_at`;
-   - `supabase/migrations/20261019000003_hardening.sql` — `search_path` fixo e revogação de RPCs sensíveis.
+   - `supabase/migrations/20261019000003_hardening.sql` — `search_path` fixo e revogação de RPCs sensíveis;
+   - `supabase/migrations/20261019000005_mfa.sql` — `editors.mfa_required`: com a flag, `is_editor()` só vale com sessão `aal2` (2FA no banco; ver seção 4).
 
    Com a CLI: `supabase link --project-ref <ref>` e `supabase db push`. Sem a CLI: colar cada arquivo no SQL Editor, na ordem.
 3. Conferir: Database → Extensions mostra `vector`, `pg_trgm` e `unaccent` no schema `extensions`; Advisors → Security sem alertas além dos INFO intencionais das tabelas `kb_*`/`indicator_*` (RLS sem políticas, só service role).
@@ -69,7 +70,22 @@ Só usuários presentes na tabela `editors` acessam `/editor` e `/admin`.
    - Supabase → Authentication → Multi-Factor: habilitar **TOTP**.
    - No primeiro login, o /editor pede o cadastro: escanear o QR code com um app autenticador (Google Authenticator, 1Password, Authy…) e digitar o código de 6 dígitos.
    - A partir daí, cada login pede o código (sessão `aal2`).
-   - Perdeu o celular? Um admin remove o fator em Authentication → Users → (usuário) → MFA factors, e o editor cadastra de novo.
+   - **Depois que o editor cadastrar o TOTP, marque a exigência no banco.** `REQUIRE_MFA` só protege a interface; sem
+     a flag, quem tiver só a senha ainda age como editor chamando a API do Supabase direto. Com `mfa_required = true`,
+     `is_editor()` (RLS e `capture_set_active`) só vale com sessão `aal2`:
+
+     ```sql
+     update editors set mfa_required = true where user_id = '<uuid-do-usuario>';
+     -- ou todos os editores que já têm TOTP verificado:
+     update editors set mfa_required = true
+     where user_id in (select user_id from auth.mfa_factors where factor_type = 'totp' and status = 'verified');
+     -- conferir (em produção, todos true):
+     select name, mfa_required from editors;
+     ```
+
+     Se marcar antes do cadastro, nada tranca: o /editor leva a conta ao cadastro do autenticador, e o banco não libera
+     nenhuma ação de editor até lá.
+   - Perdeu o celular? Um admin remove o fator em Authentication → Users → (usuário) → MFA factors, e o editor cadastra de novo (com `mfa_required = true`, a conta fica sem permissão de editor até cadastrar).
 4. Remover acesso: `delete from editors where user_id = '<uuid>';` (e desativar o usuário no Auth).
 
 ## 5. Base de conhecimento
