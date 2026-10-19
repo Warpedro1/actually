@@ -77,9 +77,14 @@ tier, notes e a origem de cada código). `--list` mostra ativas e pendentes; `--
 
 `aggregation` diz ao comparador L2 como ler um período mais longo que a série: `sum` (fluxo: Caged, PIB nominal —
 ano = soma), `mean_or_last` (taxa: média ou último ponto), `last` (estoque: fim do período), `accum_12m` (ano civil =
-dezembro) ou `none` (só o período exato). Exige a coluna `indicator_series.aggregation` e o `find_indicator`
-devolvendo-a. Alias genérico repetido em duas séries só se uma delas não couber na afirmação (ver o cabeçalho do
-catálogo); na dúvida o pipeline cala a L2.
+dezembro) ou `none` (só o período exato). Alias genérico repetido em duas séries só se uma delas não couber na
+afirmação (ver o cabeçalho do catálogo); na dúvida o pipeline cala a L2.
+
+**Ordem obrigatória:** aplicar `supabase/migrations/20261019000007_indicator_aggregation.sql` (cria a coluna
+`indicator_series.aggregation` e o `find_indicator` que a devolve) e **depois** rodar `indicators`. Sem a migration a
+carga para no primeiro upsert, com o nome do arquivo no erro. Entre a migration e a nova carga, as séries antigas ficam
+com `aggregation` nula e o pipeline cala a L2 nelas (`serie_sem_agregacao`); `status` mostra essas séries como
+`SEM AGREGAÇÃO` e as que divergem do catálogo (agregação ou aliases antigos) como `DESATUALIZADA`.
 
 Períodos: mensal → mês; trimestral → trimestre civil; trimestre móvel → 3 meses terminando no mês de referência;
 anual → ano. Séries diárias do SGS (Selic meta, dólar) viram o **último valor de cada mês**.

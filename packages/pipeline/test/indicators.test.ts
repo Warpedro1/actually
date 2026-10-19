@@ -1,16 +1,15 @@
-import type { IndicatorRef, IndicatorValue } from "@actually/db";
+import type { IndicatorRef, IndicatorSeries, IndicatorValue } from "@actually/db";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TIMEOUTS_MS } from "../src/config";
 import { retrieveAll } from "../src/retrieve";
 import {
   classify, compareIndicator, parsePeriod, retrieveIndicator, toAggregation, toleranceFor, unitScale, valuesForPeriod,
-  type ComparableSeries,
 } from "../src/retrieve/indicators";
 import type { PipelineStore } from "../src/store";
 import type { ExtractedClaim } from "../src/types";
 import { MemoryStore, PNAD, PNAD_VALUES, fakeAnthropic, makeDeps } from "./helpers";
 
-const pnad: ComparableSeries = {
+const pnad: IndicatorSeries = {
   code: "desocupacao_pnadc", name: "Taxa de desocupação", aliases: ["desemprego"], unit: "%",
   periodicity: "quarterly", aggregation: "mean_or_last", source_name: "IBGE", source_url: "https://sidra.ibge.gov.br/tabela/4099", tier: 1, notes: null,
 };
@@ -33,16 +32,16 @@ const ref = (over: Partial<IndicatorRef>): IndicatorRef => ({ query: "desemprego
 
 // Séries como no catálogo do kb-ingest (apps/kb-ingest/src/indicators/catalog.ts)
 const src = { source_name: "IBGE/BCB", source_url: "https://api.bcb.gov.br/dados/serie/bcdata.sgs.433/dados?formato=json", tier: 1 as const, notes: null, aliases: [] };
-const IPCA_MENSAL: ComparableSeries = { ...src, code: "ipca_mensal", name: "IPCA — variação mensal", unit: "%", periodicity: "monthly", aggregation: "none" };
-const IPCA_12M: ComparableSeries = { ...src, code: "ipca_12m", name: "IPCA — acumulado em 12 meses", unit: "%", periodicity: "monthly", aggregation: "accum_12m" };
-const DLSP: ComparableSeries = { ...src, code: "dlsp_pib", name: "Dívida líquida do setor público (% do PIB)", unit: "% do PIB", periodicity: "monthly", aggregation: "last" };
-const PRIMARIO: ComparableSeries = { ...src, code: "primario_12m_pib", name: "Resultado primário 12m (% do PIB)", unit: "% do PIB", periodicity: "monthly", aggregation: "accum_12m" };
-const RENDIMENTO: ComparableSeries = { ...src, code: "rendimento_medio_real", name: "Rendimento médio real", unit: "R$", periodicity: "moving_quarter", aggregation: "mean_or_last" };
-const CAGED: ComparableSeries = { ...src, code: "caged_saldo", name: "Novo Caged — saldo de empregos formais no mês", unit: "postos de trabalho", periodicity: "monthly", aggregation: "sum" };
-const PIB_CORRENTE: ComparableSeries = { ...src, code: "pib_corrente_trimestral", name: "PIB a preços correntes (trimestral)", unit: "R$ milhões", periodicity: "quarterly", aggregation: "sum" };
-const POP: ComparableSeries = { ...src, code: "populacao_estimada", name: "População residente estimada", unit: "pessoas", periodicity: "annual", aggregation: "none" };
-const DESOC_TRI: ComparableSeries = { ...pnad, code: "desocupacao_pnadc_trimestral" };
-const DESOC_MOV: ComparableSeries = { ...pnad, code: "desocupacao_pnadc_movel", periodicity: "moving_quarter" };
+const IPCA_MENSAL: IndicatorSeries = { ...src, code: "ipca_mensal", name: "IPCA — variação mensal", unit: "%", periodicity: "monthly", aggregation: "none" };
+const IPCA_12M: IndicatorSeries = { ...src, code: "ipca_12m", name: "IPCA — acumulado em 12 meses", unit: "%", periodicity: "monthly", aggregation: "accum_12m" };
+const DLSP: IndicatorSeries = { ...src, code: "dlsp_pib", name: "Dívida líquida do setor público (% do PIB)", unit: "% do PIB", periodicity: "monthly", aggregation: "last" };
+const PRIMARIO: IndicatorSeries = { ...src, code: "primario_12m_pib", name: "Resultado primário 12m (% do PIB)", unit: "% do PIB", periodicity: "monthly", aggregation: "accum_12m" };
+const RENDIMENTO: IndicatorSeries = { ...src, code: "rendimento_medio_real", name: "Rendimento médio real", unit: "R$", periodicity: "moving_quarter", aggregation: "mean_or_last" };
+const CAGED: IndicatorSeries = { ...src, code: "caged_saldo", name: "Novo Caged — saldo de empregos formais no mês", unit: "postos de trabalho", periodicity: "monthly", aggregation: "sum" };
+const PIB_CORRENTE: IndicatorSeries = { ...src, code: "pib_corrente_trimestral", name: "PIB a preços correntes (trimestral)", unit: "R$ milhões", periodicity: "quarterly", aggregation: "sum" };
+const POP: IndicatorSeries = { ...src, code: "populacao_estimada", name: "População residente estimada", unit: "pessoas", periodicity: "annual", aggregation: "none" };
+const DESOC_TRI: IndicatorSeries = { ...pnad, code: "desocupacao_pnadc_trimestral" };
+const DESOC_MOV: IndicatorSeries = { ...pnad, code: "desocupacao_pnadc_movel", periodicity: "moving_quarter" };
 
 // IPCA 2025: variação mensal (média ≈ 0,35) e acumulado em 12 meses (dez = 4,26)
 const IPCA_MENSAL_2025 = months("ipca_mensal", 2025, [0.16, 1.31, 0.56, 0.43, 0.26, 0.24, 0.26, -0.11, 0.48, 0.09, 0.18, 0.33]);
@@ -53,15 +52,22 @@ const CAGED_2024 = months("caged_saldo", 2024, [180395, 306111, 244315, 240033, 
 const PIB_2024 = [q(2024, 1, 2_766_000, PIB_CORRENTE.code), q(2024, 2, 2_915_000, PIB_CORRENTE.code), q(2024, 3, 3_012_000, PIB_CORRENTE.code), q(2024, 4, 3_048_000, PIB_CORRENTE.code)];
 const POP_2025: IndicatorValue[] = [{ series_code: POP.code, period_start: "2025-01-01", period_end: "2025-12-31", value: 213_421_037, released_at: null }];
 
-/** find_indicator falso com os scores que o pg_trgm real dá (ver comentários de cada caso). */
-function fakeStore(matches: [ComparableSeries, number][], values: Record<string, IndicatorValue[]>) {
+/**
+ * find_indicator falso com os scores que o pg_trgm real dá (ver comentários de cada caso).
+ * `withoutColumn`: banco sem a migration 20261019000007 (a RPC nem devolve `aggregation`).
+ */
+function fakeStore(matches: [IndicatorSeries, number][], values: Record<string, IndicatorValue[]>, opts: { withoutColumn?: boolean } = {}) {
   const valueCalls: string[] = [];
   const store = {
     async findIndicator() {
-      return matches.map(([s, score]) => ({
-        code: s.code, name: s.name, unit: s.unit, periodicity: s.periodicity, aggregation: s.aggregation,
-        source_name: s.source_name, source_url: s.source_url, tier: s.tier, score,
-      }));
+      return matches.map(([s, score]) => {
+        const row: Record<string, unknown> = {
+          code: s.code, name: s.name, unit: s.unit, periodicity: s.periodicity, aggregation: s.aggregation,
+          source_name: s.source_name, source_url: s.source_url, tier: s.tier, score,
+        };
+        if (opts.withoutColumn) delete row.aggregation;
+        return row;
+      });
     },
     async indicatorValues(code: string) {
       valueCalls.push(code);
@@ -172,7 +178,7 @@ describe("[RF03] compareIndicator (L2 determinístico)", () => {
     expect(compareIndicator(ref({ period: "2022", claimed_value: 11, kind: "max" }), pnad, VALUES).status).toBe("match");
   });
   it("série em 'mil pessoas' x afirmação absoluta, tolerância 10%", () => {
-    const s: ComparableSeries = { ...pnad, code: "desocupados", name: "Pessoas desocupadas", unit: "mil pessoas" };
+    const s: IndicatorSeries = { ...pnad, code: "desocupados", name: "Pessoas desocupadas", unit: "mil pessoas" };
     const vals = [q(2023, 4, 8_100)].map((v) => ({ ...v, series_code: s.code }));
     expect(compareIndicator({ query: "desempregados", period: "2023-T4", claimed_value: 8_500_000, unit: null, kind: "level" }, s, vals).status).toBe("match");
     expect(compareIndicator({ query: "desempregados", period: "2023-T4", claimed_value: 9_500_000, unit: null, kind: "level" }, s, vals).status).toBe("minor_mismatch");
@@ -234,12 +240,77 @@ describe("[RF03] L2: escolha inequívoca da série (retrieveIndicator)", () => {
     expect((await retrieveIndicator(ref({}), store)).comparison).toMatchObject({ status: "no_data", reason: "serie_ambigua" });
   });
 
-  it("série sem `aggregation` (banco sem a coluna) não agrega: ano em série trimestral ⇒ silêncio", async () => {
-    const legacy: ComparableSeries = { ...pnad, aggregation: undefined };
-    const { store } = fakeStore([[legacy, 1]], { [pnad.code]: VALUES });
-    expect((await retrieveIndicator(ref({ claimed_value: 12 }), store)).comparison).toMatchObject({ status: "no_data", reason: "periodo_incompativel" });
-    expect(toAggregation(undefined)).toBe("none");
-    expect(toAggregation("soma")).toBe("none");
+  it("nome exato manda: série aproximada não entra no lugar da exata que não cabe na afirmação", async () => {
+    // "o IPCA mensal de 2025 foi 4,3%": a mensal (nomeada exatamente) não agrega em ano; o
+    // acumulado 12m a 0,8 caberia, mas não foi a série dita ⇒ silêncio, sem carregar valores
+    const { store, valueCalls } = fakeStore([[IPCA_MENSAL, 1], [IPCA_12M, 0.8]], IPCA_VALUES);
+    const r = await retrieveIndicator(inflacao({ query: "ipca mensal" }), store);
+    expect(r).toMatchObject({ comparison: { status: "no_data", reason: "periodo_incompativel", series_code: "ipca_mensal" }, candidate: null });
+    expect(valueCalls).toEqual([]);
+  });
+
+  it("nome exato que cabe vence a aproximada que também caberia (mesma medida, 0,79)", async () => {
+    const movel = VALUES.map((v) => ({ ...v, series_code: DESOC_MOV.code }));
+    const { store, valueCalls } = fakeStore([[DESOC_MOV, 1], [DESOC_TRI, 0.79]], { [DESOC_MOV.code]: movel });
+    const r = await retrieveIndicator(ref({ query: "taxa de desocupação" }), store);
+    expect(r.comparison).toMatchObject({ status: "match", series_code: DESOC_MOV.code });
+    expect(valueCalls).toEqual([DESOC_MOV.code]);
+  });
+
+  it("'desempregados' é contagem, não taxa: sem alias na série em %, só casa aproximado (0,56) ⇒ silêncio", async () => {
+    // scores reais do find_indicator sobre o catálogo ativo (sem "desempregados" na trimestral)
+    const { store, valueCalls } = fakeStore([[DESOC_MOV, 0.563], [DESOC_TRI, 0.333]], { [DESOC_MOV.code]: VALUES });
+    const r = await retrieveIndicator({ query: "desempregados", period: null, claimed_value: 8.5, unit: null, kind: "level" }, store);
+    expect(r).toMatchObject({ comparison: { status: "no_data", reason: "serie_ambigua" }, candidate: null });
+    expect(valueCalls).toEqual([]);
+  });
+});
+
+describe("[RF03] L2: série sem agregação declarada ⇒ silêncio (banco sem a migration ou ainda não recarregado)", () => {
+  // Banco com o catálogo ANTIGO: "inflação" só na variação mensal (pg_trgm 1,0 × 0,6 no acumulado)
+  // e Caged com "empregos formais" (1,0). Sem a agregação, "none" leria o último ponto e acusaria.
+  const IPCA_VALUES = { ipca_mensal: IPCA_MENSAL_2025, ipca_12m: IPCA_12M_2025 };
+  const inflacaoHoje: IndicatorRef = { query: "inflação", period: null, claimed_value: 4.5, unit: "%", kind: "level" };
+  const empregos: IndicatorRef = { query: "empregos formais", period: null, claimed_value: 1_700_000, unit: null, kind: "level" };
+  const undeclared = (s: IndicatorSeries): IndicatorSeries => ({ ...s, aggregation: null });
+
+  it("'A inflação está em 4,5%' sem a coluna ⇒ no_data, nunca 'dez/2025 (último dado disponível) = 0,33 %' contradito", async () => {
+    const { store, valueCalls } = fakeStore([[IPCA_MENSAL, 1], [IPCA_12M, 0.6]], IPCA_VALUES, { withoutColumn: true });
+    const r = await retrieveIndicator(inflacaoHoje, store);
+    expect(r).toMatchObject({ comparison: { status: "no_data", expected_verdict: null, reason: "serie_sem_agregacao", series_code: "ipca_mensal" }, candidate: null });
+    expect(valueCalls).toEqual([]);
+  });
+
+  it("'Criamos 1,7 milhão de empregos formais' sem a coluna ⇒ no_data, nunca 'dez/2024 = -535.547' contradito", async () => {
+    const { store, valueCalls } = fakeStore([[CAGED, 1]], { caged_saldo: CAGED_2024 }, { withoutColumn: true });
+    const r = await retrieveIndicator(empregos, store);
+    expect(r).toMatchObject({ comparison: { status: "no_data", reason: "serie_sem_agregacao" }, candidate: null });
+    expect(valueCalls).toEqual([]);
+  });
+
+  it("coluna criada mas linha ainda null (kb-ingest não rodou depois da migration) ⇒ mesmo silêncio, com ou sem período", async () => {
+    const { store } = fakeStore([[undeclared(IPCA_MENSAL), 1], [undeclared(IPCA_12M), 0.6]], IPCA_VALUES);
+    for (const period of [null, "2025", "2025-03"]) {
+      expect((await retrieveIndicator({ ...inflacaoHoje, period }, store)).comparison).toMatchObject({ status: "no_data", reason: "serie_sem_agregacao" });
+    }
+    const pnadNull = fakeStore([[undeclared(pnad), 1]], { [pnad.code]: VALUES });
+    expect((await retrieveIndicator(ref({ claimed_value: 12 }), pnadNull.store)).comparison).toMatchObject({ status: "no_data", reason: "serie_sem_agregacao" });
+  });
+
+  it("uma série sem agregação entre as que empatam basta para calar (não escolhe a outra por exclusão)", async () => {
+    const { store, valueCalls } = fakeStore([[undeclared(IPCA_MENSAL), 1], [IPCA_12M, 1]], IPCA_VALUES);
+    const r = await retrieveIndicator({ ...inflacaoHoje, period: "2025", claimed_value: 4.3 }, store);
+    expect(r).toMatchObject({ comparison: { status: "no_data", reason: "serie_sem_agregacao", series_code: "ipca_mensal" }, candidate: null });
+    expect(valueCalls).toEqual([]);
+  });
+
+  it("compareIndicator com série sem agregação ⇒ no_data; 'none' só vale explícito", () => {
+    expect(compareIndicator(inflacaoHoje, undeclared(IPCA_MENSAL), IPCA_MENSAL_2025)).toMatchObject({ status: "no_data", reason: "serie_sem_agregacao" });
+    expect(compareIndicator(empregos, undeclared(CAGED), CAGED_2024)).toMatchObject({ status: "no_data", reason: "serie_sem_agregacao" });
+    expect(toAggregation(undefined)).toBeNull();
+    expect(toAggregation(null)).toBeNull();
+    expect(toAggregation("soma")).toBeNull();
+    expect(toAggregation("none")).toBe("none");
     expect(toAggregation("sum")).toBe("sum");
   });
 });

@@ -55,7 +55,11 @@ export async function runIndicators(ctx: Ctx, opts: IndicatorsOpts): Promise<voi
   if (!series.length) throw new Error("nenhuma série selecionada (veja --list)");
 
   if (!opts.check) {
-    await upsertRows(ctx, "indicator_series", series.map(toSeriesRow) as unknown as Record<string, unknown>[], "code");
+    try {
+      await upsertRows(ctx, "indicator_series", series.map(toSeriesRow) as unknown as Record<string, unknown>[], "code");
+    } catch (e) {
+      throw withMigrationHint(e);
+    }
   }
   const loaded = new Map<string, IndicatorValue[]>();
   const failures: string[] = [];
@@ -80,6 +84,16 @@ export async function runIndicators(ctx: Ctx, opts: IndicatorsOpts): Promise<voi
     ctx.warn(`${failures.length} série(s) falharam:\n  ${failures.join("\n  ")}`);
     process.exitCode = 1;
   }
+}
+
+/** Migration que criou indicator_series.aggregation (o catálogo grava a coluna). */
+export const AGGREGATION_MIGRATION = "supabase/migrations/20261019000007_indicator_aggregation.sql";
+
+/** Banco sem a coluna `aggregation` (PostgREST: "Could not find the 'aggregation' column"): diz o que fazer. */
+export function withMigrationHint(e: unknown): Error {
+  const err = e instanceof Error ? e : new Error(String(e));
+  if (!/aggregation/.test(err.message)) return err;
+  return new Error(`${err.message} — aplique ${AGGREGATION_MIGRATION} no Supabase e rode \`indicators\` de novo`);
 }
 
 /**

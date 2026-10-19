@@ -2,7 +2,11 @@
 // não do modelo: resolve o período, agrega a série quando preciso e aplica a
 // tolerância. A evidência é gerada aqui, com a URL da série (quote_verified=true).
 // Na dúvida sobre QUAL série ou COMO ler o número, devolve no_data (silêncio da L2).
-import type { IndicatorMatch, IndicatorRef, IndicatorSeries, IndicatorValue, SourceTier, Verdict } from "@actually/db";
+import {
+  INDICATOR_AGGREGATIONS,
+  type IndicatorAggregation, type IndicatorMatch, type IndicatorRef, type IndicatorSeries, type IndicatorValue, type SourceTier,
+  type Verdict,
+} from "@actually/db";
 import { INDICATOR_MIN_SCORE } from "../config";
 import { canonicalUnit, normalizeText } from "../normalize";
 import type { PipelineStore } from "../store";
@@ -21,28 +25,22 @@ export const INDICATOR_EXACT_SCORE = 0.99;
  * = 0,47 ficam de fora: o qualificador que muda a medida é justamente o que o trigrama perdoa.
  */
 export const INDICATOR_FUZZY_MIN_SCORE = 0.8;
-/** Séries com score a menos disto da 1ª disputam a escolha (empate ⇒ precisa de desempate pela afirmação). */
+/**
+ * Casamento aproximado: outra série a menos disto da 1ª ⇒ ambígua (silêncio). Com nome exato,
+ * só as séries exatas disputam (empate desfeito pela afirmação); as aproximadas não entram.
+ */
 export const INDICATOR_MIN_MARGIN = 0.25;
 
 /**
- * Como a série se agrega num período mais longo que a sua periodicidade. Declarada no
- * catálogo do kb-ingest (campo `aggregation` de indicator_series):
- * - "sum": fluxo (saldo do Caged, PIB nominal trimestral) — ano/trimestre = soma, só com o período completo;
- * - "mean_or_last": taxa com média reconhecida (desocupação, Selic, câmbio) — média do período completo ou último ponto;
- * - "last": estoque (dívida % PIB) — ponto do fim do período;
- * - "accum_12m": acumulado em 12 meses (IPCA 12m, primário 12m) — ano civil = valor de dezembro; trimestre não;
- * - "none": não agrega (variação mensal do IPCA, variação trimestral do PIB) — só o período exato.
- * Ausente ou desconhecida ⇒ "none" (na dúvida, não agrega).
+ * `aggregation` da série (IndicatorAggregation em @actually/db, coluna de indicator_series
+ * devolvida pelo find_indicator). Ausente (banco sem a coluna), null (linha ainda não
+ * recarregada pelo kb-ingest) ou desconhecida ⇒ null: a L2 não compara. NÃO vira "none":
+ * "none" ainda lê o último dado sem período e o período exato — foi assim que a variação
+ * mensal do IPCA respondeu por "a inflação está em 4,5%" e acusou "contradito".
  */
-export type IndicatorAggregation = "sum" | "mean_or_last" | "last" | "accum_12m" | "none";
-export const INDICATOR_AGGREGATIONS: readonly IndicatorAggregation[] = ["sum", "mean_or_last", "last", "accum_12m", "none"];
-
-export function toAggregation(v: unknown): IndicatorAggregation {
-  return typeof v === "string" && (INDICATOR_AGGREGATIONS as readonly string[]).includes(v) ? (v as IndicatorAggregation) : "none";
+export function toAggregation(v: unknown): IndicatorAggregation | null {
+  return typeof v === "string" && (INDICATOR_AGGREGATIONS as readonly string[]).includes(v) ? (v as IndicatorAggregation) : null;
 }
-
-/** Série como o comparador a usa (o banco devolve `aggregation` junto com a série). */
-export type ComparableSeries = IndicatorSeries & { aggregation?: IndicatorAggregation | null };
 
 // ---------------------------------------------------------------------------
 // Períodos
@@ -281,10 +279,12 @@ const CURRENCIES = ["R$", "US$"];
 const SCALE_SLIPS = [1e3, 1e6, 1e9, 1e12];
 
 /**
- * Por que a série NÃO serve para a afirmação, só pela forma — unidade, período ×
- * periodicidade/agregação, tipo —, sem olhar os valores. null = serve.
+ * Por que a série NÃO serve para a afirmação, só pela forma — agregação declarada,
+ * unidade, período × periodicidade/agregação, tipo —, sem olhar os valores. null = serve.
  */
-export function claimMismatch(ref: IndicatorRef, series: ComparableSeries): string | null {
+export function claimMismatch(ref: IndicatorRef, series: IndicatorSeries): string | null {
+  const aggregation = toAggregation(series.aggregation);
+  if (!aggregation) return "serie_sem_agregacao";
   if (ref.claimed_value == null || !Number.isFinite(ref.claimed_value)) return "sem_valor_afirmado";
   const { base } = unitScale(series.unit);
   const seriesIsPercent = base === "%";
@@ -305,7 +305,6 @@ export function claimMismatch(ref: IndicatorRef, series: ComparableSeries): stri
 
   const period = parsePeriod(ref.period);
   if (ref.period && !period) return "periodo_invalido";
-  const aggregation = toAggregation(series.aggregation);
   if (ref.kind === "level") {
     if (period?.kind === "range") return "nivel_com_intervalo";
     if (!periodSupported(period, series.periodicity, aggregation)) return "periodo_incompativel";
@@ -326,7 +325,7 @@ export function claimMismatch(ref: IndicatorRef, series: ComparableSeries): stri
  */
 export function compareIndicator(
   ref: IndicatorRef,
-  series: ComparableSeries,
+  series: IndicatorSeries,
   values: IndicatorValue[],
 ): IndicatorComparison {
   const unfit = claimMismatch(ref, series);
@@ -338,7 +337,8 @@ export function compareIndicator(
   const seriesIsPercent = base === "%";
   const claimScale = unitScale(ref.unit);
   const claimUnit = claimScale.base;
-  const aggregation = toAggregation(series.aggregation);
+  // declarada (claimMismatch devolve serie_sem_agregacao sem ela)
+  const aggregation = toAggregation(series.aggregation)!;
   // valor afirmado com a escala dita ("213" + "milhões" → 213 mi); se havia escala, também
   // como veio (o extrator pode já ter aplicado o multiplicador)
   const readings = claimScale.factor !== 1 ? [claimedRaw * claimScale.factor, claimedRaw] : [claimedRaw];
@@ -437,22 +437,24 @@ function scaleSlip(readings: number[], candidates: Candidate[], isChange: boolea
   return false;
 }
 
-function seriesFromMatch(m: IndicatorMatch): ComparableSeries {
+function seriesFromMatch(m: IndicatorMatch): IndicatorSeries {
   return {
     code: m.code, name: m.name, aliases: [], unit: m.unit, periodicity: m.periodicity,
     source_name: m.source_name, source_url: m.source_url, tier: m.tier as SourceTier, notes: null,
-    // coluna aggregation de indicator_series, devolvida pelo find_indicator; ausente ⇒ "none"
-    aggregation: toAggregation((m as IndicatorMatch & { aggregation?: unknown }).aggregation),
+    // banco sem a coluna (find_indicator antigo) ou linha não recarregada ⇒ null ⇒ silêncio
+    aggregation: toAggregation(m.aggregation),
   };
 }
 
 /**
  * Busca a série pelo nome dito, carrega os valores e compara. A série só é usada se a
- * escolha for inequívoca: nome/alias exato (ou aproximado alto, com margem clara sobre a
- * 2ª) e, entre as que empatam, exatamente UMA compatível com a afirmação (unidade,
- * período × periodicidade/agregação, tipo). Ex.: "inflação" casa com IPCA mensal e 12
- * meses; "inflação de 2023" só cabe no acumulado (variação mensal não agrega em ano);
- * "inflação de março" cabe nas duas leituras ⇒ silêncio.
+ * escolha for inequívoca: nome/alias exato — e então só as séries com nome/alias exato
+ * disputam, nunca uma aproximada no lugar da que o falante nomeou — ou aproximado alto,
+ * com margem clara sobre a 2ª; entre as que empatam, exatamente UMA compatível com a
+ * afirmação (unidade, período × periodicidade/agregação, tipo). Ex.: "inflação" casa com
+ * IPCA mensal e 12 meses; "inflação de 2023" só cabe no acumulado (variação mensal não
+ * agrega em ano); "inflação de março" cabe nas duas leituras ⇒ silêncio. Série sem
+ * agregação declarada entre as que disputam ⇒ silêncio (não dá para saber qual cabe).
  */
 export async function retrieveIndicator(
   ref: IndicatorRef,
@@ -463,12 +465,17 @@ export async function retrieveIndicator(
   const matches = [...(await store.findIndicator(ref.query, INDICATOR_MATCH_COUNT))].sort((a, b) => b.score - a.score);
   const top = matches[0];
   if (!top || top.score < INDICATOR_MIN_SCORE) return none("serie_nao_encontrada");
-  const contenders = matches
-    .filter((m) => m.score >= Math.max(INDICATOR_MIN_SCORE, top.score - INDICATOR_MIN_MARGIN))
-    .map(seriesFromMatch);
-  if (top.score < INDICATOR_EXACT_SCORE && (top.score < INDICATOR_FUZZY_MIN_SCORE || contenders.length > 1)) {
-    return none("serie_ambigua");
+  let picked: IndicatorMatch[];
+  if (top.score >= INDICATOR_EXACT_SCORE) {
+    picked = matches.filter((m) => m.score >= INDICATOR_EXACT_SCORE);
+  } else {
+    const near = matches.filter((m) => m.score >= Math.max(INDICATOR_MIN_SCORE, top.score - INDICATOR_MIN_MARGIN));
+    if (top.score < INDICATOR_FUZZY_MIN_SCORE || near.length > 1) return none("serie_ambigua");
+    picked = [top];
   }
+  const contenders = picked.map(seriesFromMatch);
+  const undeclared = contenders.find((s) => s.aggregation === null);
+  if (undeclared) return none("serie_sem_agregacao", undeclared);
   const fits = contenders.filter((s) => claimMismatch(ref, s) === null);
   if (fits.length > 1) return none("serie_ambigua");
   if (!fits.length) return none(claimMismatch(ref, contenders[0]!) ?? "serie_incompativel", contenders[0]!);

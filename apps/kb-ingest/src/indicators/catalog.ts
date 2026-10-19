@@ -23,7 +23,7 @@
 // EMPATE: só se resolve quando apenas uma delas cabe na afirmação (ex.: "inflação de
 // 2023" só cabe no acumulado 12m; "inflação de março" cabe nas duas ⇒ silêncio).
 // Não ponha em duas séries um alias que as duas respondem do mesmo jeito (desemprego).
-import type { IndicatorSeries } from "@actually/db";
+import type { IndicatorAggregation, IndicatorSeries } from "@actually/db";
 import { sgsPublicUrl } from "./sgs";
 import { sidraPublicUrl } from "./sidra";
 
@@ -32,20 +32,12 @@ export type SeriesFetch =
   | { kind: "sidra"; table: string; variable: string; classification?: string }
   | { kind: "none" };
 
-/**
- * Como a série se agrega num período mais longo que a sua periodicidade (coluna
- * `aggregation` de indicator_series; o comparador L2 do pipeline lê o mesmo campo,
- * com os mesmos valores — ver IndicatorAggregation em packages/pipeline/src/retrieve/indicators.ts):
- * - "sum": fluxo (saldo do Caged, PIB nominal) — ano/trimestre = SOMA, só com o período completo;
- * - "mean_or_last": taxa com média reconhecida (desocupação, Selic, câmbio) — média do período ou último ponto;
- * - "last": estoque (dívida % PIB) — ponto do fim do período;
- * - "accum_12m": acumulado em 12 meses — ano civil = valor de dezembro; trimestre não;
- * - "none": não agrega (variação mensal, variação trimestral, séries anuais) — só o período exato.
- */
-export type IndicatorAggregation = "sum" | "mean_or_last" | "last" | "accum_12m" | "none";
-export const INDICATOR_AGGREGATIONS: readonly IndicatorAggregation[] = ["sum", "mean_or_last", "last", "accum_12m", "none"];
-
 export interface CatalogSeries extends IndicatorSeries {
+  /**
+   * Como a série se agrega num período mais longo que a sua periodicidade (coluna
+   * indicator_series.aggregation; valores e significado em IndicatorAggregation, @actually/db).
+   * Obrigatória aqui: no banco, null = não declarada e o pipeline cala a L2 da série.
+   */
   aggregation: IndicatorAggregation;
   fetch: SeriesFetch;
   /** Como o código foi conferido (ver cabeçalho). */
@@ -191,8 +183,10 @@ export const CATALOG: CatalogSeries[] = [
     name: "Taxa de desocupação — PNAD Contínua (trimestre civil)",
     // os aliases genéricos ("desemprego", "taxa de desemprego", "desocupação") ficam só na
     // série móvel, que responde por mês, trimestre civil, ano e dado atual: repetidos aqui
-    // seriam um empate sem desempate e a L2 ficaria em silêncio no indicador mais citado
-    aliases: ["desemprego trimestral", "desemprego no trimestre", "taxa de desocupação trimestral", "desocupação trimestral", "desempregados"],
+    // seriam um empate sem desempate e a L2 ficaria em silêncio no indicador mais citado.
+    // Sem "desempregados": é contagem de pessoas, não a taxa ("8,5 milhões de desempregados"
+    // com a escala perdida na extração viraria 8,5 comparado como %)
+    aliases: ["desemprego trimestral", "desemprego no trimestre", "taxa de desocupação trimestral", "desocupação trimestral"],
     unit: "%",
     periodicity: "quarterly",
     aggregation: "mean_or_last",
@@ -389,7 +383,7 @@ export function activeSeries(includePending = false): CatalogSeries[] {
 
 /**
  * Linha para indicator_series (sem os campos internos do catálogo). Inclui `aggregation`,
- * que o comparador L2 lê pelo find_indicator (exige a coluna indicator_series.aggregation).
+ * que o comparador L2 lê pelo find_indicator (migration 20261019000007_indicator_aggregation).
  */
 export function toSeriesRow(s: CatalogSeries): IndicatorSeries & { aggregation: IndicatorAggregation } {
   const { fetch: _f, verified_by: _v, pending: _p, ...row } = s;

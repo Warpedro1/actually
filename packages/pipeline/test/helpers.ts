@@ -1,7 +1,7 @@
 // Mocks offline: banco em memória (com o índice único e o trigger de evidência),
 // cliente Anthropic falso, Voyage/Tavily falsos e relógio.
 import type {
-  Alert, ChunkMatch, Debate, DebateSettings, FactcheckMatch, IndicatorMatch, IndicatorValue,
+  Alert, ChunkMatch, Debate, DebateSettings, FactcheckMatch, IndicatorMatch, IndicatorSeries, IndicatorValue,
   Segment, VerifiedClaimMatch,
 } from "@actually/db";
 import { EMBEDDING_DIM } from "@actually/db";
@@ -10,7 +10,6 @@ import type { EmbedFn } from "../src/embed";
 import { normalizeText } from "../src/normalize";
 import type { RerankFn } from "../src/rerank";
 import type { WebSearchFn } from "../src/retrieve/web";
-import type { ComparableSeries } from "../src/retrieve/indicators";
 import {
   DbError, PG_CHECK_VIOLATION, PG_UNIQUE_VIOLATION, type NewAlert, type NewClaim, type NewEvidence,
   type NewVerification, type PipelineStore,
@@ -47,7 +46,7 @@ type Row<T> = T & { id: string; created_at: string };
 export interface KbFixture {
   factchecks?: FactcheckMatch[];
   chunks?: ChunkMatch[];
-  series?: ComparableSeries[];
+  series?: IndicatorSeries[];
   values?: IndicatorValue[];
 }
 
@@ -295,7 +294,7 @@ export function makeDeps(over: Partial<PipelineDeps> & { store: PipelineStore; a
 // ---------------------------------------------------------------------------
 // Fixtures de base de conhecimento
 // ---------------------------------------------------------------------------
-export const PNAD: ComparableSeries = {
+export const PNAD: IndicatorSeries = {
   code: "desocupacao_pnadc", name: "Taxa de desocupação", aliases: ["desemprego", "desocupação"], unit: "%",
   periodicity: "quarterly", aggregation: "mean_or_last", source_name: "IBGE", source_url: "https://sidra.ibge.gov.br/tabela/4099", tier: 1, notes: null,
 };

@@ -41,6 +41,7 @@ Todos na mesma chamada de voz durante o debate. Preencher os nomes:
 **Base e sistema:**
 
 - [ ] `kb-ingest status`: L1, L2 e L3 carregadas; checagens sobre o debate de 18/10 presentes; indicadores com o último dado divulgado.
+- [ ] L2: migration `20261019000007_indicator_aggregation.sql` aplicada e `kb-ingest indicators` rodado **depois** dela; no `kb-ingest status`, nenhuma série `SEM AGREGAÇÃO` ou `DESATUALIZADA` (nelas a L2 fica calada ou usa aliases antigos).
 - [ ] Eval rodado com a configuração final; decisão de HITL registrada em [human-in-the-loop.md](human-in-the-loop.md#registro-da-decisão).
 - [ ] Debate criado no `/admin` (slug, título, `scheduled_at`, URL do YouTube quando sair).
 - [ ] Settings conferidas: `t_red`, `t_yellow`, `web_penalty`, `require_red_approval`, `require_yellow_approval`, `show_attribution` (padrão `false`), `failover_after_s` (padrão 10).
