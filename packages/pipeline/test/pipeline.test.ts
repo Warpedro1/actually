@@ -193,6 +193,80 @@ describe("[RF02] [RF03] [RF04] [RF05] runPipeline", () => {
   });
 });
 
+describe("[RF05] evidência pública = texto literal da fonte; números só de trecho verificado", () => {
+  it("citação verificada é gravada com o trecho LITERAL da fonte, não com o texto do modelo", async () => {
+    const { store, pipeline } = setup(
+      { extract: extracting(DOC_CLAIM), verify: () => docVerdict("criado pela lei 12.871 sancionada em 22 de outubro de 2013 durante o governo dilma rousseff") },
+      { chunks: [DOC_CHUNK] },
+      { require_red_approval: false },
+    );
+    const res = await pipeline.runPipeline(store.addSegment(DOC_SEGMENT).id);
+    expect(res.alerts).toBe(1);
+    expect(store.evidence).toEqual([expect.objectContaining({
+      url: DOC_CHUNK.url, quote_verified: true,
+      quote: "criado pela Lei 12.871, sancionada em 22 de outubro de 2013, durante o governo Dilma Rousseff",
+    })]);
+    expect(DOC_TEXT).toContain(store.evidence[0]!.quote);
+  });
+
+  it("citação sem o \"não\" da fonte (sentido invertido) ⇒ não verificada ⇒ silêncio, mesmo amarelo sem HITL", async () => {
+    const IBGE_CHUNK = {
+      ...DOC_CHUNK, chunk_id: 2, document_id: "doc-ibge", url: "https://agenciadenoticias.ibge.gov.br/pnad-3tri-2024",
+      title: "PNAD Contínua", source_name: "IBGE", tier: 1 as const, published_at: "2024-10-31T00:00:00Z",
+      text: "Segundo o IBGE, a taxa de desocupação não caiu no terceiro trimestre de 2024, permanecendo estável em 6,4%.",
+    };
+    const claim = claimOut("o desemprego caiu para 6,2% no terceiro trimestre de 2024", "A taxa de desemprego caiu para 6,2% no terceiro trimestre de 2024.");
+    const { store, pipeline } = setup(
+      { extract: extracting(claim), verify: () => verdict({
+        verdict: "impreciso", confidence: 0.9,
+        correction: "Segundo o IBGE, a taxa de desocupação caiu para 6,4% no terceiro trimestre de 2024.",
+        summary: "Taxa foi 6,4%, não 6,2% (IBGE).",
+        citations: [{ evidence_index: 1, quote: "a taxa de desocupação caiu no terceiro trimestre de 2024, permanecendo estável em 6,4%" }],
+      }) },
+      { chunks: [IBGE_CHUNK] },
+      { require_yellow_approval: false },
+    );
+    const res = await pipeline.runPipeline(store.addSegment("Olha, o desemprego caiu para 6,2% no terceiro trimestre de 2024.").id);
+    expect(res.alerts).toBe(0);
+    expect(store.alerts).toHaveLength(0);
+    expect(store.evidence).toEqual([expect.objectContaining({ quote_verified: false })]);
+    expect(store.verifications[0]!.score_components).toMatchObject({ silence_reason: "sem_citacao_verificada" });
+  });
+
+  it("número da própria fala reapresentado como dado correto ⇒ silêncio (numero_sem_fonte)", async () => {
+    const base = docVerdict("criado pela Lei 12.871, sancionada em 22 de outubro de 2013, durante o governo Dilma Rousseff");
+    for (const correction of [
+      "O Mais Médicos foi criado pela Lei 12.871, em 2015.", // 2015 só existe na fala
+      "O Mais Médicos foi criado pela Lei 12.871, em 2012.", // ano a ±20 da fonte não vale
+    ]) {
+      const { store, pipeline } = setup(
+        { extract: extracting(DOC_CLAIM), verify: () => verdict({ ...("output" in base ? base.output : {}), correction }) },
+        { chunks: [DOC_CHUNK] },
+        { require_red_approval: false },
+      );
+      const res = await pipeline.runPipeline(store.addSegment(DOC_SEGMENT).id);
+      expect(res.alerts).toBe(0);
+      expect(store.verifications[0]!.score_components).toMatchObject({ silence_reason: "numero_sem_fonte" });
+    }
+  });
+
+  it("número que está na página mas longe do trecho citado ⇒ silêncio (numero_sem_fonte)", async () => {
+    const chunk = { ...DOC_CHUNK, text: `${DOC_TEXT}\nEm 2019, o programa foi substituído pelo Médicos pelo Brasil, com 18.000 vagas.` };
+    const base = docVerdict("criado pela Lei 12.871, sancionada em 22 de outubro de 2013, durante o governo Dilma Rousseff");
+    const { store, pipeline } = setup(
+      { extract: extracting(DOC_CLAIM), verify: () => verdict({
+        ...("output" in base ? base.output : {}),
+        correction: "O Mais Médicos foi criado pela Lei 12.871, de 22 de outubro de 2013, e tinha 18.000 vagas.",
+      }) },
+      { chunks: [chunk] },
+      { require_red_approval: false },
+    );
+    const res = await pipeline.runPipeline(store.addSegment(DOC_SEGMENT).id);
+    expect(res.alerts).toBe(0);
+    expect(store.verifications[0]!.score_components).toMatchObject({ silence_reason: "numero_sem_fonte" });
+  });
+});
+
 describe("[RNF03] falhas e timeouts ⇒ silêncio, sem exceção", () => {
   const kbL2 = { series: [PNAD], values: PNAD_VALUES };
 
