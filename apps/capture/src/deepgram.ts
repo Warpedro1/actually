@@ -141,6 +141,8 @@ export interface DeepgramStreamOptions {
   /** Áudio mantido para reenvio (s). Limita memória numa queda longa. */
   bufferSeconds?: number;
   keepAliveMs?: number;
+  /** Outro endpoint (ex.: servidor falso no ensaio local). */
+  baseUrl?: string;
   wsFactory?: (url: string, headers: Record<string, string>) => WsLike;
 }
 
@@ -215,7 +217,7 @@ export class DeepgramStream extends EventEmitter<DeepgramStreamEvents> {
   }
 
   private connect(): void {
-    const url = buildDeepgramUrl(this.model);
+    const url = buildDeepgramUrl(this.model, this.opts.baseUrl);
     const headers = { Authorization: `Token ${this.opts.apiKey}` };
     const ws = this.opts.wsFactory
       ? this.opts.wsFactory(url, headers)

@@ -6,7 +6,7 @@
 // O último desejado fica em disco para sobreviver a um reboot sem rede.
 
 import { spawn } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { MachineDesired, MachineReported } from "@actually/db";
 import { MachineDesiredSchema } from "@actually/db";
@@ -54,9 +54,22 @@ function saveDesired(path: string, desired: MachineDesired): void {
 export async function runDaemon(o: DaemonOptions, env: NodeJS.ProcessEnv = process.env): Promise<number> {
   const tail = new LineTail(20, 500);
   const status = new StatusLine(process.stdout);
+  // log próprio do daemon (a Tarefa Agendada do Windows não guarda stdout)
+  const daemonLog = join(o.logDir, `daemon-${o.name.replace(/[^a-zA-Z0-9_.-]+/g, "_")}.log`);
+  try {
+    mkdirSync(o.logDir, { recursive: true });
+  } catch {
+    /* segue só com stdout */
+  }
   const say = (l: string) => {
     tail.push(l);
-    status.print(`${new Date().toISOString()} ${l}`);
+    const stamped = `${new Date().toISOString()} ${l}`;
+    status.print(stamped);
+    try {
+      appendFileSync(daemonLog, `${stamped}\n`);
+    } catch {
+      /* idem */
+    }
   };
 
   if (!o.api) {

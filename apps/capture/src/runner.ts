@@ -97,7 +97,12 @@ export function startRunner(cfg: RunnerConfig): RunnerHandle {
   let heartbeatOk = true;
 
   const audio = new AudioSource({ spec: cfg.source });
-  const dg = new DeepgramStream({ apiKey: cfg.deepgramKey, model: cfg.sttModel, fallbackModel: cfg.sttFallbackModel });
+  const dg = new DeepgramStream({
+    apiKey: cfg.deepgramKey,
+    model: cfg.sttModel,
+    fallbackModel: cfg.sttFallbackModel,
+    baseUrl: process.env.DEEPGRAM_WS_URL || undefined,
+  });
   const segmenter = new Segmenter();
   const wall = new WallClockMap();
   const client =
