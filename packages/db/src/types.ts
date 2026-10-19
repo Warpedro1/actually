@@ -177,6 +177,13 @@ export interface AlertWithEvidence extends Alert {
   person: string | null;
 }
 
+/** Sinal público de retirada (migration 20261019000004): o /ao-vivo troca o card por um aviso. */
+export interface AlertRetraction {
+  alert_id: string;
+  debate_id: string;
+  retracted_at: string;
+}
+
 export interface SpeakerMap {
   debate_id: string;
   speaker_label: string;

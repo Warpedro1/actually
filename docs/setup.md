@@ -15,7 +15,10 @@ Passo a passo para subir o ambiente do zero. Ordem: Supabase → chaves → Verc
    - `supabase/migrations/20261019000001_init.sql` — schema, trigger de evidência, append-only, RLS, RPCs, Realtime;
    - `supabase/migrations/20261019000002_remote_capture.sql` — `capture_machines` (controle remoto) e `debates.scheduled_at`;
    - `supabase/migrations/20261019000003_hardening.sql` — `search_path` fixo e revogação de RPCs sensíveis;
-   - `supabase/migrations/20261019000005_mfa.sql` — `editors.mfa_required`: com a flag, `is_editor()` só vale com sessão `aal2` (2FA no banco; ver seção 4).
+   - `supabase/migrations/20261019000004_retraction.sql` — retirada de alerta publicado: cascata para as repetições e sinal público `alert_retractions` (Realtime);
+   - `supabase/migrations/20261019000005_mfa.sql` — `editors.mfa_required`: com a flag, `is_editor()` só vale com sessão `aal2` (2FA no banco; ver seção 4);
+   - `supabase/migrations/20261019000006_settings_patch.sql` — settings do debate gravadas por patch sobre o valor atual;
+   - `supabase/migrations/20261019000007_indicator_aggregation.sql` — `indicator_series.aggregation` (como somar/médiar cada série no L2; sem ela, a camada L2 fica em silêncio).
 
    Com a CLI: `supabase link --project-ref <ref>` e `supabase db push`. Sem a CLI: colar cada arquivo no SQL Editor, na ordem.
 3. Conferir: Database → Extensions mostra `vector`, `pg_trgm` e `unaccent` no schema `extensions`; Advisors → Security sem alertas além dos INFO intencionais das tabelas `kb_*`/`indicator_*` (RLS sem políticas, só service role).

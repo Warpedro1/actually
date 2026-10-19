@@ -1,9 +1,31 @@
 // Reconciliação do daemon: estado desejado (do /admin) × o que está rodando.
 // Pura e testada — o daemon só executa a decisão.
 
+import { isAbsolute, join, relative, resolve } from "node:path";
 import type { CaptureRole, MachineDesired, MachineReported } from "@actually/db";
 import { buildSource } from "./args";
 import type { SourceSpec } from "./audio";
+import { actuallyHome } from "./env";
+
+/** Pasta de onde o /admin pode mandar tocar arquivos (replay/ensaio). */
+export function replaysDir(home?: string): string {
+  return join(actuallyHome(home), "replays");
+}
+
+/**
+ * Arquivo pedido remotamente (/admin): só um arquivo dentro de `dir`. Nada de
+ * URL de protocolo do ffmpeg (http://, tcp://…), caminho UNC (\\\\host\\share, que
+ * no Windows vaza o hash NTLM) nem "..". Devolve o caminho absoluto ou um erro.
+ */
+export function remoteFilePath(path: string, dir: string): { path: string } | { error: string } {
+  if (path.startsWith("-")) return { error: "caminho do arquivo não pode começar com '-'" };
+  if (/:\/\//.test(path) || /^[\\/]{2}/.test(path)) return { error: "arquivo remoto não pode ser URL nem caminho de rede" };
+  if (path.split(/[\\/]/).includes("..")) return { error: "arquivo remoto não pode ter '..'" };
+  const abs = resolve(dir, path);
+  const rel = relative(resolve(dir), abs);
+  if (!rel || rel.startsWith("..") || isAbsolute(rel)) return { error: `arquivo remoto precisa estar em ${dir}` };
+  return { path: abs };
+}
 
 export interface RunSpec {
   debate_slug: string;
@@ -11,14 +33,20 @@ export interface RunSpec {
   source: SourceSpec;
 }
 
-export function specFromDesired(d: MachineDesired): { spec: RunSpec } | { error: string } {
+export function specFromDesired(d: MachineDesired, filesDir: string = replaysDir()): { spec: RunSpec } | { error: string } {
   if (!d.debate_slug) return { error: "estado desejado sem debate_slug" };
+  // no desejado, url também carrega o caminho do arquivo (source=file); só dentro de filesDir
+  let file: string | undefined;
+  if (d.source === "file" && d.url !== undefined) {
+    const r = remoteFilePath(d.url, filesDir);
+    if ("error" in r) return { error: r.error };
+    file = r.path;
+  }
   try {
     const source = buildSource({
       source: d.source,
       url: d.source === "youtube" ? d.url : undefined,
-      // no desejado, url também carrega o caminho do arquivo (source=file)
-      file: d.source === "file" ? d.url : undefined,
+      file,
       device: d.device,
       realtime: true,
     });

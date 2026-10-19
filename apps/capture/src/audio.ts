@@ -73,6 +73,7 @@ export function buildFfmpegArgs(spec: SourceSpec, platform: Platform): string[] 
 }
 
 const YOUTUBE_HOST_RE = /^(?:(?:www|m|music)\.)?youtube\.com$|^youtu\.be$|^(?:www\.)?youtube-nocookie\.com$/;
+const YOUTUBE_RAW_RE = /^https?:\/\/(?:(?:www|m|music)\.)?youtube\.com(?:[/?#]|$)|^https?:\/\/youtu\.be(?:[/?#]|$)|^https?:\/\/(?:www\.)?youtube-nocookie\.com(?:[/?#]|$)/i;
 
 /**
  * Por que a URL não pode ir para o yt-dlp (null = pode). Só http(s) de host do
@@ -84,6 +85,11 @@ export function youtubeUrlError(url: string): string | null {
   if (url.startsWith("-")) return "URL não pode começar com '-'";
   if (/[\s\u0000-\u001f\u007f]/.test(url)) return "URL com espaço ou caractere de controle";
   if (!/^https?:\/\//i.test(url)) return "URL precisa começar com http:// ou https://";
+  // "\\" faz o parser do Node (WHATWG) e o do yt-dlp (Python) lerem hosts diferentes
+  if (url.includes("\\")) return "URL com '\\'";
+  // host conferido também no texto cru (logo depois de "://", seguido de / ? # ou fim),
+  // não só no que o new URL() entendeu — barra "youtube.com@outro-host"; "@canal" no caminho passa
+  if (!YOUTUBE_RAW_RE.test(url)) return "URL precisa ser https://youtube.com/... ou https://youtu.be/...";
   let u: URL;
   try {
     u = new URL(url);

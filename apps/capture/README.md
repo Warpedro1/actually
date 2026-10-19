@@ -45,6 +45,7 @@ capture run --debate debate-23-10 --name pc --role standby --source device --dev
 capture run --debate ensaio-22-10 --name replay --source file --file ~/debate-ontem.mp4
 # ...ou o mais rápido possível, só para testar transcrição sem backend
 capture run --debate ensaio --name teste --source file --file ~/debate-ontem.mp4 --no-realtime --dry-run
+# pelo /admin (daemon): o arquivo precisa estar em ~/.actually/replays e o campo recebe só o nome (ex.: debate-ontem.mp4)
 ```
 
 Opções comuns: `--api <url>`, `--stt-model` (padrão `nova-3`; se o modelo recusar pt-BR — HTTP 400 no handshake — cai sozinho para `--stt-fallback-model`, padrão `nova-2`), `--dry-run` (não chama a API, só imprime segmentos), `--log-dir`, `--ytdlp-format` (padrão `bestaudio/best`; numa conexão fraca, `bestaudio/best[height<=360]`).

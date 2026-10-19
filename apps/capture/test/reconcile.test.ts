@@ -1,6 +1,7 @@
 import type { MachineDesired } from "@actually/db";
 import { describe, expect, it } from "vitest";
-import { clockOffset, idleReportedState, reconcile, specFromDesired, specKey, type ReconcileInput } from "../src/reconcile";
+import { join } from "node:path";
+import { clockOffset, idleReportedState, reconcile, replaysDir, specFromDesired, specKey, type ReconcileInput } from "../src/reconcile";
 
 const T = Date.parse("2026-10-23T21:00:00Z");
 
@@ -97,8 +98,8 @@ describe("[RF13] reconcile (daemon remoto)", () => {
   });
 
   it("replay de arquivo que terminou não recomeça sozinho", () => {
-    const file: MachineDesired = { state: "running", debate_slug: "ensaio", source: "file", url: "/dados/ontem.mp4" };
-    expect(reconcile(input(file))).toMatchObject({ action: "start", spec: { source: { kind: "file", path: "/dados/ontem.mp4", realtime: true } } });
+    const file: MachineDesired = { state: "running", debate_slug: "ensaio", source: "file", url: "ontem.mp4" };
+    expect(reconcile(input(file))).toMatchObject({ action: "start", spec: { source: { kind: "file", path: join(replaysDir(), "ontem.mp4"), realtime: true } } });
     expect(reconcile(input(file, { completedKey: keyOf(file) }))).toEqual({ action: "completed" });
   });
 
@@ -118,6 +119,25 @@ describe("[RF13] reconcile (daemon remoto)", () => {
     expect(reconcile(input(evil, { runningKey: keyOf(yt) }))).toMatchObject({ action: "stop", reason: expect.stringMatching(/inválida/) });
     const file: MachineDesired = { state: "running", debate_slug: "d", source: "file", url: "-i" };
     expect(reconcile(input(file))).toMatchObject({ action: "invalid", error: expect.stringMatching(/'-'/) });
+  });
+
+  it("[RNF05] arquivo pedido pelo /admin só dentro de ~/.actually/replays: nada de URL, UNC, '..' ou caminho de fora", () => {
+    const dir = "/srv/replays";
+    for (const url of ["http://192.168.0.1/x.mp4", "tcp://10.0.0.1:9000", "\\\\atacante\\share\\x.mp4", "//atacante/share/x.mp4",
+      "../segredo.wav", "sub/../../x.wav", "/etc/passwd", "/srv/replays-outro/x.wav"]) {
+      expect(specFromDesired({ state: "running", debate_slug: "d", source: "file", url }, dir), url).toEqual({ error: expect.any(String) });
+    }
+    expect(specFromDesired({ state: "running", debate_slug: "d", source: "file", url: "ontem.mp4" }, dir))
+      .toMatchObject({ spec: { source: { kind: "file", path: "/srv/replays/ontem.mp4" } } });
+    expect(specFromDesired({ state: "running", debate_slug: "d", source: "file", url: "/srv/replays/sub/a.wav" }, dir))
+      .toMatchObject({ spec: { source: { kind: "file", path: "/srv/replays/sub/a.wav" } } });
+  });
+
+  it("[RNF05] URL do YouTube com '\\' ou '@' (parsers de URL divergentes entre Node e yt-dlp) é recusada", () => {
+    for (const url of ["http://youtube.com\\@127.0.0.1:8765/x", "https://youtube.com@evil.com/watch?v=x", "https://youtube.com.evil.com/x"]) {
+      expect(specFromDesired({ state: "running", debate_slug: "d", source: "youtube", url }), url).toEqual({ error: expect.stringMatching(/recusada/) });
+    }
+    expect(specFromDesired({ state: "running", debate_slug: "d", source: "youtube", url: "https://www.youtube.com/watch?v=abc" })).toHaveProperty("spec");
   });
 
   it("role padrão é primary", () => {
