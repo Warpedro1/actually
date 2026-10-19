@@ -8,6 +8,9 @@ const db = new PGlite({ extensions: { vector, pg_trgm, unaccent } });
 // stubs Supabase
 await db.exec(`
 create schema auth;
+create schema extensions;
+create role anon; create role authenticated;
+set search_path = public, extensions;
 create table auth.users (id uuid primary key);
 create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub', true),'')::uuid $$;
 create function auth.role() returns text language sql stable as $$ select coalesce(nullif(current_setting('request.jwt.claim.role', true),''),'service_role') $$;
@@ -77,3 +80,8 @@ await new Promise(r => setTimeout(r, 20));
 await db.query(`update capture_machines set desired='{"state":"running"}' where id=$1`,[mid.id]);
 const after = (await db.query(`select desired_updated_at from capture_machines where id=$1`,[mid.id])).rows[0].desired_updated_at;
 after > before ? ok("desired_updated_at atualiza") : fail("desired_updated_at");
+
+// Migração 3: hardening
+await db.exec(fs.readFileSync(new URL("../../../supabase/migrations/20261019000003_hardening.sql", import.meta.url), "utf8"));
+const priv = (await db.query(`select has_function_privilege('anon','capture_heartbeat(uuid)','execute') as hb, has_function_privilege('anon','is_editor()','execute') as ie`)).rows[0];
+!priv.hb && priv.ie ? ok("anon não chama capture_heartbeat; is_editor segue liberado para RLS") : fail("privilégios " + JSON.stringify(priv));
