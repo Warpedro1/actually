@@ -1,0 +1,11 @@
+node_modules
+.next
+dist
+.env
+.env.*
+!.env.example
+.vercel
+*.log
+.DS_Store
+eval/results/
+data/raw/
