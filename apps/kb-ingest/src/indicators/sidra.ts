@@ -45,7 +45,9 @@ export interface SidraObservation {
   unit: string | null;
 }
 
-const PERIOD_DIM = /^(m[eê]s|trimestre( m[oó]vel)?|ano|semestre)$/i;
+// Rótulos de dimensão de período no cabeçalho (mesma família lida pelo ibge-br-mcp):
+// "Ano", "Mês", "Trimestre", "Trimestre Móvel", "Semestre", "Período".
+const PERIOD_DIM = /^(ano|trimestre|m[eê]s|semestre|per[ií]odo)\b/i;
 const MISSING = new Set(["..", "...", "-", "X", "x", ""]);
 
 /**

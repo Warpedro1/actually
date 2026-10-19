@@ -1,0 +1,18 @@
+# Feeds RSS/Atom FIXADOS à mão (opcional). `factchecks --source feeds` usa estes
+# primeiro; para as agências sem feed fixado, DESCOBRE o feed pela página inicial
+# (<link rel="alternate" type="application/rss+xml">) dos domínios de checagem em
+# packages/db/src/tiers.ts.
+#
+# Em 19/10/2026 nenhum feed pôde ser conferido deste ambiente (sites das agências
+# bloqueados pelo proxy). Rode numa máquina com acesso:
+#
+#   pnpm --filter @actually/kb-ingest start -- factchecks --verify-feeds
+#
+# e, se quiser fixar algum, copie a URL mostrada para cá. `name` deve ser igual ao
+# nome da agência em source_tiers (ex.: "Agência Lupa", "Aos Fatos").
+#
+# PENDÊNCIAS (confirmar feed): Agência Lupa, Aos Fatos, Estadão Verifica,
+# Fato ou Fake (g1), Projeto Comprova, UOL Confere, AFP Checamos.
+feeds: []
+#  - name: Aos Fatos
+#    url: https://...   # só depois de conferir

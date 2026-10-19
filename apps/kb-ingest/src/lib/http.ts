@@ -134,7 +134,16 @@ export async function fetchWithRetry(url: string, opts: FetchOptions = {}): Prom
       await sleep(backoff(attempt));
     }
   }
-  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+  throw describeError(lastErr, url);
+}
+
+/** undici esconde a causa real ("fetch failed"); traz o código (ENOTFOUND, ECONNRESET...) para a mensagem. */
+function describeError(e: unknown, url: string): Error {
+  if (!(e instanceof Error)) return new Error(String(e));
+  if (e instanceof HttpError) return e;
+  const cause = (e as Error & { cause?: { code?: string; message?: string } }).cause;
+  const detail = cause?.code ?? cause?.message;
+  return new Error(`${e.name === "TimeoutError" ? "timeout" : e.message}${detail ? ` (${detail})` : ""} em ${url}`);
 }
 
 function backoff(attempt: number): number {

@@ -17,7 +17,17 @@ export interface Ctx {
 export function makeCtx(opts: { dryRun: boolean; verbose: boolean }): Ctx {
   const log = (...a: unknown[]) => console.log(...a);
   const warn = (...a: unknown[]) => console.warn("⚠", ...a);
-  return { ...opts, db: opts.dryRun ? null : serviceClient(), log, warn };
+  // cliente criado só no primeiro uso: --list/--check/--help não exigem as variáveis do Supabase
+  let db: Db | null | undefined;
+  return {
+    ...opts,
+    get db() {
+      if (db === undefined) db = opts.dryRun ? null : serviceClient();
+      return db;
+    },
+    log,
+    warn,
+  };
 }
 
 /** Banco obrigatório (comandos de leitura como status/embed-missing). */

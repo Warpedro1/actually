@@ -117,7 +117,8 @@ export function mapRating(rating: string | null | undefined): Verdict {
   // "É falso que..." / "Falso: ..." — testa o início (com e sem "e " inicial)
   for (const candidate of [n, n.replace(/^e\s+/, "").replace(/^#/, "")]) {
     for (const [prefix, verdict] of PREFIX_RULES) {
-      if (candidate === prefix || new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(candidate)) {
+      // prefixos são radicais ("enganos" casa enganoso/enganosa)
+      if (candidate.startsWith(prefix)) {
         // "nao e falso" e similares não podem cair em "falso"
         if (/^nao\b/.test(candidate)) return "inconclusivo";
         return verdict;
