@@ -10,6 +10,7 @@ import {
   isSilentLevel,
   machineOnline,
   machineWarnings,
+  pendingStopAt,
   REPORTED_TEXT,
   SOURCE_TEXT,
   suggestStartAt,
@@ -225,7 +226,8 @@ function DesiredForm({
   const [device, setDevice] = useState(d.device ?? "");
   const [role, setRole] = useState<NonNullable<MachineDesired["role"]>>(d.role ?? "primary");
   const [startAt, setStartAt] = useState(isoToLocalInput(d.start_at ?? suggestStartAt(debate?.scheduled_at)));
-  const [stopAt, setStopAt] = useState(isoToLocalInput(d.stop_at));
+  // stop_at vencido não é pré-preenchido: viraria um "Iniciar agora" que não inicia
+  const [stopAt, setStopAt] = useState(isoToLocalInput(pendingStopAt(d.stop_at, Date.now())));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
@@ -260,13 +262,23 @@ function DesiredForm({
   }
 
   function startNow() {
-    void save({ state: "running", ...config() }, "Comando enviado: iniciar agora. A máquina obedece no próximo contato (~3 s).");
+    const c = config();
+    let note = "";
+    if (c.stop_at && !pendingStopAt(c.stop_at, Date.now())) {
+      // horário de parada já passou: ignora e limpa o campo
+      delete c.stop_at;
+      setStopAt("");
+      note = " O horário de parada já tinha passado e foi ignorado.";
+    }
+    void save({ state: "running", ...c }, `Comando enviado: iniciar agora. A máquina obedece no próximo contato (~3 s).${note}`);
   }
 
   function schedule() {
     const start = localInputToIso(startAt);
     if (!start) return setError("Defina o horário de início para agendar.");
     if (Date.parse(start) < Date.now()) return setError("O início agendado já passou — use “Iniciar agora”.");
+    const stop = config().stop_at;
+    if (stop && Date.parse(stop) <= Date.parse(start)) return setError("O horário de parada tem de ser depois do início.");
     void save({ state: "running", ...config(), start_at: start }, `Agendado para ${startAt.replace("T", " ")}.`);
   }
 

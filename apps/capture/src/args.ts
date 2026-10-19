@@ -44,7 +44,7 @@ comandos:
   install-service    instala o daemon como serviço do SO: --name <máquina> [--api <url>] [--print]
   uninstall-service  remove o serviço [--print]
 
-variáveis: DEEPGRAM_API_KEY, INGEST_TOKEN, ACTUALLY_API_URL (lidas também de .env e ~/.actually/capture.env)`;
+variáveis: DEEPGRAM_API_KEY, INGEST_TOKEN, ACTUALLY_API_URL (ambiente > ~/.actually/capture.env > .env local)`;
 
 export function parseCli(argv: string[], env: NodeJS.ProcessEnv = process.env): Command {
   // `pnpm start -- run ...` pode repassar o "--"

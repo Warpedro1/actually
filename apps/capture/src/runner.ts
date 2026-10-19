@@ -2,7 +2,7 @@
 // Usado pelo comando `run` (terminal) e pelo `daemon` (controle remoto).
 
 import type { CaptureRole } from "@actually/db";
-import { ApiError, IngestClient, SegmentQueue, type CapturedSegment } from "./api";
+import { ApiError, HeartbeatLoop, IngestClient, SegmentQueue, type CapturedSegment } from "./api";
 import { AudioSource, BYTES_PER_SECOND, type SourceSpec } from "./audio";
 import { Backoff, sleep } from "./backoff";
 import { DeepgramStream } from "./deepgram";
@@ -57,7 +57,6 @@ export interface RunnerHandle {
   done: Promise<RunnerExit>;
 }
 
-const HEARTBEAT_MS = 2000;
 /** Replay rápido (--no-realtime): segura o ffmpeg se o WS acumular mais que isso. */
 const MAX_WS_BACKLOG = 1 << 20;
 
@@ -110,6 +109,9 @@ export function startRunner(cfg: RunnerConfig): RunnerHandle {
   const queue = client ? new SegmentQueue({ client }) : null;
   const stopCtl = new AbortController();
   const timers: NodeJS.Timeout[] = [];
+  let heartbeat: HeartbeatLoop | null = null;
+  /** Encerrando: não manda mais heartbeat (nem começa a mandar, se o register chegar agora). */
+  let releasing = false;
 
   let resolveDone!: (e: RunnerExit) => void;
   const done = new Promise<RunnerExit>((r) => (resolveDone = r));
@@ -217,6 +219,10 @@ export function startRunner(cfg: RunnerConfig): RunnerHandle {
     logger.write("send_dropped", r);
     line(`envio #${r.seq} descartado (erro permanente): ${r.error} — está no log JSONL`);
   });
+  queue?.on("replay", (r) => {
+    logger.write("standby_replay", r);
+    line(`agora ativo: reenviando ${r.seqs.length} segmento(s) recentes recusados como standby (#${r.seqs[0]}–#${r.seqs[r.seqs.length - 1]})`);
+  });
 
   async function registerLoop(): Promise<void> {
     if (!client || !queue) return;
@@ -250,28 +256,25 @@ export function startRunner(cfg: RunnerConfig): RunnerHandle {
   }
 
   function startHeartbeat(agentId: string): void {
-    let inFlight = false;
-    const beat = async () => {
-      if (inFlight || !client) return;
-      inFlight = true;
-      try {
-        const { active } = await client.heartbeat({ agent_id: agentId });
-        if (active !== st.active) {
-          logger.write("active_changed", { active });
-          line(active ? "► este agente agora é o ATIVO" : "este agente está em STANDBY (outro é o ativo)");
-        }
-        st.active = active;
-        heartbeatOk = true;
-      } catch (err) {
-        if (heartbeatOk) line(`heartbeat falhou: ${(err as Error).message}`);
-        heartbeatOk = false;
-        logger.write("heartbeat_error", { error: (err as Error).message });
-      } finally {
-        inFlight = false;
+    if (!client || releasing) return;
+    const hb = new HeartbeatLoop({ client, agentId });
+    hb.on("beat", ({ active }) => {
+      if (active !== st.active) {
+        logger.write("active_changed", { active });
+        line(active ? "► este agente agora é o ATIVO" : "este agente está em STANDBY (outro é o ativo)");
       }
-    };
-    void beat();
-    timers.push(setInterval(() => void beat(), HEARTBEAT_MS));
+      st.active = active;
+      heartbeatOk = true;
+      // virou (ou segue) ativo: reenvia a fala recente que voltou "standby"
+      if (active) queue?.replayStandby();
+    });
+    hb.on("fail", (err) => {
+      if (heartbeatOk) line(`heartbeat falhou: ${err.message}`);
+      heartbeatOk = false;
+      logger.write("heartbeat_error", { error: err.message });
+    });
+    heartbeat = hb;
+    hb.start();
   }
 
   // --- status --------------------------------------------------------------
@@ -319,6 +322,11 @@ export function startRunner(cfg: RunnerConfig): RunnerHandle {
       st.error = exit.error;
       line(`erro: ${exit.error}`);
     }
+    // Libera o papel de ativo já: sem heartbeat, o banco promove outro agente
+    // vivo após failover_after_s (que reenvia a fala recusada nesse meio-tempo).
+    // Até lá o banco ainda vê este agente como ativo e aceita a cauda abaixo.
+    releasing = true;
+    heartbeat?.stop();
     finishing = (async () => {
       logger.write("finishing", { ...exit });
       if (exit.reason !== "ended") await audio.stop().catch(() => {});

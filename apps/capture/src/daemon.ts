@@ -32,11 +32,14 @@ export function daemonStatePath(home?: string): string {
   return join(actuallyHome(home), "daemon-state.json");
 }
 
-function loadDesired(path: string): MachineDesired | null {
+/** savedAt = quando esse desejado chegou (gravado ao mudar), ou null. */
+function loadDesired(path: string): { desired: MachineDesired; savedAt: number | null } | null {
   try {
-    const raw = JSON.parse(readFileSync(path, "utf8")) as { desired?: unknown };
+    const raw = JSON.parse(readFileSync(path, "utf8")) as { desired?: unknown; saved_at?: unknown };
     const p = MachineDesiredSchema.safeParse(raw.desired);
-    return p.success ? p.data : null;
+    if (!p.success) return null;
+    const savedAt = typeof raw.saved_at === "string" ? Date.parse(raw.saved_at) : NaN;
+    return { desired: p.data, savedAt: Number.isNaN(savedAt) ? null : savedAt };
   } catch {
     return null;
   }
@@ -83,8 +86,11 @@ export async function runDaemon(o: DaemonOptions, env: NodeJS.ProcessEnv = proce
   const client = new IngestClient({ baseUrl: o.api, token: env.INGEST_TOKEN, timeoutMs: 5000 });
   const statePath = daemonStatePath();
 
-  let desired = loadDesired(statePath);
+  const fromDisk = loadDesired(statePath);
+  let desired = fromDisk?.desired ?? null;
   let desiredJson = JSON.stringify(desired);
+  /** Quando o desejado atual chegou (relógio do servidor): stop_at já vencido nessa hora é erro, não fim de horário. */
+  let desiredSince: number | null = fromDisk?.savedAt ?? null;
   if (desired) say(`estado desejado recuperado do disco: ${desired.state}`);
   let offsetMs = 0;
   let pollOk: boolean | null = null;
@@ -258,6 +264,7 @@ export async function runDaemon(o: DaemonOptions, env: NodeJS.ProcessEnv = proce
       if (json !== desiredJson) {
         desired = res.desired;
         desiredJson = json;
+        desiredSince = serverNow();
         saveDesired(statePath, res.desired);
         say(`novo estado desejado: ${json}`);
       }
@@ -270,7 +277,7 @@ export async function runDaemon(o: DaemonOptions, env: NodeJS.ProcessEnv = proce
 
     if (!quitting) {
       await apply(
-        reconcile({ desired, now: serverNow(), runningKey: runnerKey, completedKey, retryAt }),
+        reconcile({ desired, now: serverNow(), runningKey: runnerKey, completedKey, retryAt, desiredSince }),
       );
     }
     await sleep(Math.max(0, POLL_MS - (Date.now() - sentAt)));

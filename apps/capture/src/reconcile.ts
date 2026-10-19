@@ -44,6 +44,12 @@ export interface ReconcileInput {
   completedKey: string | null;
   /** Após falha do runner, não reinicia antes disso (ms). */
   retryAt: number | null;
+  /**
+   * Quando este desejado chegou ao daemon (ms, relógio do servidor), ou null
+   * se não se sabe. Distingue "o stop_at foi atingido" (fim normal do horário)
+   * de "o comando já chegou com stop_at vencido" (erro visível no /admin).
+   */
+  desiredSince?: number | null;
 }
 
 export type Decision =
@@ -65,15 +71,27 @@ export function reconcile(i: ReconcileInput): Decision {
   if (d.state === "stopped") return running ? { action: "stop", reason: "parada pedida no /admin" } : { action: "idle" };
 
   const stopAt = d.stop_at ? Date.parse(d.stop_at) : NaN;
+  const startAt = d.start_at ? Date.parse(d.start_at) : NaN;
+  if (!Number.isNaN(stopAt) && !Number.isNaN(startAt) && stopAt <= startAt) {
+    const error = `stop_at (${d.stop_at}) não é depois do start_at (${d.start_at}) — corrija o horário no /admin`;
+    return running ? { action: "stop", reason: `configuração inválida: ${error}` } : { action: "invalid", error };
+  }
   if (!Number.isNaN(stopAt) && i.now >= stopAt) {
-    return running ? { action: "stop", reason: "stop_at atingido" } : { action: "idle" };
+    if (running) return { action: "stop", reason: "stop_at atingido" };
+    // comando novo com horário de parada já vencido: não pode virar no-op silencioso
+    if (i.desiredSince != null && i.desiredSince >= stopAt) {
+      return {
+        action: "invalid",
+        error: `stop_at já tinha passado (${d.stop_at}) quando o comando chegou — ajuste ou limpe o horário de parada no /admin`,
+      };
+    }
+    return { action: "idle" };
   }
 
   const r = specFromDesired(d);
   if ("error" in r) return running ? { action: "stop", reason: `configuração inválida: ${r.error}` } : { action: "invalid", error: r.error };
   const key = specKey(r.spec);
 
-  const startAt = d.start_at ? Date.parse(d.start_at) : NaN;
   if (!Number.isNaN(startAt) && i.now < startAt) {
     return running ? { action: "stop", reason: "start_at adiado" } : { action: "wait", until: startAt };
   }
