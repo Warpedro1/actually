@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { CliError, USAGE, parseCli, type RunArgs } from "./args";
 import { runDaemon, supervise } from "./daemon";
 import { doctor, listDevices } from "./doctor";
-import { captureEnvPath, loadEnvFiles } from "./env";
+import { apiUrlConflict, captureEnvPath, envFileValues, loadEnvFiles } from "./env";
 import { startRunner } from "./runner";
 import {
   defaultServiceLogDir,
@@ -20,6 +20,8 @@ import {
 import { StatusLine } from "./status";
 
 async function main(argv: string[]): Promise<number> {
+  /** Definida no ambiente do processo (escolha explícita), antes dos arquivos .env. */
+  const processApi = process.env.ACTUALLY_API_URL?.trim() || undefined;
   loadEnvFiles();
   let command;
   try {
@@ -37,7 +39,7 @@ async function main(argv: string[]): Promise<number> {
       console.log(USAGE);
       return 0;
     case "run":
-      return run(command.args);
+      return run(command.args, processApi);
     case "doctor":
       return doctor(command);
     case "devices":
@@ -93,7 +95,19 @@ function serviceContext(name: string, logDir: string | null): ServiceContext {
   };
 }
 
-async function run(a: RunArgs): Promise<number> {
+async function run(a: RunArgs, processApi: string | undefined): Promise<number> {
+  if (!a.dryRun) {
+    // Máquina de dev que também é de captura: capture.env de produção + .env local
+    // com localhost. Sem --api, adivinhar mandaria um teste local para o debate real.
+    const files = a.apiFromFlag || processApi ? [] : envFileValues("ACTUALLY_API_URL");
+    const conflict = apiUrlConflict(files);
+    if (conflict) {
+      console.error(`erro: ${conflict}.\nPasse --api <url> para dizer para onde enviar.`);
+      return 2;
+    }
+    const origin = a.apiFromFlag ? "--api" : processApi ? "variável de ambiente" : (files[0]?.file ?? "?");
+    console.log(`\n>>> enviando para ${a.api}  (de ${origin}) — debate "${a.debate}", papel ${a.role}\n`);
+  }
   const deepgramKey = process.env.DEEPGRAM_API_KEY;
   if (!deepgramKey) {
     console.error("erro: DEEPGRAM_API_KEY ausente (env, .env ou ~/.actually/capture.env)");

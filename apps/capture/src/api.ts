@@ -3,11 +3,11 @@
 // A fila envia um segmento por vez, em ordem de seq. Falha transitória
 // (rede, 5xx, 429) → retry com backoff exponencial, sem pular: o servidor é
 // idempotente por (agent_id, seq), então "duplicate" conta como sucesso.
-// "standby" também é normal — outro agente é o ativo —, mas o segmento fica
-// guardado por REPLAY_WINDOW_MS: se este agente virar o ativo (failover,
-// troca manual, restart do outro), ele é reenviado com o mesmo seq e a fala
-// da transição não se perde. Pode haver sobreposição com o que o outro agente
-// já mandou (aceita: a trava de repetição do pipeline não reverifica).
+// "standby" também é resultado final: outro agente é o ativo e está entregando
+// essa mesma fala. O segmento é descartado e nunca reenviado, nem se este
+// agente virar o ativo depois — o servidor só deduplica por (agent_id, seq),
+// então o reenvio gravaria de novo fala que o outro agente já entregou e o
+// pipeline publicaria um alerta "Repetido" falso (docs/arquitetura.md).
 
 import { EventEmitter } from "node:events";
 import {
@@ -136,8 +136,6 @@ export interface QueueStats {
   standby: number;
   dropped: number;
   retries: number;
-  /** Segmentos recusados como "standby" e reenviados quando este agente virou o ativo. */
-  replayed: number;
   lastLatencyMs: number | null;
   lastStatus: SegmentResponse["status"] | null;
 }
@@ -146,21 +144,13 @@ export interface SegmentQueueEvents {
   result: [r: { seq: number; status: SegmentResponse["status"]; latencyMs: number; attempts: number }];
   retry: [r: { seq: number; attempt: number; delayMs: number; error: string }];
   dropped: [r: { seq: number; error: string }];
-  replay: [r: { seqs: number[] }];
 }
-
-/** Quanto da fala recusada como "standby" fica guardada para reenvio (pelo captured_at). */
-export const REPLAY_WINDOW_MS = 60_000;
-/** Teto de memória do buffer de reenvio (segmentos têm alguns segundos cada). */
-const REPLAY_MAX_ITEMS = 500;
 
 export interface SegmentQueueOptions {
   client: Pick<IngestClient, "segment">;
   backoff?: BackoffOptions;
   sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
   now?: () => number;
-  /** Janela do buffer de reenvio (padrão REPLAY_WINDOW_MS). */
-  replayWindowMs?: number;
 }
 
 interface QueueItem {
@@ -171,8 +161,6 @@ interface QueueItem {
 
 export class SegmentQueue extends EventEmitter<SegmentQueueEvents> {
   private items: QueueItem[] = [];
-  /** Recusados como "standby" nos últimos replayWindowMs, em ordem de seq. */
-  private standbyItems: QueueItem[] = [];
   private nextSeq = 0;
   private agentId: string | null = null;
   private pumping = false;
@@ -185,7 +173,6 @@ export class SegmentQueue extends EventEmitter<SegmentQueueEvents> {
     standby: 0,
     dropped: 0,
     retries: 0,
-    replayed: 0,
     lastLatencyMs: null,
     lastStatus: null,
   };
@@ -210,32 +197,6 @@ export class SegmentQueue extends EventEmitter<SegmentQueueEvents> {
 
   get size(): number {
     return this.items.length;
-  }
-
-  /** Segmentos recusados como "standby" ainda dentro da janela de reenvio. */
-  get standbySize(): number {
-    this.pruneStandby();
-    return this.standbyItems.length;
-  }
-
-  /**
-   * Este agente é o ativo (heartbeat respondeu active=true): devolve à fila,
-   * com o seq original, os segmentos recentes que voltaram "standby". O
-   * servidor não gravou nenhum deles, então não há duplicata para este agente.
-   * Chamar a cada heartbeat ativo é barato e cobre a corrida em que a resposta
-   * "standby" chega depois do heartbeat que promoveu o agente.
-   */
-  replayStandby(): number {
-    this.pruneStandby();
-    if (this.standbyItems.length === 0) return 0;
-    const back = this.standbyItems.map((i) => ({ ...i, attempts: 0 }));
-    this.standbyItems = [];
-    this.items = [...back, ...this.items].sort((a, b) => a.seq - b.seq);
-    this.stats.replayed += back.length;
-    this.stats.pending = this.items.length;
-    this.emit("replay", { seqs: back.map((i) => i.seq) });
-    void this.pump();
-    return back.length;
   }
 
   /** Espera esvaziar (true) ou estourar o tempo (false). */
@@ -265,8 +226,7 @@ export class SegmentQueue extends EventEmitter<SegmentQueueEvents> {
         item.attempts++;
         try {
           const res = await this.opts.client.segment({ agent_id: this.agentId, seq: item.seq, ...item.seg });
-          this.remove(item);
-          if (res.status === "standby") this.keepForReplay(item);
+          this.items.shift();
           const latencyMs = Math.max(0, now() - Date.parse(item.seg.captured_at));
           this.stats[res.status]++;
           this.stats.lastStatus = res.status;
@@ -276,7 +236,7 @@ export class SegmentQueue extends EventEmitter<SegmentQueueEvents> {
           const e = err instanceof ApiError ? err : new ApiError(String(err), null, true);
           if (!e.retryable) {
             // não adianta repetir (400/401/404...): registra e segue para não travar a fila
-            this.remove(item);
+            this.items.shift();
             this.stats.dropped++;
             this.emit("dropped", { seq: item.seq, error: e.message });
           } else {
@@ -297,35 +257,31 @@ export class SegmentQueue extends EventEmitter<SegmentQueueEvents> {
       for (const w of waiters) w();
     }
   }
-
-  /** Por identidade: um replay pode ter posto itens na frente do que estava em voo. */
-  private remove(item: QueueItem): void {
-    const i = this.items.indexOf(item);
-    if (i >= 0) this.items.splice(i, 1);
-  }
-
-  private keepForReplay(item: QueueItem): void {
-    this.standbyItems.push(item);
-    this.standbyItems.sort((a, b) => a.seq - b.seq);
-    this.pruneStandby();
-  }
-
-  private pruneStandby(): void {
-    const cutoff = (this.opts.now ?? Date.now)() - (this.opts.replayWindowMs ?? REPLAY_WINDOW_MS);
-    this.standbyItems = this.standbyItems.filter((i) => Date.parse(i.seg.captured_at) >= cutoff);
-    if (this.standbyItems.length > REPLAY_MAX_ITEMS) this.standbyItems.splice(0, this.standbyItems.length - REPLAY_MAX_ITEMS);
-  }
 }
 
-/** Intervalo do heartbeat (docs/arquitetura.md: "heartbeat a cada 2 s"). */
-export const HEARTBEAT_MS = 2000;
 /**
- * Prazo de cada heartbeat. Precisa ficar bem abaixo da janela de failover
- * (failover_after_s, padrão 10 s): com o prazo padrão do cliente (15 s), um
- * beat travado segurava os seguintes e o agente saudável "morria" para o banco.
- * Pior caso sem registro no banco: um beat que estoura + o próximo tick ≈ 4–5 s.
+ * Menor failover_after_s que o /admin aceita (apps/web/components/staff/SettingsForm.tsx).
+ * O cliente não conhece a janela do debate, então o heartbeat é dimensionado para ela.
  */
-export const HEARTBEAT_TIMEOUT_MS = 3000;
+export const MIN_FAILOVER_AFTER_S = 3;
+/**
+ * Intervalo do heartbeat. Os beats não esperam o anterior terminar: o banco
+ * recebe um sinal por segundo mesmo com um beat lento, e perder um beat inteiro
+ * deixa ~2 s sem registro, abaixo da menor janela de failover (3 s).
+ */
+export const HEARTBEAT_MS = 1000;
+/**
+ * Prazo de cada heartbeat (com o prazo padrão do cliente, 15 s, um beat travado
+ * segurava os seguintes e o agente saudável "morria" para o banco). Só limita
+ * quanto tempo um beat fica em voo; o próximo sai no tick seguinte de qualquer jeito.
+ */
+export const HEARTBEAT_TIMEOUT_MS = 2500;
+/**
+ * Teto de beats em voo ao mesmo tempo. Com HEARTBEAT_TIMEOUT_MS <
+ * HEARTBEAT_MAX_IN_FLIGHT × HEARTBEAT_MS o teto nunca pula um tick enquanto o
+ * prazo for respeitado; ele só protege contra um fetch que ignore o abort.
+ */
+export const HEARTBEAT_MAX_IN_FLIGHT = 3;
 
 export interface HeartbeatLoopEvents {
   beat: [r: { active: boolean }];
@@ -337,18 +293,23 @@ export interface HeartbeatLoopOptions {
   agentId: string;
   intervalMs?: number;
   timeoutMs?: number;
+  maxInFlight?: number;
 }
 
 /**
- * Heartbeat periódico de um agente. Um beat por vez (o seguinte espera o que
- * está em voo, que nunca passa de timeoutMs). stop() libera o papel de ativo:
- * sem heartbeat, o banco promove outro agente vivo após failover_after_s;
- * respostas que chegarem depois do stop() são ignoradas.
+ * Heartbeat periódico de um agente. Sai um beat a cada intervalMs sem esperar
+ * o anterior (até maxInFlight em voo); vale o resultado do beat mais novo, e
+ * resposta de um beat mais velho que chega depois é ignorada. stop() libera o
+ * papel de ativo: sem heartbeat, o banco promove outro agente vivo após
+ * failover_after_s; respostas que chegarem depois do stop() são ignoradas.
  */
 export class HeartbeatLoop extends EventEmitter<HeartbeatLoopEvents> {
   private timer: NodeJS.Timeout | null = null;
-  private inFlight = false;
+  private inFlight = 0;
   private stopped = false;
+  /** Número do último beat enviado e do mais novo cujo resultado já valeu. */
+  private sent = 0;
+  private applied = 0;
 
   constructor(private readonly opts: HeartbeatLoopOptions) {
     super();
@@ -367,18 +328,26 @@ export class HeartbeatLoop extends EventEmitter<HeartbeatLoopEvents> {
   }
 
   private async beat(): Promise<void> {
-    if (this.inFlight || this.stopped) return;
-    this.inFlight = true;
+    if (this.stopped || this.inFlight >= (this.opts.maxInFlight ?? HEARTBEAT_MAX_IN_FLIGHT)) return;
+    const n = ++this.sent;
+    this.inFlight++;
     try {
       const r = await this.opts.client.heartbeat(
         { agent_id: this.opts.agentId },
         { timeoutMs: this.opts.timeoutMs ?? HEARTBEAT_TIMEOUT_MS },
       );
-      if (!this.stopped) this.emit("beat", { active: r.active });
+      if (this.isNewest(n)) this.emit("beat", { active: r.active });
     } catch (err) {
-      if (!this.stopped) this.emit("fail", err instanceof Error ? err : new Error(String(err)));
+      if (this.isNewest(n)) this.emit("fail", err instanceof Error ? err : new Error(String(err)));
     } finally {
-      this.inFlight = false;
+      this.inFlight--;
     }
+  }
+
+  /** Resultado de um beat mais velho que o último aplicado não vale (o banco já viu um mais novo). */
+  private isNewest(n: number): boolean {
+    if (this.stopped || n <= this.applied) return false;
+    this.applied = n;
+    return true;
   }
 }

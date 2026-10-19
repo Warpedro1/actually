@@ -12,6 +12,7 @@ import {
   peakDbfs,
   ytDlpBin,
 } from "./audio";
+import { apiUrlConflict, envFileValues } from "./env";
 import { runCmd } from "./proc";
 
 type Level = "ok" | "aviso" | "FALHA";
@@ -108,6 +109,9 @@ export async function doctor(o: DoctorOptions, env: NodeJS.ProcessEnv = process.
       report("FALHA", "API", `${o.api} inacessível (${(err as Error).message})`);
     }
   }
+
+  const apiConflict = apiUrlConflict(envFileValues("ACTUALLY_API_URL"));
+  if (apiConflict) report("aviso", "ACTUALLY_API_URL", `${apiConflict} — o daemon usa a primeira; \`run\` sem --api recusa`);
 
   if (!env.INGEST_TOKEN) report("FALHA", "INGEST_TOKEN", "ausente");
   else if (!o.api) report("aviso", "INGEST_TOKEN", "presente, mas não validado (sem API)");

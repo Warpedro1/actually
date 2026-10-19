@@ -12,6 +12,8 @@ export interface RunArgs {
   role: "primary" | "standby";
   source: SourceSpec;
   api: string | null;
+  /** api veio de --api (e não de ACTUALLY_API_URL). */
+  apiFromFlag: boolean;
   sttModel: string;
   sttFallbackModel: string;
   dryRun: boolean;
@@ -157,6 +159,7 @@ function parseRun(rest: string[], env: NodeJS.ProcessEnv): RunArgs {
     role,
     source,
     api: dryRun ? null : api,
+    apiFromFlag: str(values.api) !== undefined,
     sttModel: str(values["stt-model"]) ?? DEFAULT_STT_MODEL,
     sttFallbackModel: str(values["stt-fallback-model"]) ?? FALLBACK_STT_MODEL,
     dryRun,

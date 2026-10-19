@@ -2,11 +2,12 @@ import { DEFAULT_SETTINGS, INGEST_TOKEN_HEADER } from "@actually/db";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ApiError,
+  HEARTBEAT_MAX_IN_FLIGHT,
   HEARTBEAT_MS,
   HEARTBEAT_TIMEOUT_MS,
   HeartbeatLoop,
   IngestClient,
-  REPLAY_WINDOW_MS,
+  MIN_FAILOVER_AFTER_S,
   SegmentQueue,
   isRetryableStatus,
   type CapturedSegment,
@@ -193,113 +194,44 @@ describe("[RNF09] [RNF08] [RF12] SegmentQueue (retry, duplicate, standby)", () =
 const accepted = (id: number) => json(200, { status: "accepted", segment_id: id });
 const standby = () => json(200, { status: "standby" });
 
-describe("[RF12] troca de ativo sem perder fala (reenvio do standby)", () => {
-  it("segmentos recusados como standby voltam à fila, com o seq original, quando o agente vira o ativo", async () => {
-    const { queue, calls } = makeQueue([standby(), standby(), accepted(1), accepted(2)]);
-    const replays: number[][] = [];
-    queue.on("replay", (r) => replays.push(r.seqs));
+describe("[RF12] segmento recusado como standby nunca é reenviado (sem 'Repetido' falso na troca de ativo)", () => {
+  it("virar o ativo depois não reenvia a fala que voltou standby: o outro agente já a entregou", async () => {
+    // a e b chegam enquanto outro agente é o ativo; c, depois da troca
+    const { queue, calls } = makeQueue([standby(), standby(), accepted(1)]);
     queue.enqueue(seg("a", 0));
     queue.enqueue(seg("b", 2));
     queue.setAgent(AGENT);
     await queue.drain(1000);
-    expect(queue.standbySize).toBe(2);
-
-    expect(queue.replayStandby()).toBe(2);
-    await queue.drain(1000);
+    expect(queue.size).toBe(0);
+    queue.enqueue(seg("c", 4));
+    expect(await queue.drain(1000)).toBe(true);
+    // cada seq vai uma única vez: a fala recusada como standby não volta para a API
     expect(calls.map((c) => [c.body.seq, c.body.text])).toEqual([
       [0, "a"],
       [1, "b"],
-      [0, "a"],
-      [1, "b"],
+      [2, "c"],
     ]);
-    expect(replays).toEqual([[0, 1]]);
-    expect(queue.stats.replayed).toBe(2);
-    expect(queue.stats.accepted).toBe(2);
-    expect(queue.standbySize).toBe(0);
-    // nada mais a reenviar: não chama a rede
-    expect(queue.replayStandby()).toBe(0);
-    expect(calls).toHaveLength(4);
-  });
-
-  it("guarda só a janela recente (REPLAY_WINDOW_MS pelo captured_at)", async () => {
-    let now = 1_000_000;
-    const f = fakeFetch([standby(), standby(), accepted(9)]);
-    const queue = new SegmentQueue({
-      client: new IngestClient({ baseUrl: "https://api.test", token: "t", fetch: f.fn }),
-      now: () => now,
-      sleep: async () => {},
-    });
-    queue.enqueue(seg("velho", 0)); // captured_at = 1_000_000
-    queue.enqueue(seg("novo", 30)); // captured_at = 1_030_000
-    queue.setAgent(AGENT);
-    await queue.drain(1000);
-    now = 1_030_000 + REPLAY_WINDOW_MS - 1; // "velho" saiu da janela
-    expect(queue.replayStandby()).toBe(1);
-    await queue.drain(1000);
-    expect(f.calls.map((c) => c.body.text)).toEqual(["velho", "novo", "novo"]);
-  });
-
-  it("reenvio entra na frente do que está pendente, sem perder nem repetir o segmento em voo", async () => {
-    let release!: (r: Response) => void;
-    const calls: number[] = [];
-    const responses: (Response | Promise<Response>)[] = [
-      standby(),
-      new Promise<Response>((r) => (release = r)), // seq 1 fica em voo
-      accepted(10), // replay do 0
-      accepted(11), // seq 2
-    ];
-    const client = new IngestClient({
-      baseUrl: "https://api.test",
-      token: "t",
-      fetch: async (_url, init) => {
-        calls.push(JSON.parse(String(init.body)).seq);
-        return responses.shift()!;
-      },
-    });
-    const queue = new SegmentQueue({ client, now: () => 1_005_000, sleep: async () => {} });
-    queue.enqueue(seg("a", 0));
-    queue.enqueue(seg("b", 2));
-    queue.enqueue(seg("c", 4));
-    queue.setAgent(AGENT);
-    await vi.waitFor(() => expect(calls).toEqual([0, 1]));
-    // heartbeat disse "ativo" enquanto o seq 1 estava em voo
-    expect(queue.replayStandby()).toBe(1);
-    release(accepted(1)); // a resposta do seq 1 chega depois do replay
-    expect(await queue.drain(1000)).toBe(true);
-    expect(calls).toEqual([0, 1, 0, 2]);
-    expect(queue.stats.accepted).toBe(3);
-    expect(queue.size).toBe(0);
-  });
-
-  it("se voltar standby de novo (troca no meio), continua guardado para a próxima vez", async () => {
-    const { queue, calls } = makeQueue([standby(), standby(), accepted(1)]);
-    queue.enqueue(seg("a", 0));
-    queue.setAgent(AGENT);
-    await queue.drain(1000);
-    queue.replayStandby();
-    await queue.drain(1000);
-    expect(queue.standbySize).toBe(1);
-    queue.replayStandby();
-    await queue.drain(1000);
-    expect(calls.map((c) => c.body.seq)).toEqual([0, 0, 0]);
-    expect(queue.standbySize).toBe(0);
-    expect(queue.stats.accepted).toBe(1);
+    expect(queue.stats).toMatchObject({ standby: 2, accepted: 1, pending: 0 });
+    expect(Object.keys(queue.stats)).not.toContain("replayed");
+    expect("replayStandby" in queue).toBe(false);
   });
 });
 
-describe("[RF12] heartbeat (prazo menor que a janela de failover; parar libera o ativo)", () => {
+describe("[RF12] heartbeat (cabe na menor janela de failover; beat lento não segura os outros; parar libera o ativo)", () => {
   afterEach(() => {
     vi.useRealTimers();
   });
 
-  it("prazo do heartbeat cabe folgado na janela de failover padrão", () => {
-    expect(HEARTBEAT_MS).toBe(2000);
-    expect(HEARTBEAT_TIMEOUT_MS).toBeLessThanOrEqual(3000);
-    // pior caso sem beat registrado com a API lenta: um beat que estoura + o próximo tick
-    expect(HEARTBEAT_TIMEOUT_MS + HEARTBEAT_MS).toBeLessThan(DEFAULT_SETTINGS.failover_after_s * 1000);
+  it("perder um beat inteiro ainda deixa sinal dentro da menor janela de failover que o /admin aceita", () => {
+    expect(MIN_FAILOVER_AFTER_S).toBeLessThanOrEqual(DEFAULT_SETTINGS.failover_after_s);
+    // pior caso sem registro no banco com a API respondendo: um beat perdido + o próximo tick
+    expect(2 * HEARTBEAT_MS).toBeLessThan(MIN_FAILOVER_AFTER_S * 1000);
+    // o teto de beats em voo nunca pula um tick enquanto o prazo é respeitado
+    expect(HEARTBEAT_TIMEOUT_MS).toBeLessThan(HEARTBEAT_MAX_IN_FLIGHT * HEARTBEAT_MS);
+    expect(HEARTBEAT_TIMEOUT_MS).toBeLessThan(MIN_FAILOVER_AFTER_S * 1000);
   });
 
-  it("IngestClient.heartbeat aplica o prazo por chamada (beat travado não segura os seguintes por 15 s)", async () => {
+  it("IngestClient.heartbeat aplica o prazo por chamada (beat travado não fica 15 s em voo)", async () => {
     const c = new IngestClient({
       baseUrl: "https://api.test",
       token: "t",
@@ -313,33 +245,73 @@ describe("[RF12] heartbeat (prazo menor que a janela de failover; parar libera o
     expect(Date.now() - t0).toBeLessThan(2000);
   });
 
-  it("HeartbeatLoop usa HEARTBEAT_TIMEOUT_MS, um beat por vez, e para de vez no stop()", async () => {
-    vi.useFakeTimers();
-    const pending: ((v: { active: boolean }) => void)[] = [];
+  function pendingClient() {
+    const pending: { resolve: (v: { active: boolean }) => void; reject: (e: Error) => void }[] = [];
     const timeouts: (number | undefined)[] = [];
     const client = {
       heartbeat: vi.fn((_req: { agent_id: string }, o?: { timeoutMs?: number }) => {
         timeouts.push(o?.timeoutMs);
-        return new Promise<{ active: boolean }>((r) => pending.push(r));
+        return new Promise<{ active: boolean }>((resolve, reject) => pending.push({ resolve, reject }));
       }),
     };
+    return { client, pending, timeouts };
+  }
+
+  it("um beat em voo não segura o próximo: sai um por HEARTBEAT_MS, com HEARTBEAT_TIMEOUT_MS", async () => {
+    vi.useFakeTimers();
+    const { client, pending, timeouts } = pendingClient();
+    const hb = new HeartbeatLoop({ client, agentId: AGENT });
+    hb.start();
+    expect(client.heartbeat).toHaveBeenCalledTimes(1);
+    // o 1º trava (API lenta): os seguintes saem no horário mesmo assim
+    await vi.advanceTimersByTimeAsync(HEARTBEAT_MS);
+    expect(client.heartbeat).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(HEARTBEAT_MS);
+    expect(client.heartbeat).toHaveBeenCalledTimes(3);
+    expect(timeouts).toEqual([HEARTBEAT_TIMEOUT_MS, HEARTBEAT_TIMEOUT_MS, HEARTBEAT_TIMEOUT_MS]);
+    // fetch que ignora o abort: o teto de beats em voo segura a pilha
+    await vi.advanceTimersByTimeAsync(HEARTBEAT_MS * 5);
+    expect(client.heartbeat).toHaveBeenCalledTimes(HEARTBEAT_MAX_IN_FLIGHT);
+    pending[0]!.resolve({ active: true });
+    await vi.advanceTimersByTimeAsync(HEARTBEAT_MS);
+    expect(client.heartbeat).toHaveBeenCalledTimes(HEARTBEAT_MAX_IN_FLIGHT + 1);
+    hb.stop();
+  });
+
+  it("vale o beat mais novo: resposta (ou falha) atrasada de um beat velho é ignorada", async () => {
+    vi.useFakeTimers();
+    const { client, pending } = pendingClient();
+    const hb = new HeartbeatLoop({ client, agentId: AGENT });
+    const events: string[] = [];
+    hb.on("beat", (r) => events.push(r.active ? "ativo" : "standby"));
+    hb.on("fail", (e) => events.push(`falha:${e.message}`));
+    hb.start();
+    await vi.advanceTimersByTimeAsync(HEARTBEAT_MS * 2);
+    expect(pending).toHaveLength(3);
+    pending[1]!.resolve({ active: true }); // beat 2 chega primeiro
+    await vi.advanceTimersByTimeAsync(0);
+    pending[0]!.resolve({ active: false }); // beat 1, atrasado: o banco já viu o 2
+    pending[2]!.reject(new Error("rede")); // beat 3 falha depois: vale (é o mais novo)
+    await vi.advanceTimersByTimeAsync(0);
+    expect(events).toEqual(["ativo", "falha:rede"]);
+    hb.stop();
+  });
+
+  it("stop() para de vez e ignora o que ainda estava em voo", async () => {
+    vi.useFakeTimers();
+    const { client, pending } = pendingClient();
     const hb = new HeartbeatLoop({ client, agentId: AGENT });
     const beats: boolean[] = [];
     hb.on("beat", (r) => beats.push(r.active));
     hb.start();
-    expect(client.heartbeat).toHaveBeenCalledTimes(1);
-    expect(timeouts).toEqual([HEARTBEAT_TIMEOUT_MS]);
-
-    await vi.advanceTimersByTimeAsync(HEARTBEAT_MS); // o 1º ainda em voo: não empilha
-    expect(client.heartbeat).toHaveBeenCalledTimes(1);
-    pending.shift()!({ active: true });
+    pending[0]!.resolve({ active: true });
     await vi.advanceTimersByTimeAsync(HEARTBEAT_MS);
     expect(beats).toEqual([true]);
     expect(client.heartbeat).toHaveBeenCalledTimes(2);
 
     // encerrando: para de mandar e ignora a resposta que ainda estava em voo
     hb.stop();
-    pending.shift()!({ active: true });
+    pending[1]!.resolve({ active: true });
     await vi.advanceTimersByTimeAsync(HEARTBEAT_MS * 5);
     expect(client.heartbeat).toHaveBeenCalledTimes(2);
     expect(beats).toEqual([true]);

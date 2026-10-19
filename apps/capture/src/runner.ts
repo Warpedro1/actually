@@ -219,10 +219,6 @@ export function startRunner(cfg: RunnerConfig): RunnerHandle {
     logger.write("send_dropped", r);
     line(`envio #${r.seq} descartado (erro permanente): ${r.error} — está no log JSONL`);
   });
-  queue?.on("replay", (r) => {
-    logger.write("standby_replay", r);
-    line(`agora ativo: reenviando ${r.seqs.length} segmento(s) recentes recusados como standby (#${r.seqs[0]}–#${r.seqs[r.seqs.length - 1]})`);
-  });
 
   async function registerLoop(): Promise<void> {
     if (!client || !queue) return;
@@ -265,8 +261,8 @@ export function startRunner(cfg: RunnerConfig): RunnerHandle {
       }
       st.active = active;
       heartbeatOk = true;
-      // virou (ou segue) ativo: reenvia a fala recente que voltou "standby"
-      if (active) queue?.replayStandby();
+      // Virar ativo não reenvia o que voltou "standby": o outro agente já
+      // entregou essa fala, e reenviá-la geraria alerta "Repetido" falso.
     });
     hb.on("fail", (err) => {
       if (heartbeatOk) line(`heartbeat falhou: ${err.message}`);
@@ -323,8 +319,8 @@ export function startRunner(cfg: RunnerConfig): RunnerHandle {
       line(`erro: ${exit.error}`);
     }
     // Libera o papel de ativo já: sem heartbeat, o banco promove outro agente
-    // vivo após failover_after_s (que reenvia a fala recusada nesse meio-tempo).
-    // Até lá o banco ainda vê este agente como ativo e aceita a cauda abaixo.
+    // vivo após failover_after_s, em vez de esperar o fim do drain abaixo. Até
+    // lá o banco ainda vê este agente como ativo e aceita a cauda drenada.
     releasing = true;
     heartbeat?.stop();
     finishing = (async () => {
