@@ -15,8 +15,11 @@ import { describe, expect, it } from "vitest";
 import { aggregateMonthly, dateWindows, parseSgs, sgsUrl } from "../src/indicators/sgs";
 import { agregadosUrl, apisidraUrl, parseSidra, parseSidraFlat } from "../src/indicators/sidra";
 import { monthPeriod, movingQuarterPeriod, quarterPeriod, sgsPeriod, sidraPeriod, yearPeriod } from "../src/indicators/periods";
+import { INDICATOR_AGGREGATIONS } from "@actually/db";
 import { CATALOG, activeSeries, toSeriesRow } from "../src/indicators/catalog";
-import { crossCheckUnemployment } from "../src/commands/indicators";
+import { crossCheckUnemployment, runIndicators, withMigrationHint } from "../src/commands/indicators";
+import { seriesState } from "../src/commands/status";
+import type { Ctx } from "../src/lib/ctx";
 
 const fx = (f: string) => JSON.parse(readFileSync(join(import.meta.dirname, "fixtures", f), "utf8")) as unknown;
 
@@ -124,20 +127,57 @@ describe("[RF15] catálogo de indicadores", () => {
       expect(["monthly", "quarterly", "annual", "moving_quarter"]).toContain(s.periodicity);
     }
   });
-  it("desemprego ⇔ desocupação nos aliases", () => {
+  it("desemprego ⇔ desocupação nos aliases, numa série só (a móvel responde por mês, trimestre, ano e dado atual)", () => {
     const d = CATALOG.filter((s) => s.code.startsWith("desocupacao"));
     expect(d.length).toBe(2);
-    for (const s of d) expect(s.aliases).toEqual(expect.arrayContaining(["desemprego", "taxa de desemprego", "desocupação"]));
+    const generic = ["desemprego", "taxa de desemprego", "desocupação", "taxa de desocupação"];
+    expect(d.find((s) => s.code === "desocupacao_pnadc_movel")!.aliases).toEqual(expect.arrayContaining(generic));
+    // repetidos na trimestral virariam empate sem desempate (as duas respondem pelo ano) ⇒ L2 calada
+    for (const a of generic) expect(d.find((s) => s.code === "desocupacao_pnadc_trimestral")!.aliases).not.toContain(a);
   });
   it("ativas têm fonte; pendentes têm motivo e ficam fora por padrão", () => {
     for (const s of activeSeries()) expect(s.fetch.kind).not.toBe("none");
     for (const s of CATALOG.filter((x) => x.fetch.kind === "none")) expect(s.pending).toBeTruthy();
     expect(activeSeries().some((s) => s.pending)).toBe(false);
   });
-  it("linha de indicator_series não vaza campos internos", () => {
+  it("linha de indicator_series não vaza campos internos (e leva a agregação)", () => {
     expect(Object.keys(toSeriesRow(CATALOG[0]!)).sort()).toEqual(
-      ["aliases", "code", "name", "notes", "periodicity", "source_name", "source_url", "tier", "unit"].sort(),
+      ["aggregation", "aliases", "code", "name", "notes", "periodicity", "source_name", "source_url", "tier", "unit"].sort(),
     );
+  });
+  it("toda série declara como agrega: fluxo soma, acumulado 12m usa dezembro, variação mensal não agrega", () => {
+    const by = new Map(CATALOG.map((s) => [s.code, s]));
+    for (const s of CATALOG) {
+      expect(INDICATOR_AGGREGATIONS).toContain(s.aggregation);
+      if (s.periodicity === "annual") expect(s.aggregation).toBe("none");
+    }
+    expect(by.get("caged_saldo")!.aggregation).toBe("sum");
+    expect(by.get("pib_corrente_trimestral")!.aggregation).toBe("sum");
+    expect(by.get("ipca_mensal")!.aggregation).toBe("none");
+    expect(by.get("ipca_12m")!.aggregation).toBe("accum_12m");
+    expect(by.get("primario_12m_pib")!.aggregation).toBe("accum_12m");
+    expect(by.get("dlsp_pib")!.aggregation).toBe("last");
+    expect(by.get("pib_variacao_trimestral")!.aggregation).toBe("none");
+  });
+  it("série em % não tem alias de contagem ('desempregados', 'desocupados'): 8,5 milhões viraria 8,5%", () => {
+    for (const s of CATALOG.filter((x) => x.unit.startsWith("%"))) {
+      for (const a of ["desempregados", "desocupados", "pessoas desocupadas", "número de desempregados"]) expect(s.aliases).not.toContain(a);
+    }
+  });
+  it("alias repetido entre séries ativas só nas duas do IPCA (empate que a afirmação desempata)", () => {
+    const norm = (a: string) => a.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().trim();
+    const owners = new Map<string, string[]>();
+    for (const s of activeSeries()) for (const a of new Set(s.aliases.map(norm))) owners.set(a, [...(owners.get(a) ?? []), s.code]);
+    const shared = [...owners].filter(([, codes]) => codes.length > 1);
+    expect(shared.map(([a]) => a).sort()).toEqual(["custo de vida", "indice de precos ao consumidor amplo", "inflacao", "ipca"]);
+    for (const [, codes] of shared) expect(codes.sort()).toEqual(["ipca_12m", "ipca_mensal"]);
+    // "inflação de 2023": a variação mensal não agrega em ano, só o acumulado 12m cabe
+    const ipca = activeSeries().filter((s) => s.code.startsWith("ipca"));
+    expect(ipca.map((s) => s.aggregation).sort()).toEqual(["accum_12m", "none"]);
+  });
+  it("acumulado 12m não usa nomes do acumulado NO ANO (jan até o mês, outra medida)", () => {
+    const ipca12 = CATALOG.find((s) => s.code === "ipca_12m")!;
+    for (const a of ["inflação no ano", "inflação acumulada", "ipca acumulado", "inflação acumulada no ano"]) expect(ipca12.aliases).not.toContain(a);
   });
   it("conferência móvel × trimestral detecta divergência", () => {
     const logs: string[] = [];
@@ -152,5 +192,37 @@ describe("[RF15] catálogo de indicadores", () => {
     );
     expect(n).toBe(1);
     expect(logs.some((l) => l.includes("2 trimestres comparados"))).toBe(true);
+  });
+});
+
+describe("[RF15] L2 no banco: agregação declarada (migration 20261019000007)", () => {
+  it("banco sem a coluna `aggregation`: a carga para logo, com o caminho da migration, sem buscar valores", async () => {
+    const upserts: string[] = [];
+    const ctx = {
+      dryRun: false, verbose: false, log: () => {}, warn: () => {},
+      db: {
+        from: (table: string) => ({
+          upsert: async () => {
+            upserts.push(table);
+            return { error: { message: "Could not find the 'aggregation' column of 'indicator_series' in the schema cache" } };
+          },
+        }),
+      },
+    } as unknown as Ctx;
+    await expect(runIndicators(ctx, { only: ["ipca_12m"] })).rejects.toThrow(/20261019000007_indicator_aggregation\.sql/);
+    expect(upserts).toEqual(["indicator_series"]);
+    // outros erros passam sem a dica
+    expect(withMigrationHint(new Error("upsert indicator_series: timeout")).message).toBe("upsert indicator_series: timeout");
+  });
+
+  it("status aponta série sem agregação (anterior à coluna) ou com agregação/aliases antigos: rodar `indicators`", () => {
+    const s = CATALOG.find((x) => x.code === "ipca_mensal")!;
+    expect(seriesState(s, undefined)).toBe("não carregada");
+    expect(seriesState(s, { code: s.code, aliases: s.aliases, aggregation: null })).toBe("SEM AGREGAÇÃO");
+    // catálogo antigo no banco: "inflação" só na mensal
+    expect(seriesState(s, { code: s.code, aliases: ["ipca", "inflação", "custo de vida"], aggregation: "none" })).toBe("DESATUALIZADA");
+    expect(seriesState(s, { code: s.code, aliases: s.aliases, aggregation: "accum_12m" })).toBe("DESATUALIZADA");
+    expect(seriesState(s, { code: s.code, aliases: [...s.aliases].reverse(), aggregation: "none" })).toBe("carregada");
+    expect(seriesState(CATALOG.find((x) => x.pending)!, undefined)).toBe("PENDENTE");
   });
 });

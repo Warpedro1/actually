@@ -17,7 +17,13 @@
 //
 // Séries com `pending` NÃO são carregadas (só com --include-pending): código ou
 // fonte não confirmados. O motivo fica registrado aqui e no relatório.
-import type { IndicatorSeries } from "@actually/db";
+//
+// ALIASES: o pipeline só usa a série se o nome dito casar sem ambiguidade (alias exato,
+// ou aproximado alto com margem clara). Um alias genérico repetido em duas séries é
+// EMPATE: só se resolve quando apenas uma delas cabe na afirmação (ex.: "inflação de
+// 2023" só cabe no acumulado 12m; "inflação de março" cabe nas duas ⇒ silêncio).
+// Não ponha em duas séries um alias que as duas respondem do mesmo jeito (desemprego).
+import type { IndicatorAggregation, IndicatorSeries } from "@actually/db";
 import { sgsPublicUrl } from "./sgs";
 import { sidraPublicUrl } from "./sidra";
 
@@ -27,6 +33,12 @@ export type SeriesFetch =
   | { kind: "none" };
 
 export interface CatalogSeries extends IndicatorSeries {
+  /**
+   * Como a série se agrega num período mais longo que a sua periodicidade (coluna
+   * indicator_series.aggregation; valores e significado em IndicatorAggregation, @actually/db).
+   * Obrigatória aqui: no banco, null = não declarada e o pipeline cala a L2 da série.
+   */
+  aggregation: IndicatorAggregation;
   fetch: SeriesFetch;
   /** Como o código foi conferido (ver cabeçalho). */
   verified_by: string;
@@ -42,9 +54,11 @@ export const CATALOG: CatalogSeries[] = [
   {
     code: "ipca_mensal",
     name: "IPCA — variação mensal",
-    aliases: ["ipca", "inflação", "inflação mensal", "inflação do mês", "índice de preços ao consumidor amplo", "custo de vida"],
+    // "ipca"/"inflação"/"custo de vida" também em ipca_12m (empate de propósito: ver cabeçalho)
+    aliases: ["ipca", "inflação", "custo de vida", "índice de preços ao consumidor amplo", "inflação mensal", "inflação do mês", "ipca mensal", "ipca do mês"],
     unit: "%",
     periodicity: "monthly",
+    aggregation: "none",
     source_name: "IBGE — IPCA (série 433 do SGS/BCB)",
     source_url: sgsPublicUrl(433),
     tier: 1,
@@ -55,9 +69,16 @@ export const CATALOG: CatalogSeries[] = [
   {
     code: "ipca_12m",
     name: "IPCA — acumulado em 12 meses",
-    aliases: ["inflação em 12 meses", "inflação acumulada", "inflação anual", "inflação no ano", "ipca acumulado", "ipca 12 meses"],
+    // sem "inflação no ano"/"inflação acumulada"/"ipca acumulado": no IBGE isso é o acumulado
+    // NO ANO (jan até o mês), outra medida — só coincide com 12 meses em dezembro
+    aliases: [
+      "ipca", "inflação", "custo de vida", "índice de preços ao consumidor amplo",
+      "inflação em 12 meses", "inflação acumulada em 12 meses", "inflação dos últimos 12 meses", "inflação anual",
+      "ipca 12 meses", "ipca em 12 meses", "ipca acumulado em 12 meses",
+    ],
     unit: "%",
     periodicity: "monthly",
+    aggregation: "accum_12m",
     source_name: "IBGE — IPCA (série 13522 do SGS/BCB)",
     source_url: sgsPublicUrl(13522),
     tier: 1,
@@ -72,6 +93,7 @@ export const CATALOG: CatalogSeries[] = [
     aliases: ["selic", "juros", "taxa de juros", "taxa básica de juros", "juros básicos", "meta selic"],
     unit: "% a.a.",
     periodicity: "monthly",
+    aggregation: "mean_or_last",
     source_name: "Banco Central do Brasil — Meta Selic (série 432 do SGS)",
     source_url: sgsPublicUrl(432),
     tier: 1,
@@ -85,6 +107,7 @@ export const CATALOG: CatalogSeries[] = [
     aliases: ["dólar", "câmbio", "cotação do dólar", "taxa de câmbio", "real frente ao dólar"],
     unit: "R$/US$",
     periodicity: "monthly",
+    aggregation: "mean_or_last",
     source_name: "Banco Central do Brasil — câmbio livre, dólar venda (série 1 do SGS)",
     source_url: sgsPublicUrl(1),
     tier: 1,
@@ -99,6 +122,7 @@ export const CATALOG: CatalogSeries[] = [
     aliases: ["dívida líquida", "dívida pública líquida", "dlsp", "dívida do setor público"],
     unit: "% do PIB",
     periodicity: "monthly",
+    aggregation: "last",
     source_name: "Banco Central do Brasil — DLSP % PIB (série 4513 do SGS)",
     source_url: sgsPublicUrl(4513),
     tier: 1,
@@ -112,6 +136,7 @@ export const CATALOG: CatalogSeries[] = [
     aliases: ["dívida líquida do governo geral", "dívida do governo"],
     unit: "% do PIB",
     periodicity: "monthly",
+    aggregation: "last",
     source_name: "Banco Central do Brasil — dívida líquida do governo geral % PIB (série 4536 do SGS)",
     source_url: sgsPublicUrl(4536),
     tier: 1,
@@ -125,6 +150,7 @@ export const CATALOG: CatalogSeries[] = [
     aliases: ["resultado primário", "déficit primário", "superávit primário", "rombo das contas públicas", "déficit fiscal", "contas públicas"],
     unit: "% do PIB",
     periodicity: "monthly",
+    aggregation: "accum_12m",
     source_name: "Banco Central do Brasil — NFSP primário 12 meses % PIB (série 5793 do SGS)",
     source_url: sgsPublicUrl(5793),
     tier: 1,
@@ -140,6 +166,7 @@ export const CATALOG: CatalogSeries[] = [
     aliases: ["dívida bruta", "dívida pública", "dívida pública bruta", "dbgg", "dívida/pib"],
     unit: "% do PIB",
     periodicity: "monthly",
+    aggregation: "last",
     source_name: BCB,
     source_url: "https://dadosabertos.bcb.gov.br/",
     tier: 1,
@@ -154,9 +181,15 @@ export const CATALOG: CatalogSeries[] = [
   {
     code: "desocupacao_pnadc_trimestral",
     name: "Taxa de desocupação — PNAD Contínua (trimestre civil)",
-    aliases: ["desemprego", "taxa de desemprego", "desocupação", "taxa de desocupação", "desempregados"],
+    // os aliases genéricos ("desemprego", "taxa de desemprego", "desocupação") ficam só na
+    // série móvel, que responde por mês, trimestre civil, ano e dado atual: repetidos aqui
+    // seriam um empate sem desempate e a L2 ficaria em silêncio no indicador mais citado.
+    // Sem "desempregados": é contagem de pessoas, não a taxa ("8,5 milhões de desempregados"
+    // com a escala perdida na extração viraria 8,5 comparado como %)
+    aliases: ["desemprego trimestral", "desemprego no trimestre", "taxa de desocupação trimestral", "desocupação trimestral"],
     unit: "%",
     periodicity: "quarterly",
+    aggregation: "mean_or_last",
     source_name: "IBGE — PNAD Contínua, tabela 4099",
     source_url: sidraPublicUrl("4099"),
     tier: 1,
@@ -167,9 +200,10 @@ export const CATALOG: CatalogSeries[] = [
   {
     code: "desocupacao_pnadc_movel",
     name: "Taxa de desocupação — PNAD Contínua (trimestre móvel)",
-    aliases: ["desemprego", "taxa de desemprego", "desocupação", "desemprego atual", "menor desemprego", "desemprego mensal"],
+    aliases: ["desemprego", "taxa de desemprego", "desocupação", "taxa de desocupação", "desemprego atual", "menor desemprego", "desemprego mensal"],
     unit: "%",
     periodicity: "moving_quarter",
+    aggregation: "mean_or_last",
     source_name: "IBGE — PNAD Contínua (série 24369 do SGS/BCB)",
     source_url: sgsPublicUrl(24369),
     tier: 1,
@@ -185,6 +219,7 @@ export const CATALOG: CatalogSeries[] = [
     aliases: ["pib", "crescimento do pib", "crescimento da economia", "variação do pib", "pib trimestral"],
     unit: "%",
     periodicity: "quarterly",
+    aggregation: "none",
     source_name: "IBGE — Contas Nacionais Trimestrais, tabela 5932",
     source_url: sidraPublicUrl("5932"),
     tier: 1,
@@ -198,6 +233,7 @@ export const CATALOG: CatalogSeries[] = [
     aliases: ["tamanho do pib", "pib em reais", "valor do pib"],
     unit: "R$ milhões",
     periodicity: "quarterly",
+    aggregation: "sum",
     source_name: "IBGE — Contas Nacionais Trimestrais, tabela 1846",
     source_url: sidraPublicUrl("1846"),
     tier: 1,
@@ -211,6 +247,7 @@ export const CATALOG: CatalogSeries[] = [
     aliases: ["pib per capita", "renda per capita"],
     unit: "R$",
     periodicity: "annual",
+    aggregation: "none",
     source_name: "IBGE — Contas Nacionais Anuais, tabela 6784",
     source_url: sidraPublicUrl("6784"),
     tier: 1,
@@ -224,6 +261,7 @@ export const CATALOG: CatalogSeries[] = [
     aliases: ["crescimento do pib no ano", "pib cresceu", "crescimento anual", "pib anual"],
     unit: "%",
     periodicity: "annual",
+    aggregation: "none",
     source_name: IBGE,
     source_url: sidraPublicUrl("6784"),
     tier: 1,
@@ -240,6 +278,7 @@ export const CATALOG: CatalogSeries[] = [
     aliases: ["renda", "renda do trabalhador", "salário médio", "rendimento médio", "renda média"],
     unit: "R$",
     periodicity: "moving_quarter",
+    aggregation: "mean_or_last",
     source_name: "IBGE — PNAD Contínua, tabela 6387",
     source_url: sidraPublicUrl("6387"),
     tier: 1,
@@ -253,6 +292,7 @@ export const CATALOG: CatalogSeries[] = [
     aliases: ["população", "habitantes", "brasileiros"],
     unit: "pessoas",
     periodicity: "annual",
+    aggregation: "none",
     source_name: "IBGE — Estimativas de População, tabela 6579",
     source_url: sidraPublicUrl("6579"),
     tier: 1,
@@ -266,6 +306,7 @@ export const CATALOG: CatalogSeries[] = [
     aliases: ["empregos formais", "carteira assinada", "geração de empregos", "vagas criadas", "caged"],
     unit: "postos de trabalho",
     periodicity: "monthly",
+    aggregation: "sum",
     source_name: "Ministério do Trabalho — Caged (série 28561 do SGS/BCB)",
     source_url: sgsPublicUrl(28561),
     tier: 1,
@@ -280,6 +321,7 @@ export const CATALOG: CatalogSeries[] = [
     aliases: ["desmatamento", "desmatamento na amazônia", "prodes", "área desmatada"],
     unit: "km²",
     periodicity: "annual",
+    aggregation: "none",
     source_name: "INPE — PRODES (TerraBrasilis)",
     source_url: "https://terrabrasilis.dpi.inpe.br/",
     tier: 1,
@@ -294,6 +336,7 @@ export const CATALOG: CatalogSeries[] = [
     aliases: ["salário mínimo", "mínimo", "piso nacional"],
     unit: "R$",
     periodicity: "monthly",
+    aggregation: "last",
     source_name: "Governo Federal (decretos/leis do salário mínimo)",
     source_url: "https://www.gov.br/",
     tier: 1,
@@ -308,6 +351,7 @@ export const CATALOG: CatalogSeries[] = [
     aliases: ["homicídios", "assassinatos", "mortes violentas", "violência"],
     unit: "por 100 mil hab.",
     periodicity: "annual",
+    aggregation: "none",
     source_name: "Atlas da Violência (Ipea/FBSP) / Anuário Brasileiro de Segurança Pública",
     source_url: "https://forumseguranca.org.br/",
     tier: 1,
@@ -322,6 +366,7 @@ export const CATALOG: CatalogSeries[] = [
     aliases: ["bolsa família", "beneficiários do bolsa família", "famílias atendidas"],
     unit: "famílias",
     periodicity: "monthly",
+    aggregation: "mean_or_last",
     source_name: "MDS / Portal da Transparência",
     source_url: "https://portaldatransparencia.gov.br/",
     tier: 1,
@@ -336,8 +381,11 @@ export function activeSeries(includePending = false): CatalogSeries[] {
   return CATALOG.filter((s) => includePending || !s.pending);
 }
 
-/** Linha para indicator_series (sem os campos internos do catálogo). */
-export function toSeriesRow(s: CatalogSeries): IndicatorSeries {
+/**
+ * Linha para indicator_series (sem os campos internos do catálogo). Inclui `aggregation`,
+ * que o comparador L2 lê pelo find_indicator (migration 20261019000007_indicator_aggregation).
+ */
+export function toSeriesRow(s: CatalogSeries): IndicatorSeries & { aggregation: IndicatorAggregation } {
   const { fetch: _f, verified_by: _v, pending: _p, ...row } = s;
   return row;
 }

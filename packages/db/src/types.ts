@@ -206,12 +206,27 @@ export interface KbFactcheck {
   published_at: string | null;
 }
 
+/**
+ * Como a série se agrega num período mais longo que a sua periodicidade (coluna
+ * indicator_series.aggregation, migration 20261019000007):
+ * - "sum": fluxo (saldo do Caged, PIB nominal trimestral) — ano/trimestre = soma, só com o período completo;
+ * - "mean_or_last": taxa com média reconhecida (desocupação, Selic, câmbio) — média do período completo ou último ponto;
+ * - "last": estoque (dívida % PIB) — ponto do fim do período;
+ * - "accum_12m": acumulado em 12 meses (IPCA 12m, primário 12m) — ano civil = valor de dezembro; trimestre não;
+ * - "none": não agrega (variação mensal do IPCA, variação trimestral do PIB, séries anuais) — só o período exato.
+ */
+export type IndicatorAggregation = "sum" | "mean_or_last" | "last" | "accum_12m" | "none";
+/** Mesmos valores do check da coluna indicator_series.aggregation. */
+export const INDICATOR_AGGREGATIONS: readonly IndicatorAggregation[] = ["sum", "mean_or_last", "last", "accum_12m", "none"];
+
 export interface IndicatorSeries {
   code: string;
   name: string;
   aliases: string[];
   unit: string;
   periodicity: "monthly" | "quarterly" | "annual" | "moving_quarter";
+  /** null = não declarada (linha anterior à coluna, ainda sem `kb-ingest indicators`): a L2 não compara. */
+  aggregation: IndicatorAggregation | null;
   source_name: string;
   source_url: string;
   tier: SourceTier;
@@ -271,6 +286,7 @@ export interface VerifiedClaimMatch {
 
 export interface IndicatorMatch {
   code: string; name: string; unit: string; periodicity: IndicatorSeries["periodicity"];
+  aggregation: IndicatorSeries["aggregation"];
   source_name: string; source_url: string; tier: SourceTier; score: number;
 }
 
