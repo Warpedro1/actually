@@ -119,6 +119,12 @@ function check<T>(res: { data: T; error: PgErr }, what: string): T {
   return res.data;
 }
 
+function checkOne<T>(res: { data: T; error: PgErr }, what: string): NonNullable<T> {
+  const data = check(res, what);
+  if (data == null) throw new DbError(`${what}: nenhuma linha retornada`, undefined);
+  return data;
+}
+
 const num = (v: unknown): number => (typeof v === "number" ? v : Number(v));
 
 export function supabaseStore(sb: Sb): PipelineStore {
@@ -200,7 +206,7 @@ export function supabaseStore(sb: Sb): PipelineStore {
     },
 
     async insertClaim(row) {
-      const data = check(
+      const data = checkOne(
         await sb.from("claims")
           .insert({ ...row, embedding: row.embedding ? toPgVector(row.embedding) : null })
           .select("id").single(),
@@ -210,7 +216,7 @@ export function supabaseStore(sb: Sb): PipelineStore {
     },
 
     async insertVerification(row) {
-      const data = check(
+      const data = checkOne(
         await sb.from("verifications").insert(row).select("id, created_at").single(),
         "insertVerification",
       );
@@ -223,7 +229,7 @@ export function supabaseStore(sb: Sb): PipelineStore {
     },
 
     async insertAlert(row) {
-      const data = check(await sb.from("alerts").insert(row).select("id").single(), "insertAlert");
+      const data = checkOne(await sb.from("alerts").insert(row).select("id").single(), "insertAlert");
       return { id: data.id };
     },
 

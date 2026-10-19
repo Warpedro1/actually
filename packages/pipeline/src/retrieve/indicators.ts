@@ -263,11 +263,11 @@ export function compareIndicator(
   for (const c of candidates) {
     const isChange = ref.kind === "change_abs" || ref.kind === "change_pct";
     const signFlip = isChange && claimed < 0 && c.actual > 0;
-    const effClaimed = isChange && claimed >= 0 ? claimed : claimed;
+    // variação afirmada sem sinal: compara magnitudes (a direção fica com o verificador)
     const effActual = isChange && claimed >= 0 ? Math.abs(c.actual) : c.actual;
     const tol = toleranceFor(c.isPercent, effActual);
-    const status = signFlip ? "mismatch" : classify(effClaimed, effActual, tol);
-    const diff = Math.abs(effClaimed - effActual) / (tol || 1);
+    const status = signFlip ? "mismatch" : classify(claimed, effActual, tol);
+    const diff = Math.abs(claimed - effActual) / (tol || 1);
     if (!best || STATUS_RANK[status] < STATUS_RANK[best.status] || (status === best.status && diff < best.diff)) {
       best = { status, c, tol, diff };
     }
