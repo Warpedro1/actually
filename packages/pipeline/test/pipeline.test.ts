@@ -50,17 +50,10 @@ function setup(script: FakeAnthropicScript, kb: ConstructorParameters<typeof Mem
   return { store, anthropic, deps, pipeline: createPipeline(deps) };
 }
 
-/** Store que informa o horário da original no caminho por hash (o MemoryStore não informa). */
-class TimedStore extends MemoryStore {
-  override async findClaimByHash(debateId: string, hash: string) {
-    const m = await super.findClaimByHash(debateId, hash);
-    return m && { ...m, created_at: this.claims.find((c) => c.id === m.claim_id)!.created_at };
-  }
-}
 
-/** Como `setup`, com TimedStore e relógio adiantável (`clock.offset`). */
+/** Como `setup`, com relógio adiantável (`clock.offset`). */
 function timedSetup(script: FakeAnthropicScript, kb: ConstructorParameters<typeof MemoryStore>[0] = {}, settings: Partial<DebateSettings> = {}) {
-  const store = new TimedStore(kb, settings);
+  const store = new MemoryStore(kb, settings);
   const anthropic = fakeAnthropic(script);
   const clock = { offset: 0 };
   const deps = makeDeps({ store, anthropic, now: () => Date.now() + clock.offset });

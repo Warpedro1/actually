@@ -190,3 +190,11 @@ describe("[RF06] trava por similaridade: qualquer palavra trocada, a mais ou for
     expect(same(b, a)).toBe(false);
   });
 });
+
+describe("[RF06] qualificador aproximado conta na redação", () => {
+  it("[RF06] \"uns 10 milhões\" não é a mesma afirmação que \"10 milhões\"", () => {
+    expect(wordingKey("O Brasil tem uns 10 milhões de desempregados.")).not.toBe(wordingKey("O Brasil tem 10 milhões de desempregados."));
+    expect(wordingKey("O Brasil tem umas 10 mil escolas.")).not.toBe(wordingKey("O Brasil tem 10 mil escolas."));
+    expect(wordingKey("O Brasil tem quase 10 milhões de desempregados.")).not.toBe(wordingKey("O Brasil tem 10 milhões de desempregados."));
+  });
+});

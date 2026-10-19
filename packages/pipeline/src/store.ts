@@ -35,6 +35,11 @@ export interface HashMatch {
   alert_id: string | null;
   alert_status: AlertStatus | null;
   verified_at: string | null;
+  /**
+   * created_at da tentativa mais recente com este hash no debate (a original ou
+   * uma repetição dela). Diz se ainda há uma verificação em andamento.
+   */
+  last_attempt_at: string | null;
 }
 
 export interface NewClaim {
@@ -158,20 +163,24 @@ export function supabaseStore(sb: Sb): PipelineStore {
     },
 
     async findClaimByHash(debateId, hash) {
-      const claim = check(
-        await sb.from("claims").select("id")
+      const [orig, latest] = await Promise.all([
+        sb.from("claims").select("id")
           .eq("debate_id", debateId).eq("claim_hash", hash).is("duplicate_of", null)
           .limit(1).maybeSingle(),
-        "findClaimByHash",
-      );
+        sb.from("claims").select("created_at")
+          .eq("debate_id", debateId).eq("claim_hash", hash)
+          .order("created_at", { ascending: false }).limit(1).maybeSingle(),
+      ]);
+      const claim = check(orig, "findClaimByHash");
       if (!claim) return null;
+      const last_attempt_at = (check(latest, "findClaimByHash/latest") as { created_at: string } | null)?.created_at ?? null;
       const ver = check(
         await sb.from("verifications").select("id, verdict, created_at")
           .eq("claim_id", claim.id).order("created_at", { ascending: false }).limit(1).maybeSingle(),
         "findClaimByHash/verification",
       );
       if (!ver) {
-        return { claim_id: claim.id, verification_id: null, verdict: null, alert_id: null, alert_status: null, verified_at: null };
+        return { claim_id: claim.id, verification_id: null, verdict: null, alert_id: null, alert_status: null, verified_at: null, last_attempt_at };
       }
       const alert = check(
         await sb.from("alerts").select("id, status")
@@ -185,6 +194,7 @@ export function supabaseStore(sb: Sb): PipelineStore {
         alert_id: alert?.id ?? null,
         alert_status: (alert?.status as AlertStatus | undefined) ?? null,
         verified_at: ver.created_at,
+        last_attempt_at,
       };
     },
 

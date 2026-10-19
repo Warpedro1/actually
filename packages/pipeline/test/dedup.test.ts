@@ -59,12 +59,11 @@ async function seedUnverified(store: MemoryStore, text: string) {
   return id;
 }
 
-/** Store que também informa o created_at da original no caminho por hash. */
-class AgedStore extends MemoryStore {
+/** Store que não sabe o horário das tentativas (last_attempt_at nulo). */
+class NoTimeStore extends MemoryStore {
   override async findClaimByHash(debateId: string, hash: string) {
     const m = await super.findClaimByHash(debateId, hash);
-    if (!m) return null;
-    return { ...m, created_at: this.claims.find((c) => c.id === m.claim_id)!.created_at };
+    return m && { ...m, last_attempt_at: null };
   }
 }
 
@@ -273,8 +272,8 @@ describe("[RF06] trava por similaridade nunca junta afirmações opostas", () =>
 });
 
 describe("[RF06] original sem verificação concluída não silencia as repetições", () => {
-  it("store sem o horário da original ⇒ conta como em andamento: duplicata silenciosa, nunca verificação em paralelo", async () => {
-    const store = new MemoryStore();
+  it("sem o horário da última tentativa ⇒ conta como em andamento: duplicata silenciosa, nunca verificação em paralelo", async () => {
+    const store = new NoTimeStore();
     const deps = makeDeps({ store, anthropic: noLLM, now: () => Date.now() + 3_600_000 });
     const origId = await seedUnverified(store, "O salário mínimo é de R$ 1.518.");
     const out = await dedupAndRecord(deps, args("O salário mínimo é de R$ 1.518."));
@@ -283,7 +282,7 @@ describe("[RF06] original sem verificação concluída não silencia as repetiç
   });
 
   it("original sem verificação (erro/timeout/sem evidência) e fora do prazo ⇒ repetição gravada como duplicata, mas verificada de novo", async () => {
-    const store = new AgedStore();
+    const store = new MemoryStore();
     const text = "O salário mínimo é de R$ 1.518.";
     const origId = await seedUnverified(store, text);
     const deps = makeDeps({ store, anthropic: noLLM, now: () => Date.now() + ORIGINAL_IN_PROGRESS_MS + 1_000 });
@@ -296,7 +295,7 @@ describe("[RF06] original sem verificação concluída não silencia as repetiç
   });
 
   it("com o horário da original: em andamento (dentro do prazo) ⇒ duplicata silenciosa; depois do prazo ⇒ verifica de novo", async () => {
-    const store = new AgedStore();
+    const store = new MemoryStore();
     const text = "O salário mínimo é de R$ 1.518.";
     const origId = await seedUnverified(store, text);
     const t0 = Date.parse(store.claims[0]!.created_at);
@@ -310,8 +309,20 @@ describe("[RF06] original sem verificação concluída não silencia as repetiç
     expect(ORIGINAL_IN_PROGRESS_MS).toBeLessThanOrEqual(60_000);
   });
 
+  it("o prazo conta da tentativa MAIS RECENTE: repetição logo depois de uma nova tentativa fica em silêncio (sem dois alertas completos)", async () => {
+    const store = new MemoryStore();
+    const text = "O salário mínimo é de R$ 1.518.";
+    const origId = await seedUnverified(store, text);
+    store.claims[0]!.created_at = new Date(Date.now() - 3_600_000).toISOString(); // original antiga, sem verificação
+    const first = await dedupAndRecord(makeDeps({ store, anthropic: noLLM }), args(text));
+    expect(first).toMatchObject({ kind: "new", retry_of: origId });
+    const retryAt = Date.parse(store.claims.at(-1)!.created_at);
+    const second = await dedupAndRecord(makeDeps({ store, anthropic: noLLM, now: () => retryAt + 5_000 }), args(text));
+    expect(second).toMatchObject({ kind: "duplicate", via: "hash", verification_id: null, repeat_alert: null });
+  });
+
   it("original verificada continua reaproveitada normalmente (sem nova verificação)", async () => {
-    const store = new AgedStore();
+    const store = new MemoryStore();
     const orig = await seedOriginal(store, "O PIB cresceu 3,4% em 2024.", null);
     store.claims[0]!.created_at = new Date(Date.now() - 3_600_000).toISOString();
     const out = await dedupAndRecord(makeDeps({ store, anthropic: noLLM }), args("O PIB cresceu 3,4% em 2024."));

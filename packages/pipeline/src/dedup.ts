@@ -54,21 +54,15 @@ export const ORIGINAL_IN_PROGRESS_MS =
   TIMEOUTS_MS.L3 + TIMEOUTS_MS.L4 + TIMEOUTS_MS.verify_total + TIMEOUTS_MS.publish + 5_000;
 
 /**
- * `created_at`: horário da última tentativa com este hash (o ideal é a claim mais
- * recente com o hash — a original ou uma repetição dela; no mínimo, a da
- * original). HashMatch ainda não traz: sem ele, não dá para saber se a original
- * ainda está em andamento, e a repetição fica em silêncio.
+ * A original (por hash) já tem verificação, ou ainda pode estar sendo verificada:
+ * a tentativa mais recente com este hash (original ou repetição em nova
+ * tentativa) é de menos de ORIGINAL_IN_PROGRESS_MS. Sem o horário, conta como em
+ * andamento: verificar de novo em paralelo daria um segundo alerta completo para
+ * a mesma afirmação (na dúvida, silêncio).
  */
-type HashOriginal = HashMatch & { created_at?: string | null };
-
-/**
- * A original (por hash) já tem verificação, ou ainda pode estar sendo verificada.
- * Sem o horário, conta como em andamento: verificar de novo em paralelo daria um
- * segundo alerta completo para a mesma afirmação (na dúvida, silêncio).
- */
-function settledOrInProgress(deps: PipelineDeps, o: HashOriginal): boolean {
+function settledOrInProgress(deps: PipelineDeps, o: HashMatch): boolean {
   if (o.verification_id) return true;
-  const created = o.created_at ? Date.parse(o.created_at) : NaN;
+  const created = o.last_attempt_at ? Date.parse(o.last_attempt_at) : NaN;
   if (!Number.isFinite(created)) return true;
   return deps.now() - created < ORIGINAL_IN_PROGRESS_MS;
 }
@@ -85,7 +79,7 @@ export async function findOriginal(
   embedding: number[] | null,
   settings: Pick<DebateSettings, "dedup_similarity">,
 ): Promise<{ original: Original; via: "hash" | "similarity" | "retry" } | null> {
-  const byHash: HashOriginal | null = await deps.store.findClaimByHash(debateId, hash);
+  const byHash = await deps.store.findClaimByHash(debateId, hash);
   if (byHash) return { original: byHash, via: settledOrInProgress(deps, byHash) ? "hash" : "retry" };
   if (!embedding) return null;
   // folga para afirmações de outros debates (que a RPC também devolve) não esconderem as deste

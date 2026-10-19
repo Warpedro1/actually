@@ -230,7 +230,8 @@ export function wordingKey(text: string): string {
   let last = 0;
   for (const n of numberMatches(text)) {
     words(text.slice(last, n.index));
-    if (n.qualifier) words(n.qualifier);
+    // o qualificador entra como marcador próprio ("uns"/"umas" também são artigos e seriam descartados)
+    if (n.qualifier) out.push(`~${normalizeText(n.qualifier).replace(/ /g, "_")}`);
     out.push(`#${n.unit ?? ""}:${roundSig(n.value, 6)}`);
     last = n.index + n.length;
   }

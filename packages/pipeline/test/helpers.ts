@@ -113,9 +113,11 @@ export class MemoryStore implements PipelineStore {
     if (!c) return null;
     const v = [...this.verifications].reverse().find((x) => x.claim_id === c.id);
     const a = v ? this.alerts.find((x) => x.verification_id === v.id && !x.is_repeat) : undefined;
+    const attempts = this.claims.filter((x) => x.debate_id === debateId && x.claim_hash === hash).map((x) => x.created_at).sort();
     return {
       claim_id: c.id, verification_id: v?.id ?? null, verdict: v?.verdict ?? null,
       alert_id: a?.id ?? null, alert_status: a?.status ?? null, verified_at: v?.created_at ?? null,
+      last_attempt_at: attempts.at(-1) ?? null,
     };
   }
   async matchVerifiedClaims(debateId: string, embedding: number[], minSimilarity: number, count: number): Promise<VerifiedClaimMatch[]> {
