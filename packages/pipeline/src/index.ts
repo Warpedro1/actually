@@ -69,13 +69,18 @@ function formatContext(segments: Pick<Segment, "speaker_label" | "text">[]): str
   return segments.map((s) => `[${s.speaker_label ?? "?"}] ${s.text}`).join("\n");
 }
 
-/** Converte as citações do modelo em evidências, conferindo cada trecho contra a fonte. */
+/**
+ * Converte as citações do modelo em evidências, conferindo cada trecho contra a fonte.
+ * `verifiedTexts`: só os trechos verificados (citação casada + frase em volta, ou o
+ * texto do L2 gerado em código) — é contra eles que os números da correção são conferidos.
+ */
 export function buildEvidence(
   model: ModelVerdict,
   candidates: EvidenceCandidate[],
   retrieval: Pick<RetrievalResult, "comparison">,
 ): { records: EvidenceRecord[]; total: number; verified: number; verifiedTexts: string[] } {
   const byIndex = new Map<number, EvidenceRecord>();
+  const verifiedTexts: string[] = [];
   let verified = 0;
   for (const c of model.citations) {
     const cand = candidates[c.evidence_index];
@@ -84,9 +89,15 @@ export function buildEvidence(
     if (cand.layer === "L2" && cand.comparison) {
       // evidência determinística: a citação é o texto gerado em código
       rec = toRecord(cand, cand.text, true, 1);
+      verifiedTexts.push(cand.text);
     } else {
       const qc = quoteCheck(c.quote, cand.text);
-      rec = toRecord(cand, c.quote.trim(), qc.verified, qc.similarity);
+      // verificada ⇒ grava o texto LITERAL da fonte (o trecho casado), nunca o do modelo;
+      // não verificada ⇒ guarda o que o modelo disse, só para auditoria (não vai a público)
+      rec = qc.verified && qc.matched
+        ? toRecord(cand, qc.matched, true, qc.similarity)
+        : toRecord(cand, c.quote.trim(), false, qc.similarity);
+      if (rec.quote_verified && qc.context) verifiedTexts.push(qc.context);
     }
     if (rec.quote_verified) verified++;
     const prev = byIndex.get(c.evidence_index);
@@ -100,9 +111,9 @@ export function buildEvidence(
   if (l2Index >= 0 && !byIndex.has(l2Index) && retrieval.comparison?.expected_verdict) {
     const cand = candidates[l2Index]!;
     byIndex.set(l2Index, toRecord(cand, cand.text, true, 1));
+    verifiedTexts.push(cand.text);
   }
   const records = [...byIndex.entries()].sort((a, b) => a[0] - b[0]).map(([, r]) => r);
-  const verifiedTexts = [...byIndex.entries()].filter(([, r]) => r.quote_verified).map(([i]) => candidates[i]!.text);
   return { records, total: model.citations.length, verified, verifiedTexts };
 }
 
@@ -158,9 +169,14 @@ export async function assessClaim(
 
   t = deps.now();
   const ev = buildEvidence(model, candidates, retrieval);
-  const nums = numbersSupported(`${model.correction} ${model.summary}`, [
-    ...ev.verifiedTexts, claim.text_normalized, claim.text_original,
-  ]);
+  // números da fala não sustentam a correção; só valem negados ("…, não 12%")
+  const said = { refuted: [claim.text_normalized, claim.text_original] };
+  const numsCorrection = numbersSupported(model.correction, ev.verifiedTexts, said);
+  const numsSummary = numbersSupported(model.summary, ev.verifiedTexts, said);
+  const nums = {
+    ok: numsCorrection.ok && numsSummary.ok,
+    unsupported: [...numsCorrection.unsupported, ...numsSummary.unsupported],
+  };
   latency.quote_check = deps.now() - t;
 
   const score = scoreDecision({
