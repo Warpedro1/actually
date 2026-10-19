@@ -1,6 +1,6 @@
 // Postgres embutido (PGlite) com as migrations reais e um ambiente que imita o
 // Supabase: schema auth, papéis anon/authenticated com os grants padrão e
-// auth.uid()/auth.role() lidos das claims da sessão. Permite testar RLS de verdade.
+// auth.uid()/auth.role()/auth.jwt() lidos das claims da sessão. Permite testar RLS de verdade.
 import { PGlite } from "@electric-sql/pglite";
 import { vector } from "@electric-sql/pglite/vector";
 import { pg_trgm } from "@electric-sql/pglite/contrib/pg_trgm";
@@ -23,10 +23,17 @@ create function auth.uid() returns uuid language sql stable as $$
   select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
 create function auth.role() returns text language sql stable as $$
   select coalesce(nullif(current_setting('request.jwt.claim.role', true), ''), 'service_role') $$;
+-- Igual ao do Supabase: todas as claims do JWT (ex.: aal) ou null fora de sessão.
+create function auth.jwt() returns jsonb language sql stable as $$
+  select coalesce(nullif(current_setting('request.jwt.claim', true), ''),
+                  nullif(current_setting('request.jwt.claims', true), ''))::jsonb $$;
 grant usage on schema public, auth, extensions to anon, authenticated, service_role;
 grant execute on all functions in schema auth to anon, authenticated, service_role;
 alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
 alter default privileges in schema public grant all on sequences to anon, authenticated, service_role;
+-- Como no Supabase: funções novas em public são executáveis por anon/authenticated
+-- (revogar de public não basta; as migrations revogam por papel).
+alter default privileges in schema public grant all on functions to anon, authenticated, service_role;
 create publication supabase_realtime;
 `;
 
@@ -42,13 +49,19 @@ export async function freshDb(): Promise<Db> {
   return db;
 }
 
-/** Executa `fn` como um papel do Supabase (RLS aplicada), voltando ao superusuário no fim. */
+/**
+ * Executa `fn` como um papel do Supabase (RLS aplicada), voltando ao superusuário no fim.
+ * `claims` vira o JWT visto por auth.jwt() (ex.: `{ aal: "aal1" }` para sessão só com senha).
+ */
 export async function asRole<T>(
   db: Db,
   role: "anon" | "authenticated",
   userId: string | null,
   fn: () => Promise<T>,
+  claims: Record<string, string> = {},
 ): Promise<T> {
+  const jwt = JSON.stringify({ ...claims, role, ...(userId ? { sub: userId } : {}) });
+  await db.query(`select set_config('request.jwt.claims', $1, false)`, [jwt]);
   await db.exec(`select set_config('request.jwt.claim.sub', '${userId ?? ""}', false);
                  select set_config('request.jwt.claim.role', '${role}', false);
                  set role ${role};`);
@@ -57,7 +70,8 @@ export async function asRole<T>(
   } finally {
     await db.exec(`reset role;
                    select set_config('request.jwt.claim.sub', '', false);
-                   select set_config('request.jwt.claim.role', '', false);`);
+                   select set_config('request.jwt.claim.role', '', false);
+                   select set_config('request.jwt.claims', '', false);`);
   }
 }
 

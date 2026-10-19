@@ -61,8 +61,15 @@ Screenshots do modo demo (usa o Chromium já instalado, não baixa navegador):
   Com fator cadastrado, o código passa a ser pedido em todo login.
 - Com `REQUIRE_MFA=1`, `/editor` e `/admin` exigem sessão `aal2`: quem não tem fator é levado ao cadastro antes de
   entrar. Habilite MFA TOTP no Supabase (Authentication → Multi-Factor, ligado por padrão).
-- A checagem de `aal2` hoje é na interface. Para valer também no banco, `is_editor()` precisa conferir
-  `auth.jwt() ->> 'aal' = 'aal2'` (mudança de migration, fora deste app).
+- `REQUIRE_MFA` vale só na interface. **No banco**, o 2FA vale por editor: com `editors.mfa_required = true`,
+  `is_editor()` (todas as políticas de RLS e `capture_set_active`) só reconhece o editor em sessão `aal2`
+  (`auth.jwt() ->> 'aal'`). É isso que impede quem tem só a senha de agir como editor chamando a API direto.
+  **Depois que o editor cadastrar o TOTP**, marque:
+  ```sql
+  update editors set mfa_required = true where user_id = '<uuid-do-usuario>';
+  ```
+  Em produção, `select name, mfa_required from editors;` deve mostrar todos `true`. Se a flag for marcada antes do
+  cadastro, o `/editor` leva a conta ao cadastro do autenticador (e o banco não libera nada até lá).
 - `/editor` e `/admin` têm `noindex` (meta + `X-Robots-Tag`) e estão fora do `robots.txt`.
 
 ## Tempo real e carga

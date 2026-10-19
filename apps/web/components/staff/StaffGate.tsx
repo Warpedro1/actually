@@ -19,15 +19,18 @@ type Phase =
   | { kind: "loading" }
   | { kind: "signed-out" }
   | { kind: "mfa-challenge" }
-  | { kind: "mfa-enroll-required" }
+  /** env: REQUIRE_MFA=1; account: editors.mfa_required no banco (is_editor() só vale com aal2). */
+  | { kind: "mfa-enroll-required"; reason: "env" | "account" }
   | { kind: "not-editor"; user: User }
   | { kind: "ready"; user: User }
   | { kind: "error"; message: string };
 
 /**
  * Porta das áreas restritas: login (senha ou link mágico) → 2FA (se a conta
- * tem fator TOTP, ou se REQUIRE_MFA=1) → precisa estar em `editors`.
- * A segurança de verdade está na RLS do banco; isto é a experiência.
+ * tem fator TOTP, se REQUIRE_MFA=1 ou se o editor tem `mfa_required` no banco)
+ * → precisa estar em `editors`.
+ * A segurança de verdade está na RLS do banco (is_editor() exige sessão aal2
+ * quando editors.mfa_required = true); isto é a experiência.
  */
 export function StaffGate({
   requireMfa,
@@ -57,11 +60,21 @@ export function StaffGate({
     if (aalErr) return setPhase({ kind: "error", message: errMsg(aalErr) });
     if (aal.currentLevel !== "aal2") {
       if (aal.nextLevel === "aal2") return setPhase({ kind: "mfa-challenge" });
-      if (requireMfa) return setPhase({ kind: "mfa-enroll-required" });
+      if (requireMfa) return setPhase({ kind: "mfa-enroll-required", reason: "env" });
     }
 
     const { data: isEditor, error } = await client.rpc("is_editor");
     if (error) return setPhase({ kind: "error", message: `Falha ao verificar permissão: ${errMsg(error)}` });
+    if (!isEditor && aal.currentLevel !== "aal2") {
+      // Editor com mfa_required e sem fator TOTP (nextLevel ≠ aal2): o banco só
+      // o reconhece com aal2. Mandar cadastrar o autenticador, não "sem acesso".
+      const { data: row } = await client
+        .from("editors")
+        .select("mfa_required")
+        .eq("user_id", user.id)
+        .maybeSingle<{ mfa_required: boolean }>();
+      if (row?.mfa_required) return setPhase({ kind: "mfa-enroll-required", reason: "account" });
+    }
     if (!isEditor && !allowWithoutEditor) return setPhase({ kind: "not-editor", user });
     setPhase({ kind: "ready", user });
   }, [client, requireMfa, allowWithoutEditor]);
@@ -114,7 +127,10 @@ export function StaffGate({
         <Shell>
           <Card title="Autenticação em dois fatores obrigatória">
             <p className="mb-4 text-sm text-muted">
-              Este ambiente exige 2FA (REQUIRE_MFA=1). Cadastre um aplicativo autenticador para continuar.
+              {phase.reason === "env"
+                ? "Este ambiente exige 2FA (REQUIRE_MFA=1)."
+                : "Sua conta de editor exige 2FA: sem ele, o banco não libera nenhuma ação de editor."}{" "}
+              Cadastre um aplicativo autenticador para continuar.
             </p>
             <MfaEnroll client={client} onDone={evaluate} />
             <Button variant="ghost" className="mt-3" onClick={() => void signOut()}>
