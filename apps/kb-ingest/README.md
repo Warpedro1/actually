@@ -71,9 +71,15 @@ Upsert de `SOURCE_TIERS` (`packages/db/src/tiers.ts`) em `source_tiers`.
 - Já gravadas são puladas (`--refresh` reprocessa). Embedding = `claim_text`.
 
 ### `indicators` (L2)
-Catálogo em `src/indicators/catalog.ts` (code, name, aliases, unit, periodicity, source_name, source_url, tier, notes
-e a origem de cada código). `--list` mostra ativas e pendentes; `--only a,b`; `--since`; `--check`;
+Catálogo em `src/indicators/catalog.ts` (code, name, aliases, unit, periodicity, aggregation, source_name, source_url,
+tier, notes e a origem de cada código). `--list` mostra ativas e pendentes; `--only a,b`; `--since`; `--check`;
 `--include-pending`.
+
+`aggregation` diz ao comparador L2 como ler um período mais longo que a série: `sum` (fluxo: Caged, PIB nominal —
+ano = soma), `mean_or_last` (taxa: média ou último ponto), `last` (estoque: fim do período), `accum_12m` (ano civil =
+dezembro) ou `none` (só o período exato). Exige a coluna `indicator_series.aggregation` e o `find_indicator`
+devolvendo-a. Alias genérico repetido em duas séries só se uma delas não couber na afirmação (ver o cabeçalho do
+catálogo); na dúvida o pipeline cala a L2.
 
 Períodos: mensal → mês; trimestral → trimestre civil; trimestre móvel → 3 meses terminando no mês de referência;
 anual → ano. Séries diárias do SGS (Selic meta, dólar) viram o **último valor de cada mês**.

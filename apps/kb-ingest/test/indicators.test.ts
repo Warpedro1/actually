@@ -15,7 +15,7 @@ import { describe, expect, it } from "vitest";
 import { aggregateMonthly, dateWindows, parseSgs, sgsUrl } from "../src/indicators/sgs";
 import { agregadosUrl, apisidraUrl, parseSidra, parseSidraFlat } from "../src/indicators/sidra";
 import { monthPeriod, movingQuarterPeriod, quarterPeriod, sgsPeriod, sidraPeriod, yearPeriod } from "../src/indicators/periods";
-import { CATALOG, activeSeries, toSeriesRow } from "../src/indicators/catalog";
+import { CATALOG, INDICATOR_AGGREGATIONS, activeSeries, toSeriesRow } from "../src/indicators/catalog";
 import { crossCheckUnemployment } from "../src/commands/indicators";
 
 const fx = (f: string) => JSON.parse(readFileSync(join(import.meta.dirname, "fixtures", f), "utf8")) as unknown;
@@ -124,20 +124,59 @@ describe("[RF15] catálogo de indicadores", () => {
       expect(["monthly", "quarterly", "annual", "moving_quarter"]).toContain(s.periodicity);
     }
   });
-  it("desemprego ⇔ desocupação nos aliases", () => {
+  it("desemprego ⇔ desocupação nos aliases, numa série só (a móvel responde por mês, trimestre, ano e dado atual)", () => {
     const d = CATALOG.filter((s) => s.code.startsWith("desocupacao"));
     expect(d.length).toBe(2);
-    for (const s of d) expect(s.aliases).toEqual(expect.arrayContaining(["desemprego", "taxa de desemprego", "desocupação"]));
+    const generic = ["desemprego", "taxa de desemprego", "desocupação", "taxa de desocupação"];
+    expect(d.find((s) => s.code === "desocupacao_pnadc_movel")!.aliases).toEqual(expect.arrayContaining(generic));
+    // repetidos na trimestral virariam empate sem desempate (as duas respondem pelo ano) ⇒ L2 calada
+    for (const a of generic) expect(d.find((s) => s.code === "desocupacao_pnadc_trimestral")!.aliases).not.toContain(a);
   });
   it("ativas têm fonte; pendentes têm motivo e ficam fora por padrão", () => {
     for (const s of activeSeries()) expect(s.fetch.kind).not.toBe("none");
     for (const s of CATALOG.filter((x) => x.fetch.kind === "none")) expect(s.pending).toBeTruthy();
     expect(activeSeries().some((s) => s.pending)).toBe(false);
   });
-  it("linha de indicator_series não vaza campos internos", () => {
+  it("linha de indicator_series não vaza campos internos (e leva a agregação)", () => {
     expect(Object.keys(toSeriesRow(CATALOG[0]!)).sort()).toEqual(
-      ["aliases", "code", "name", "notes", "periodicity", "source_name", "source_url", "tier", "unit"].sort(),
+      ["aggregation", "aliases", "code", "name", "notes", "periodicity", "source_name", "source_url", "tier", "unit"].sort(),
     );
+  });
+  it("toda série declara como agrega: fluxo soma, acumulado 12m usa dezembro, variação mensal não agrega", () => {
+    const by = new Map(CATALOG.map((s) => [s.code, s]));
+    for (const s of CATALOG) {
+      expect(INDICATOR_AGGREGATIONS).toContain(s.aggregation);
+      if (s.periodicity === "annual") expect(s.aggregation).toBe("none");
+    }
+    expect(by.get("caged_saldo")!.aggregation).toBe("sum");
+    expect(by.get("pib_corrente_trimestral")!.aggregation).toBe("sum");
+    expect(by.get("ipca_mensal")!.aggregation).toBe("none");
+    expect(by.get("ipca_12m")!.aggregation).toBe("accum_12m");
+    expect(by.get("primario_12m_pib")!.aggregation).toBe("accum_12m");
+    expect(by.get("dlsp_pib")!.aggregation).toBe("last");
+    expect(by.get("pib_variacao_trimestral")!.aggregation).toBe("none");
+  });
+  it("catálogo e pipeline usam o mesmo campo `aggregation` com os mesmos valores", () => {
+    const pipeline = readFileSync(join(import.meta.dirname, "../../../packages/pipeline/src/retrieve/indicators.ts"), "utf8");
+    const list = (src: string) => src.match(/INDICATOR_AGGREGATIONS: readonly IndicatorAggregation\[\] = (\[[^\]]*\])/)?.[1];
+    expect(list(pipeline)).toBeTruthy();
+    expect(JSON.parse(list(pipeline)!)).toEqual([...INDICATOR_AGGREGATIONS]);
+    expect(pipeline).toMatch(/\.aggregation\b/);
+  });
+  it("alias repetido entre séries ativas só nas duas do IPCA (empate que a afirmação desempata)", () => {
+    const norm = (a: string) => a.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().trim();
+    const owners = new Map<string, string[]>();
+    for (const s of activeSeries()) for (const a of new Set(s.aliases.map(norm))) owners.set(a, [...(owners.get(a) ?? []), s.code]);
+    const shared = [...owners].filter(([, codes]) => codes.length > 1);
+    expect(shared.map(([a]) => a).sort()).toEqual(["custo de vida", "indice de precos ao consumidor amplo", "inflacao", "ipca"]);
+    for (const [, codes] of shared) expect(codes.sort()).toEqual(["ipca_12m", "ipca_mensal"]);
+    // "inflação de 2023": a variação mensal não agrega em ano, só o acumulado 12m cabe
+    const ipca = activeSeries().filter((s) => s.code.startsWith("ipca"));
+    expect(ipca.map((s) => s.aggregation).sort()).toEqual(["accum_12m", "none"]);
+  });
+  it("acumulado 12m não usa nomes do acumulado NO ANO (jan até o mês, outra medida)", () => {
+    const ipca12 = CATALOG.find((s) => s.code === "ipca_12m")!;
+    for (const a of ["inflação no ano", "inflação acumulada", "ipca acumulado", "inflação acumulada no ano"]) expect(ipca12.aliases).not.toContain(a);
   });
   it("conferência móvel × trimestral detecta divergência", () => {
     const logs: string[] = [];

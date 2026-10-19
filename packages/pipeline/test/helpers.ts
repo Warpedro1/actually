@@ -1,7 +1,7 @@
 // Mocks offline: banco em memória (com o índice único e o trigger de evidência),
 // cliente Anthropic falso, Voyage/Tavily falsos e relógio.
 import type {
-  Alert, ChunkMatch, Debate, DebateSettings, FactcheckMatch, IndicatorMatch, IndicatorSeries, IndicatorValue,
+  Alert, ChunkMatch, Debate, DebateSettings, FactcheckMatch, IndicatorMatch, IndicatorValue,
   Segment, VerifiedClaimMatch,
 } from "@actually/db";
 import { EMBEDDING_DIM } from "@actually/db";
@@ -10,6 +10,7 @@ import type { EmbedFn } from "../src/embed";
 import { normalizeText } from "../src/normalize";
 import type { RerankFn } from "../src/rerank";
 import type { WebSearchFn } from "../src/retrieve/web";
+import type { ComparableSeries } from "../src/retrieve/indicators";
 import {
   DbError, PG_CHECK_VIOLATION, PG_UNIQUE_VIOLATION, type NewAlert, type NewClaim, type NewEvidence,
   type NewVerification, type PipelineStore,
@@ -46,7 +47,7 @@ type Row<T> = T & { id: string; created_at: string };
 export interface KbFixture {
   factchecks?: FactcheckMatch[];
   chunks?: ChunkMatch[];
-  series?: IndicatorSeries[];
+  series?: ComparableSeries[];
   values?: IndicatorValue[];
 }
 
@@ -189,7 +190,7 @@ export class MemoryStore implements PipelineStore {
     const nq = normalizeText(q);
     return (this.kb.series ?? [])
       .filter((s) => [s.name, ...s.aliases].some((n) => nq.includes(normalizeText(n)) || normalizeText(n).includes(nq)))
-      .map((s) => ({ code: s.code, name: s.name, unit: s.unit, periodicity: s.periodicity, source_name: s.source_name, source_url: s.source_url, tier: s.tier, score: 0.9 }));
+      .map((s) => ({ code: s.code, name: s.name, unit: s.unit, periodicity: s.periodicity, aggregation: s.aggregation, source_name: s.source_name, source_url: s.source_url, tier: s.tier, score: 0.9 }));
   }
   async indicatorValues(code: string) {
     await this.gate("indicatorValues");
@@ -294,9 +295,9 @@ export function makeDeps(over: Partial<PipelineDeps> & { store: PipelineStore; a
 // ---------------------------------------------------------------------------
 // Fixtures de base de conhecimento
 // ---------------------------------------------------------------------------
-export const PNAD: IndicatorSeries = {
+export const PNAD: ComparableSeries = {
   code: "desocupacao_pnadc", name: "Taxa de desocupação", aliases: ["desemprego", "desocupação"], unit: "%",
-  periodicity: "quarterly", source_name: "IBGE", source_url: "https://sidra.ibge.gov.br/tabela/4099", tier: 1, notes: null,
+  periodicity: "quarterly", aggregation: "mean_or_last", source_name: "IBGE", source_url: "https://sidra.ibge.gov.br/tabela/4099", tier: 1, notes: null,
 };
 const quarter = (y: number, qq: number, value: number): IndicatorValue => {
   const m0 = (qq - 1) * 3 + 1;
