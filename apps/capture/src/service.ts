@@ -18,7 +18,7 @@ export interface ServiceContext {
   /** Nome da máquina (aparece no /admin). */
   name: string;
   nodePath: string;
-  /** URL file:// do loader do tsx (node --import <isso>). */
+  /** Especificador do loader do tsx (node --import <isso>), resolvido a partir de workDir. */
   tsxImport: string;
   /** Caminho absoluto de apps/capture/src/cli.ts. */
   cliPath: string;
@@ -79,7 +79,8 @@ function xml(s: string): string {
 function servicePath(ctx: ServiceContext): string {
   // launchd/systemd começam com PATH mínimo; Homebrew fica fora dele no macOS
   const extra = ctx.platform === "darwin" ? ["/opt/homebrew/bin", "/usr/local/bin"] : ["/usr/local/bin", "/usr/bin"];
-  const parts = ctx.pathEnv.split(ctx.platform === "win32" ? ";" : ":").filter(Boolean);
+  // descarta caminhos temporários que o pnpm injeta (node_modules/.bin)
+  const parts = ctx.pathEnv.split(":").filter((p) => p && !p.includes("node_modules"));
   for (const e of extra) if (!parts.includes(e)) parts.push(e);
   return parts.join(":");
 }

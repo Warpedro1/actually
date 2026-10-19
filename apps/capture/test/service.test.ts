@@ -19,7 +19,7 @@ const mac: ServiceContext = {
   home: "/Users/pedro",
   name: "mac-sala",
   nodePath: "/opt/homebrew/bin/node",
-  tsxImport: "file:///Users/pedro/actually/apps/capture/node_modules/tsx/dist/loader.mjs",
+  tsxImport: "tsx",
   cliPath: "/Users/pedro/actually/apps/capture/src/cli.ts",
   workDir: "/Users/pedro/actually/apps/capture",
   logDir: "/Users/pedro/.actually/logs",
@@ -90,7 +90,7 @@ describe("Linux (systemd --user)", () => {
     expect(unit).toContain("WantedBy=default.target");
   });
   it("ExecStart com aspas em argumentos com espaço", () => {
-    expect(unit).toContain('ExecStart=/usr/bin/node --import file:///');
+    expect(unit).toContain("ExecStart=/usr/bin/node --import tsx /home/pedro/actually/apps/capture/src/cli.ts");
     expect(unit).toContain('daemon --name "nuc sala" --log-dir /home/pedro/.actually/logs');
   });
   it("plano e instruções de linger/inhibit", () => {
@@ -118,7 +118,7 @@ describe("Windows (Tarefa Agendada)", () => {
   });
   it("comando com aspas e --supervise", () => {
     expect(xml).toContain("<Command>&quot;C:\\Program Files\\nodejs\\node.exe&quot;</Command>");
-    expect(xml).toMatch(/<Arguments>--import file:\/\/\/\S+ C:\\actually\\apps\\capture\\src\\cli\.ts daemon --name pc-sala --log-dir \S+ --supervise<\/Arguments>/);
+    expect(xml).toMatch(/<Arguments>--import tsx C:\\actually\\apps\\capture\\src\\cli\.ts daemon --name pc-sala --log-dir \S+ --supervise<\/Arguments>/);
   });
   it("plano usa schtasks /XML e grava em UTF-16", () => {
     const plan = installPlan(win);

@@ -79,7 +79,8 @@ function serviceContext(name: string, logDir: string | null): ServiceContext {
     home,
     name,
     nodePath: process.execPath,
-    tsxImport: import.meta.resolve("tsx"),
+    // resolvido a partir do WorkingDirectory (apps/capture): sobrevive a upgrades do tsx
+    tsxImport: "tsx",
     cliPath,
     workDir: resolve(cliPath, "..", ".."),
     logDir: logDir ? resolve(logDir) : defaultServiceLogDir(home),

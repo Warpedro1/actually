@@ -8,11 +8,13 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseEnv } from "node:util";
 
-export function actuallyHome(home: string = homedir()): string {
-  return join(home, ".actually");
+/** ~/.actually (ou ACTUALLY_HOME, útil para ensaios sem tocar no diretório real). */
+export function actuallyHome(home?: string): string {
+  if (home === undefined && process.env.ACTUALLY_HOME) return process.env.ACTUALLY_HOME;
+  return join(home ?? homedir(), ".actually");
 }
 
-export function captureEnvPath(home: string = homedir()): string {
+export function captureEnvPath(home?: string): string {
   return join(actuallyHome(home), "capture.env");
 }
 

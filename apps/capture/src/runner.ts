@@ -188,9 +188,12 @@ export function startRunner(cfg: RunnerConfig): RunnerHandle {
     }
   });
 
+  let lastCapturedMs = 0;
   function handleDrafts(drafts: SegmentDraft[]): void {
     for (const d of drafts) {
-      const seg: CapturedSegment = { ...d, captured_at: new Date(wall.wallAt(d.t_end)).toISOString() };
+      // monotônico: no replay rápido o mapa de relógio é grosseiro
+      lastCapturedMs = Math.max(lastCapturedMs, Math.min(Date.now(), wall.wallAt(d.t_end)));
+      const seg: CapturedSegment = { ...d, captured_at: new Date(lastCapturedMs).toISOString() };
       const seq = queue ? queue.enqueue(seg) : st.segmentsCreated;
       st.segmentsCreated++;
       logger.write("segment", { seq, ...seg });
