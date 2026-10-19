@@ -31,7 +31,14 @@ export async function insertAlertSafe(store: PipelineStore, row: NewAlert, logge
 
 export interface PublishInput {
   debate_id: string;
+  /** Claim do alerta (a fala deste segmento). */
   claim_id: string;
+  /**
+   * Claim da verificação, se não for `claim_id`: na nova tentativa de uma
+   * original sem verificação, a verificação vai para a original (a trava por
+   * hash a reaproveita nas repetições seguintes).
+   */
+  verification_claim_id?: string;
   claim_text: string;
   speaker_label: string | null;
   segment_t_end: number | null;
@@ -57,7 +64,7 @@ export interface PublishResult {
 
 export async function publishVerification(store: PipelineStore, input: PublishInput, logger: Logger): Promise<PublishResult> {
   const ver = await store.insertVerification({
-    claim_id: input.claim_id,
+    claim_id: input.verification_claim_id ?? input.claim_id,
     verdict: input.verdict,
     correction: input.correction || null,
     model_confidence: input.model_confidence,
@@ -102,23 +109,46 @@ export async function publishVerification(store: PipelineStore, input: PublishIn
 }
 
 /**
- * Repetição de afirmação que já gerou alerta: novo alerta com is_repeat,
- * mesma verificação e mesmo status da original (a UI mostra "Repetido — já
- * verificado às HH:MM"). Original rejeitada pelo editor ⇒ nada.
+ * Status da repetição: o HITL do debate ATUAL vale sempre (a original pode ter
+ * sido publicada antes de o editor ligar a aprovação). Original ainda pendente
+ * nunca gera repetição publicada; rejeitada (ou retirada) não gera repetição.
+ */
+export function repeatStatusFor(
+  original: Pick<Alert, "status" | "verdict">,
+  settings: Pick<DebateSettings, "require_red_approval" | "require_yellow_approval">,
+): AlertStatus | null {
+  if (original.status === "rejected") return null;
+  if (original.status !== "published") return "pending_review";
+  return alertStatusFor(original.verdict === "contradito" ? "red" : "yellow", settings);
+}
+
+/**
+ * Repetição de afirmação que já gerou alerta NESTE debate: novo alerta com
+ * is_repeat e a mesma verificação (a UI mostra "Repetido — já verificado às
+ * HH:MM"); status por `repeatStatusFor`. Alerta de outro debate nunca é repetido.
  */
 export async function publishRepeat(
   store: PipelineStore,
-  input: { debate_id: string; claim_id: string; claim_text: string; speaker_label: string | null; segment_t_end: number | null; original: Alert },
+  input: {
+    debate_id: string; claim_id: string; claim_text: string; speaker_label: string | null; segment_t_end: number | null;
+    original: Alert;
+    settings: Pick<DebateSettings, "require_red_approval" | "require_yellow_approval">;
+  },
   logger: Logger,
 ): Promise<{ id: string; status: AlertStatus } | null> {
   const o = input.original;
-  if (o.status === "rejected") return null;
+  if (o.debate_id !== input.debate_id) {
+    logger("warn", "repeat_other_debate_skipped", { original_alert_id: o.id, claim_id: input.claim_id });
+    return null;
+  }
+  const status = repeatStatusFor(o, input.settings);
+  if (!status) return null;
   return insertAlertSafe(store, {
     debate_id: input.debate_id,
     claim_id: input.claim_id,
     verification_id: o.verification_id,
     verdict: o.verdict,
-    status: o.status,
+    status,
     claim_text: input.claim_text,
     summary: o.summary,
     correction: o.correction,

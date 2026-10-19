@@ -1,7 +1,10 @@
 // TRAVA DE REPETIÇÃO: afirmação já verificada não é reprocessada.
 // (1) mesmo claim_hash no debate; (2) match_verified_claims com similaridade
-// ≥ dedup_similarity E mesmos números/período/polaridade. Corrida entre
+// ≥ dedup_similarity E mesma redação essencial (sameFacts: mesmas palavras na
+// mesma ordem, mesmos números, período e tipo de indicador). Corrida entre
 // invocações paralelas: o índice único claims_unique_hash (23505) decide.
+// A trava só vale dentro do debate (metodologia: "já verificada neste debate"):
+// afirmação de outro debate (ensaio, debate anterior) é verificada de novo.
 import type { AlertStatus, DebateSettings, Segment } from "@actually/db";
 import { TIMEOUTS_MS } from "./config";
 import type { PipelineDeps } from "./deps";
@@ -12,7 +15,15 @@ import { isUniqueViolation, type HashMatch, type NewClaim } from "./store";
 import type { ExtractedClaim } from "./types";
 
 export type DedupOutcome =
-  | { kind: "new"; claim_id: string }
+  /**
+   * Seguir para a verificação. `retry_of`: a original (mesmo hash) nunca teve
+   * verificação concluída (erro, timeout, sem evidência) — esta claim é gravada
+   * como duplicata dela, mas é verificada de novo, e a verificação é gravada na
+   * ORIGINAL (verifications.claim_id = retry_of): é lá que findClaimByHash e
+   * match_verified_claims procuram, então as repetições seguintes reaproveitam
+   * este veredito (RF06) em vez de verificar de novo a cada vez.
+   */
+  | { kind: "new"; claim_id: string; retry_of?: string }
   | {
       kind: "duplicate";
       claim_id: string;
@@ -32,7 +43,40 @@ interface Original {
   alert_status: AlertStatus | null;
 }
 
-/** Procura a original: hash exato primeiro, depois similaridade + mesmos fatos. */
+/**
+ * Original sem verificação pode estar com a verificação em andamento até este
+ * prazo depois de gravada (L1–L3 + L4 + verificação com retry + publicação, com
+ * folga). Dentro dele a repetição fica em silêncio (o alerta da original vem);
+ * depois dele a original falhou (erro, timeout, sem evidência) e a repetição é
+ * verificada de novo.
+ */
+export const ORIGINAL_IN_PROGRESS_MS =
+  TIMEOUTS_MS.L3 + TIMEOUTS_MS.L4 + TIMEOUTS_MS.verify_total + TIMEOUTS_MS.publish + 5_000;
+
+/**
+ * `created_at`: horário da última tentativa com este hash (o ideal é a claim mais
+ * recente com o hash — a original ou uma repetição dela; no mínimo, a da
+ * original). HashMatch ainda não traz: sem ele, não dá para saber se a original
+ * ainda está em andamento, e a repetição fica em silêncio.
+ */
+type HashOriginal = HashMatch & { created_at?: string | null };
+
+/**
+ * A original (por hash) já tem verificação, ou ainda pode estar sendo verificada.
+ * Sem o horário, conta como em andamento: verificar de novo em paralelo daria um
+ * segundo alerta completo para a mesma afirmação (na dúvida, silêncio).
+ */
+function settledOrInProgress(deps: PipelineDeps, o: HashOriginal): boolean {
+  if (o.verification_id) return true;
+  const created = o.created_at ? Date.parse(o.created_at) : NaN;
+  if (!Number.isFinite(created)) return true;
+  return deps.now() - created < ORIGINAL_IN_PROGRESS_MS;
+}
+
+/**
+ * Procura a original: hash exato primeiro, depois similaridade + mesmos fatos.
+ * `via: "retry"`: mesmo hash, mas a original nunca concluiu a verificação.
+ */
 export async function findOriginal(
   deps: PipelineDeps,
   debateId: string,
@@ -40,14 +84,17 @@ export async function findOriginal(
   hash: string,
   embedding: number[] | null,
   settings: Pick<DebateSettings, "dedup_similarity">,
-): Promise<{ original: Original; via: "hash" | "similarity" } | null> {
-  const byHash: HashMatch | null = await deps.store.findClaimByHash(debateId, hash);
-  if (byHash) return { original: byHash, via: "hash" };
+): Promise<{ original: Original; via: "hash" | "similarity" | "retry" } | null> {
+  const byHash: HashOriginal | null = await deps.store.findClaimByHash(debateId, hash);
+  if (byHash) return { original: byHash, via: settledOrInProgress(deps, byHash) ? "hash" : "retry" };
   if (!embedding) return null;
-  const matches = await deps.store.matchVerifiedClaims(debateId, embedding, settings.dedup_similarity, 5);
+  // folga para afirmações de outros debates (que a RPC também devolve) não esconderem as deste
+  const matches = await deps.store.matchVerifiedClaims(debateId, embedding, settings.dedup_similarity, 10);
   for (const m of matches) {
     if (m.similarity < settings.dedup_similarity) continue;
-    // nunca juntar "desemprego 6%" com "desemprego 8%", nem "subiu" com "caiu"
+    // outro debate: nunca reaproveita veredito nem alerta (status, HITL e horário são de lá)
+    if (m.debate_id !== debateId) continue;
+    // embedding parecido não basta: só a mesma redação ("6%" x "8%", "exportou" x "importou" ⇒ verifica de novo)
     if (!sameFacts(claim, { text_normalized: m.text_normalized, indicator: m.indicator })) continue;
     return {
       original: {
@@ -103,6 +150,7 @@ async function recordDuplicate(
         speaker_label: a.segment.speaker_label,
         segment_t_end: a.segment.t_end,
         original: orig,
+        settings: a.settings,
       }, deps.logger);
     }
   }
@@ -127,6 +175,12 @@ export async function dedupAndRecord(deps: PipelineDeps, a: DedupArgs): Promise<
   } catch (err) {
     // busca falhou: segue como nova — o índice único ainda barra repetição exata
     deps.logger("warn", "dedup_lookup_failed", errorFields(err));
+  }
+  if (found?.via === "retry") {
+    // grava como duplicata (o índice único só admite uma original por hash) e verifica de novo
+    const { id } = await deps.store.insertClaim(claimRow(a, found.original.claim_id));
+    deps.logger("info", "claim_retry_unverified_original", { claim_id: id, original_claim_id: found.original.claim_id });
+    return { kind: "new", claim_id: id, retry_of: found.original.claim_id };
   }
   if (found) return recordDuplicate(deps, a, found.original, found.via);
 

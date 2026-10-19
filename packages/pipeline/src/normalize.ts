@@ -86,11 +86,16 @@ const NUMBER_RE = new RegExp(
   "giu",
 );
 
-/** Extrai números de um texto em pt-BR ("1,5 milhão", "6%", "quase 10 milhões", "R$ 600"). */
-export function extractNumbers(text: string): ClaimNumber[] {
-  const out: ClaimNumber[] = [];
+/** Número achado no texto, com a posição do trecho casado e o qualificador ("quase", "mais de"). */
+interface NumberMatch extends ClaimNumber {
+  index: number;
+  length: number;
+  qualifier: string | null;
+}
+
+function* numberMatches(text: string): Generator<NumberMatch> {
   for (const m of text.matchAll(NUMBER_RE)) {
-    const [raw, , currency, lit, word, mult, unitRaw] = m;
+    const [raw, qualifier, currency, lit, word, mult, unitRaw] = m;
     let base: number | null = null;
     if (lit) base = parseNumericLiteral(lit);
     else if (word) base = WORD_NUMBERS[word.toLowerCase()] ?? null;
@@ -99,9 +104,13 @@ export function extractNumbers(text: string): ClaimNumber[] {
     const unit = canonicalUnit(currency ?? unitRaw ?? null);
     // trailing "." ou "," capturado pelo literal (fim de frase) já foi rejeitado pelo \d final
     const value = roundSig(base * multiplierOf(mult));
-    out.push({ value, unit, raw: raw.trim() });
+    yield { value, unit, raw: raw.trim(), index: m.index ?? 0, length: raw.length, qualifier: qualifier ?? null };
   }
-  return out;
+}
+
+/** Extrai números de um texto em pt-BR ("1,5 milhão", "6%", "quase 10 milhões", "R$ 600"). */
+export function extractNumbers(text: string): ClaimNumber[] {
+  return [...numberMatches(text)].map(({ value, unit, raw }) => ({ value, unit, raw }));
 }
 
 /** Interpreta um número isolado ("1,5 milhão"); null se não houver número. */
@@ -146,20 +155,97 @@ export function numberSignature(textNormalized: string, indicator: IndicatorRef 
   for (const n of extractNumbers(textNormalized)) keys.add(`${n.unit ?? ""}:${roundSig(n.value, 6)}`);
   if (indicator?.period) keys.add(`periodo:${indicator.period}`);
   if (indicator?.claimed_value != null) keys.add(`${canonicalUnit(indicator.unit) ?? ""}:${roundSig(indicator.claimed_value, 6)}`);
+  // "maior da série" (max) e "menor da série" (min), nível e variação: fatos diferentes
+  if (indicator?.kind) keys.add(`tipo:${indicator.kind}`);
   return [...keys].sort();
 }
 
-const UP = /\b(aument\w*|sub\w*|cresc\w*|alta|elev\w*|dobr\w*|tripl\w*|ampli\w*|recorde)\b/;
-const DOWN = /\b(ca[iíu]\w*|queda|diminu\w*|reduz\w*|redu[cç]\w*|baix\w*|recu\w*|despenc\w*|encolh\w*)\b/;
-const NEG = /\b(nao|nunca|jamais|nenhum\w*|nem)\b/;
+/**
+ * Polos de direção/posição (texto já sem acento e em minúsculas). Duas
+ * afirmações só são a mesma se acionarem exatamente os mesmos polos: "subiu" x
+ * "caiu", "a favor" x "contra", "maior" x "menor", "superávit" x "déficit",
+ * "aprovou" x "rejeitou", "sim" x "não"... Defesa em profundidade: a chave de
+ * redação (`wordingKey`) já separa qualquer palavra trocada.
+ */
+const POLES: readonly (readonly [string, RegExp])[] = [
+  ["sobe", /\b(aument\w*|sub\w*|sob(?:e|em)|cresc\w*|alta|altas|elev\w*|dobr\w*|tripl\w*|quadrupl\w*|ampli\w*|recorde\w*|avanc\w*|expan\w*|dispar\w*|acelera\w*)\b/],
+  ["desce", /\b(ca[iu]\w*|queda\w*|diminu\w*|reduz\w*|reduc\w*|baix\w*|recu\w*|despenc\w*|encolh\w*|desc(?:e|eu|er|ida|endo)|retra\w*|desaceler\w*|cort\w*|enxug\w*)\b/],
+  ["nega", /\b(nao|nunca|jamais|nenhum\w*|nem|ninguem|nada|sem)\b/],
+  ["sim", /\bsim\b/],
+  ["favor", /\b(a favor|favorave\w*|apoi\w*|defend\w*)\b/],
+  ["contra", /\b(contra|contrari\w*|op(?:os|or|oe|oem|ondo|unha|unham|useram))\b/],
+  ["aprova", /\b(aprov\w*|sancion\w*|promulg\w*|ratific\w*|acat\w*)\b/],
+  ["rejeita", /\b(rejeit\w*|reprov\w*|vet(?:o|os|ou|ar|ado|ada|aram)|derrub\w*|arquiv\w*|recus\w*|revog\w*|barr(?:ou|ar|ado|ada|aram))\b/],
+  ["mais", /\b(mais|maior\w*|acima|superior\w*|super(?:ou|a|am|aram|ar|ando|ado|ada)|ultrapass\w*|exced\w*)\b/],
+  ["menos", /\b(menos|menor\w*|abaixo|inferior\w*)\b/],
+  ["melhor", /\bmelhor\w*\b/],
+  ["pior", /\bpior\w*\b/],
+  ["maximo", /\bmaxim\w*\b/],
+  ["minimo", /\bminim\w*\b/],
+  ["superavit", /\b(superavit\w*|lucr\w*)\b/],
+  ["deficit", /\b(deficit\w*|prejuiz\w*|rombo\w*)\b/],
+  ["positivo", /\bpositiv\w*\b/],
+  ["negativo", /\bnegativ\w*\b/],
+  ["ganha", /\b(ganh\w*|venc\w*)\b/],
+  ["perde", /\b(perd\w*|derrot\w*)\b/],
+  ["cria", /\b(cri(?:ou|ar|ado|ada|ados|adas|acao|aram|ei|amos)|implant\w*|inaugur\w*|fund(?:ou|ado|ada|aram))\b/],
+  ["extingue", /\b(extin\w*|acab(?:ou|ar|ado|ada|aram)|encerr\w*|elimin\w*|abol\w*|fech(?:ou|ar|ado|ada|aram))\b/],
+  ["permite", /\b(permit\w*|liber\w*|autoriz\w*|legaliz\w*)\b/],
+  ["proibe", /\b(proib\w*|bloque\w*|impedi\w*|imped(?:e|em)|criminaliz\w*)\b/],
+  ["privatiza", /\bprivatiz\w*\b/],
+  ["estatiza", /\b(estatiz\w*|reestatiz\w*|nacionaliz\w*)\b/],
+  ["primeiro", /\bprimeir\w*\b/],
+  ["ultimo", /\bultim\w*\b/],
+  ["antes", /\b(antes|anterior\w*)\b/],
+  ["depois", /\b(depois|apos|posterior\w*)\b/],
+  ["todos", /\b(todos|todas|tudo|sempre)\b/],
+];
 
-/** Direção (subiu/caiu) e negação — "caiu" e "subiu" nunca são a mesma afirmação. */
+/** Direção, posição e negação — "caiu"/"subiu", "a favor"/"contra" nunca são a mesma afirmação. */
 export function polaritySignature(textNormalized: string): string {
   const t = normalizeText(textNormalized);
-  return `${UP.test(t) ? "U" : ""}${DOWN.test(t) ? "D" : ""}${NEG.test(t) ? "N" : ""}`;
+  return POLES.filter(([, re]) => re.test(t)).map(([name]) => name).join("|");
 }
 
-/** Duas afirmações semelhantes só são a mesma se números, período e polaridade baterem. */
+/**
+ * Artigos: a única palavra que pode faltar ou sobrar de um lado. Preposição não
+ * ("caiu para 4%" x "caiu 4%" x "caiu até 2022"), nem "a" (artigo e preposição).
+ */
+const ARTICLES = new Set(["o", "os", "as", "um", "uma", "uns", "umas"]);
+
+/**
+ * Redação essencial, na ordem: palavras sem acento e em minúsculas (menos
+ * artigos), com cada número trocado por `#unidade:valor` no lugar em que aparece
+ * (o qualificador — "quase", "mais de" — continua como palavra). Só tolera grafia
+ * de número ("R$ 1.518" = "1.518 reais", "12%" = "12 por cento"), artigo, caixa,
+ * acento e pontuação. Qualquer palavra trocada, a mais ou fora de ordem muda a
+ * chave: "exportou"/"importou", "o PT"/"o PL", "A deve a B"/"B deve a A",
+ * "de 10% para 15%"/"de 15% para 10%".
+ */
+export function wordingKey(text: string): string {
+  const out: string[] = [];
+  const words = (s: string) => {
+    for (const w of normalizeText(s).split(" ")) if (w && !ARTICLES.has(w)) out.push(w);
+  };
+  let last = 0;
+  for (const n of numberMatches(text)) {
+    words(text.slice(last, n.index));
+    if (n.qualifier) words(n.qualifier);
+    out.push(`#${n.unit ?? ""}:${roundSig(n.value, 6)}`);
+    last = n.index + n.length;
+  }
+  words(text.slice(last));
+  return out.join(" ");
+}
+
+/**
+ * Trava por similaridade: duas afirmações só são a mesma se a redação essencial
+ * for idêntica (`wordingKey`: mesmas palavras, na mesma ordem, e os mesmos
+ * números) e período/tipo do indicador e polaridade baterem. Embedding parecido
+ * não basta — "exportou"/"importou", "condenado"/"absolvido" dão cosseno alto. Na
+ * dúvida, não são (a afirmação é verificada de novo — custa latência, nunca um
+ * veredito errado).
+ */
 export function sameFacts(
   a: { text_normalized: string; indicator: IndicatorRef | null },
   b: { text_normalized: string; indicator: IndicatorRef | null },
@@ -167,5 +253,6 @@ export function sameFacts(
   const sa = numberSignature(a.text_normalized, a.indicator);
   const sb = numberSignature(b.text_normalized, b.indicator);
   if (sa.length !== sb.length || sa.some((k, i) => k !== sb[i])) return false;
-  return polaritySignature(a.text_normalized) === polaritySignature(b.text_normalized);
+  if (polaritySignature(a.text_normalized) !== polaritySignature(b.text_normalized)) return false;
+  return wordingKey(a.text_normalized) === wordingKey(b.text_normalized);
 }
