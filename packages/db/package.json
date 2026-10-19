@@ -10,7 +10,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "node test/schema.check.mjs"
+    "test": "node test/schema.check.mjs && vitest run"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.118.0",
@@ -19,6 +19,7 @@
   "devDependencies": {
     "typescript": "^5.9.3",
     "@types/node": "^22.18.0",
-    "@electric-sql/pglite": "0.3.16"
+    "@electric-sql/pglite": "0.3.16",
+    "vitest": "^3.2.4"
   }
 }

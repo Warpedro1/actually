@@ -37,6 +37,8 @@ Não publicamos “verdadeiro”: o silêncio do sistema **não** significa que 
 
 Cada fonte tem um nível (tier). **Alertas vermelhos exigem fonte de nível 1 ou 2.** Fontes de nível 3 podem sustentar, no máximo, um alerta amarelo. Nível 4 nunca sustenta alerta sozinho.
 
+Sites de governo só são nível 1 nos endereços listados abaixo, de órgãos que publicam **dado primário** (estatísticas, contas públicas, legislação), como IBGE, Banco Central, Tesouro, Portal da Transparência, a legislação do Planalto (`planalto.gov.br/ccivil_03`), INPE, DataSUS e ANP. **Comunicação de governo** — notícias e notas do governo federal (Secom, Planalto, ministérios em `gov.br`), de governos estaduais e de prefeituras — é parte interessada no debate, já que um dos candidatos é o atual governo: fica no nível 4, nunca sustenta alerta sozinha e não entra na busca na web.
+
 <!-- tiers:begin (gerado por `pnpm --filter @actually/eval tiers-table`; não edite à mão) -->
 
 | Tier | Fonte | Domínio | Tipo |
@@ -47,15 +49,16 @@ Cada fonte tem um nível (tier). **Alertas vermelhos exigem fonte de nível 1 ou
 | 1 | Aos Fatos | `aosfatos.org` | checagem |
 | 1 | Banco Central | `bcb.gov.br` | oficial |
 | 1 | Câmara dos Deputados | `camara.leg.br` | oficial |
+| 1 | DataSUS | `datasus.gov.br` | oficial |
 | 1 | DataSUS | `datasus.saude.gov.br` | oficial |
 | 1 | Estadão Verifica | `estadao.com.br/estadao-verifica` | checagem |
 | 1 | Fato ou Fake (g1) | `g1.globo.com/fato-ou-fake` | checagem |
 | 1 | Fórum Brasileiro de Segurança Pública | `forumseguranca.org.br` | acadêmico |
-| 1 | Governo Federal | `gov.br` | oficial |
 | 1 | IBGE | `ibge.gov.br` | oficial |
 | 1 | INPE | `inpe.br` | oficial |
 | 1 | Ipea | `ipea.gov.br` | oficial |
-| 1 | Planalto (legislação) | `planalto.gov.br` | oficial |
+| 1 | Ipeadata | `ipeadata.gov.br` | oficial |
+| 1 | Planalto (legislação) | `planalto.gov.br/ccivil_03` | oficial |
 | 1 | Portal da Transparência | `portaldatransparencia.gov.br` | oficial |
 | 1 | Projeto Comprova | `projetocomprova.com.br` | checagem |
 | 1 | Senado Federal | `senado.leg.br` | oficial |
@@ -81,8 +84,9 @@ Cada fonte tem um nível (tier). **Alertas vermelhos exigem fonte de nível 1 ou
 | 3 | InfoMoney | `infomoney.com.br` | imprensa |
 | 3 | Metrópoles | `metropoles.com` | imprensa |
 | 3 | UOL | `uol.com.br` | imprensa |
+| 4 | Governo (gov.br) | `gov.br` | oficial |
 
-Total: 40 domínios — tier 1 (Dado oficial primário ou checagem profissional): 23; tier 2 (Imprensa de referência ou academia): 12; tier 3 (Imprensa geral): 5; tier 4 (Qualquer outra fonte): 0. Domínio fora da lista = tier 4.
+Total: 42 domínios — tier 1 (Dado oficial primário ou checagem profissional): 24; tier 2 (Imprensa de referência ou academia): 12; tier 3 (Imprensa geral): 5; tier 4 (Qualquer outra fonte): 1. Domínio fora da lista = tier 4.
 
 <!-- tiers:end -->
 
