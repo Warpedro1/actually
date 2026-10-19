@@ -64,23 +64,23 @@ export function formatTimestamp(s: number): string {
  * juntadas. `speakerNames` troca "Falante 0" por um nome (só se confirmado por humano).
  */
 export function transcriptToText(t: Transcript, speakerNames: Record<string, string> = {}): string {
-  const lines: string[] = [];
-  let cur: Utterance | null = null;
-  const flush = () => {
-    if (!cur) return;
-    const who = cur.speaker ? speakerNames[cur.speaker] ?? cur.speaker : null;
-    lines.push(`[${formatTimestamp(cur.start)}] ${who ? `${who}: ` : ""}${cur.text}`);
-  };
+  // junta falas consecutivas do mesmo falante (pausa < 2 s)
+  const merged: Utterance[] = [];
   for (const u of t.utterances) {
-    if (cur && cur.speaker === u.speaker && u.start - cur.end < 2) {
-      cur = { ...cur, end: u.end, text: `${cur.text} ${u.text}` };
+    const prev = merged[merged.length - 1];
+    if (prev && prev.speaker === u.speaker && u.start - prev.end < 2) {
+      prev.end = u.end;
+      prev.text = `${prev.text} ${u.text}`;
     } else {
-      flush();
-      cur = { ...u };
+      merged.push({ ...u });
     }
   }
-  flush();
-  return lines.join("\n");
+  return merged
+    .map((u) => {
+      const who = u.speaker ? speakerNames[u.speaker] ?? u.speaker : null;
+      return `[${formatTimestamp(u.start)}] ${who ? `${who}: ` : ""}${u.text}`;
+    })
+    .join("\n");
 }
 
 /** "0=Lula,1=Flávio Bolsonaro" → {"Falante 0": "Lula", ...} */

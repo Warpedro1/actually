@@ -115,7 +115,7 @@ export async function fetchWithRetry(url: string, opts: FetchOptions = {}): Prom
         fetch(url, {
           method: opts.method ?? "GET",
           headers: { "User-Agent": USER_AGENT, ...(opts.headers ?? {}) },
-          body: opts.body,
+          body: opts.body as BodyInit | undefined,
           redirect: "follow",
           signal: AbortSignal.timeout(timeoutMs),
         }),
