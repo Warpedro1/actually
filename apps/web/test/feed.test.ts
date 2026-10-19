@@ -165,7 +165,7 @@ describe("loadPublishedAlerts (GET /api/alerts)", () => {
         error: null,
       }),
       alerts: (q) =>
-        q.ops.some((o) => o.op === "in")
+        q.ops.some((o) => o.op === "in" || o.op === "neq")
           ? { data: [], error: null }
           : { data: [alert("a", { speaker_label: "S1" })], error: null },
       speaker_map: () => ({ data: [{ speaker_label: "S1", person: "Flávio Bolsonaro" }], error: null }),

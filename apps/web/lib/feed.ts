@@ -9,6 +9,11 @@ export type FeedEvidence = AlertWithEvidence["evidence"][number];
 export interface FeedAlert extends AlertWithEvidence {
   /** Quando a afirmação original foi verificada (só para is_repeat). */
   repeat_verified_at: string | null;
+  /**
+   * Alerta retirado depois de estar na tela: vira aviso neutro, sem afirmação,
+   * correção, fonte nem atribuição (ver retractedPlaceholder).
+   */
+  retracted?: true;
 }
 
 /** Quem disse o quê — só é usado se o debate permitir atribuição. */
@@ -30,8 +35,17 @@ export interface AlertsPayload {
   debate: FeedDebate;
   alerts: FeedAlert[];
   attribution: Attribution;
+  /**
+   * Ids de alertas do debate que estiveram no ar e foram retirados. Sempre
+   * completo (ignora `since`): quem já tem o card na tela troca pelo aviso
+   * neutro; quem não tem, nunca mostra.
+   */
+  retracted_ids: string[];
   server_time: string;
 }
+
+/** Texto do aviso que substitui, na tela de quem já o viu, um alerta retirado. */
+export const RETRACTED_TEXT = "Alerta retirado após revisão";
 
 export const NEUTRAL_ATTRIBUTION = "Afirmação feita no debate";
 
@@ -112,18 +126,68 @@ function compareFeed(a: FeedAlert, b: FeedAlert): number {
   return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
 }
 
+/** Retirado: o próprio alerta ou o original de que ele é repetição. */
+function isRetracted(a: Pick<Alert, "id" | "repeat_of">, retracted: ReadonlySet<string>): boolean {
+  return retracted.has(a.id) || (a.repeat_of !== null && retracted.has(a.repeat_of));
+}
+
+/**
+ * Aviso neutro no lugar de um alerta retirado que já estava na tela: mantém só
+ * id e horários (posição no feed); nada da afirmação, da correção, da fonte, do
+ * motivo nem de quem disse.
+ */
+export function retractedPlaceholder(a: FeedAlert): FeedAlert {
+  return {
+    ...a,
+    status: "rejected",
+    retracted: true,
+    claim_text: "",
+    summary: "",
+    correction: "",
+    speaker_label: null,
+    person: null,
+    reject_reason: null,
+    evidence: [],
+  };
+}
+
+/**
+ * Aplica retiradas ao que está na tela: alerta retirado (ou repetição de um
+ * retirado) vira aviso neutro. Ids que não estão na tela são ignorados — quem
+ * não viu o alerta não vê nada dele.
+ */
+export function retractAlerts(current: readonly FeedAlert[], retractedIds: Iterable<string>): FeedAlert[] {
+  const retracted = new Set(retractedIds);
+  return current.map((a) => (a.retracted || !isRetracted(a, retracted) ? a : retractedPlaceholder(a)));
+}
+
 /**
  * Junta alertas novos ao feed: deduplica por id (a versão nova vence, mas não
  * perde evidências já carregadas), descarta o que não está publicado e ordena
  * do mais novo para o mais antigo.
+ *
+ * Retirada: alerta na tela que chega como não publicado, ou cujo id (ou
+ * original) está em `retractedIds`, vira aviso neutro e não volta mais (nem
+ * com resposta antiga da CDN); alerta retirado que ainda não estava na tela
+ * nunca entra.
  */
-export function mergeAlerts(current: readonly FeedAlert[], incoming: readonly FeedAlert[]): FeedAlert[] {
+export function mergeAlerts(
+  current: readonly FeedAlert[],
+  incoming: readonly FeedAlert[],
+  retractedIds: Iterable<string> = [],
+): FeedAlert[] {
+  const retracted = new Set(retractedIds);
   const byId = new Map<string, FeedAlert>();
   for (const a of current) byId.set(a.id, a);
   for (const a of incoming) {
     const prev = byId.get(a.id);
+    if (prev?.retracted) continue; // retirada é definitiva na tela
     if (!prev) {
-      byId.set(a.id, a);
+      if (a.status === "published" && !isRetracted(a, retracted)) byId.set(a.id, a);
+      continue;
+    }
+    if (a.status !== "published") {
+      byId.set(a.id, retractedPlaceholder(prev));
       continue;
     }
     byId.set(a.id, {
@@ -133,12 +197,14 @@ export function mergeAlerts(current: readonly FeedAlert[], incoming: readonly Fe
       repeat_verified_at: a.repeat_verified_at ?? prev.repeat_verified_at,
     });
   }
-  return [...byId.values()].filter((a) => a.status === "published").sort(compareFeed);
+  const merged = [...byId.values()].filter((a) => a.retracted || a.status === "published");
+  return retractAlerts(merged, retracted).sort(compareFeed);
 }
 
 /** Reaplica a atribuição (quando settings/speaker_map mudam). */
 export function applyAttribution(alerts: readonly FeedAlert[], attribution: Attribution): FeedAlert[] {
   return alerts.map((a) => {
+    if (a.retracted) return a;
     const person = resolvePerson(a.speaker_label, attribution);
     return person === a.person ? a : { ...a, person };
   });
@@ -179,6 +245,8 @@ export function buildFeed(input: {
   evidence: (Pick<Evidence, "verification_id" | "url" | "source_name" | "source_tier" | "quote" | "evidence_type" | "published_at" | "quote_verified">)[];
   attribution: Attribution;
   repeatOrigins?: Record<string, string>;
+  /** Alertas retirados: ficam de fora, junto com as repetições deles. */
+  retractedIds?: readonly string[];
 }): FeedAlert[] {
   const evByVerification = new Map<string, typeof input.evidence>();
   for (const e of input.evidence) {
@@ -195,5 +263,5 @@ export function buildFeed(input: {
     ),
   );
   // Correção sem fonte não existe: sem evidência verificada, não mostra.
-  return mergeAlerts([], feed.filter((a) => a.evidence.length > 0));
+  return mergeAlerts([], feed.filter((a) => a.evidence.length > 0), input.retractedIds);
 }
