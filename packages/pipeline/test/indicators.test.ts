@@ -177,6 +177,14 @@ describe("[RF03] compareIndicator (L2 determinístico)", () => {
   it("máximo no período", () => {
     expect(compareIndicator(ref({ period: "2022", claimed_value: 11, kind: "max" }), pnad, VALUES).status).toBe("match");
   });
+  it("[RF03] máximo/mínimo divergente ⇒ no_data (extremo_inconclusivo), nunca contradito determinístico", () => {
+    for (const kind of ["max", "min"] as const) {
+      const r = compareIndicator(ref({ period: "2022", claimed_value: 30, kind }), pnad, VALUES);
+      expect(r).toMatchObject({ status: "no_data", expected_verdict: null });
+    }
+    const caged = compareIndicator({ query: "geração de empregos", period: "2024", claimed_value: 2_700_000, unit: null, kind: "max" }, CAGED, CAGED_2024);
+    expect(caged.status === "match" || caged.status === "no_data").toBe(true);
+  });
   it("série em 'mil pessoas' x afirmação absoluta, tolerância 10%", () => {
     const s: IndicatorSeries = { ...pnad, code: "desocupados", name: "Pessoas desocupadas", unit: "mil pessoas" };
     const vals = [q(2023, 4, 8_100)].map((v) => ({ ...v, series_code: s.code }));
@@ -388,6 +396,13 @@ describe("[RF03] L2: escala do valor afirmado ('213' + 'milhões')", () => {
   it("número que só bate trocando a escala, sem unidade ⇒ no_data (escala_incerta), nunca contradito", () => {
     expect(compareIndicator(pop(213, null), POP, POP_2025)).toMatchObject({ status: "no_data", expected_verdict: null, reason: "escala_incerta" });
     expect(compareIndicator(pop(213, "mil"), POP, POP_2025)).toMatchObject({ status: "no_data", reason: "escala_incerta" });
+  });
+
+  it("[RF03] escala perdida que, corrigida, fica só imprecisa ⇒ escala_incerta (nunca contradito sobre o número sem escala)", () => {
+    expect(compareIndicator(pop(180, null), POP, POP_2025)).toMatchObject({ status: "no_data", reason: "escala_incerta" });
+    expect(compareIndicator(pop(180, "habitantes"), POP, POP_2025)).toMatchObject({ status: "no_data", reason: "escala_incerta" });
+    // com a escala dita, a comparação vale normalmente (impreciso)
+    expect(compareIndicator(pop(180, "milhões"), POP, POP_2025).status).toBe("minor_mismatch");
   });
 
   it("valor errado com escala certa continua contradito", () => {

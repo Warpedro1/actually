@@ -407,8 +407,14 @@ export function compareIndicator(
     }
   }
   const b = best!;
-  // número que só bate trocando mil/milhão/bilhão: a escala se perdeu na fala ou na extração
-  if (b.status !== "match" && scaleSlip(readings, candidates, isChange)) return noData(series, "escala_incerta", b.claimed);
+  // número que chega perto trocando mil/milhão/bilhão (ou erra por ordens de grandeza):
+  // a escala se perdeu na fala ou na extração — não dá para acusar nem de "impreciso".
+  // Só a leitura principal (com a escala dita, se houver) conta aqui.
+  if (b.status !== "match" && scaleSlip([readings[0]!], candidates, isChange)) return noData(series, "escala_incerta", b.claimed);
+  // máximo/mínimo: "o maior desemprego", "o recorde de empregos" dependem de granularidade
+  // (mês, trimestre, ano), de início da série e de dessazonalização que a fala não diz.
+  // O comparador só confirma; divergência fica com as outras camadas (na dúvida, silêncio).
+  if ((ref.kind === "max" || ref.kind === "min") && b.status !== "match") return noData(series, "extremo_inconclusivo", b.claimed);
   return {
     status: b.status,
     expected_verdict: verdictForStatus(b.status),
@@ -421,15 +427,24 @@ export function compareIndicator(
   };
 }
 
+/** Razão a partir da qual a diferença é de escala, não de valor (ninguém erra um número por 100×). */
+const SCALE_RATIO = 100;
+
 function scaleSlip(readings: number[], candidates: Candidate[], isChange: boolean): boolean {
   for (const c of candidates) {
     if (c.isPercent) continue;
     const effActual = isChange ? Math.abs(c.actual) : c.actual;
     const tol = toleranceFor(false, effActual);
     for (const r of readings) {
+      const abs = Math.abs(isChange ? Math.abs(r) : r);
+      if (abs > 0 && Math.abs(effActual) > 0) {
+        const ratio = Math.abs(effActual) / abs;
+        if (ratio >= SCALE_RATIO || ratio <= 1 / SCALE_RATIO) return true;
+      }
       for (const k of SCALE_SLIPS) {
         for (const x of [r * k, r / k]) {
-          if (classify(isChange ? Math.abs(x) : x, effActual, tol) === "match") return true;
+          // trocando a escala fica certo OU só impreciso: a leitura sem escala não pode virar "contradito"
+          if (classify(isChange ? Math.abs(x) : x, effActual, tol) !== "mismatch") return true;
         }
       }
     }
