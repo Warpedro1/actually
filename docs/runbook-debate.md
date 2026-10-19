@@ -136,7 +136,11 @@ O pipeline fica em **silêncio** (afirmações viram log com motivo de silêncio
 
 ## Alerta errado publicado
 
-1. Editor **rejeita** o alerta no `/editor` (status `rejected`, motivo claro). Ele sai do ar para todos (Realtime e feed).
+1. Editor **retira** o alerta no `/editor` → seção **Publicados** → **Retirar**, com motivo claro (obrigatório). Para retirar a afirmação inteira, retire o **original** (sem o selo “repetição”): o banco retira junto todas as repetições dele, por qualquer caminho. Retirar só uma repetição não mexe no original nem nas outras.
+   - Quem está no `/ao-vivo` vê o card trocado por “Alerta retirado após revisão” (sem a afirmação nem a correção): na hora pelo Realtime, ou em até ~30 s pela sincronização (~5 s se estiver no modo polling). Quem abre a página depois não vê nada do alerta.
+   - Conferir numa aba anônima já aberta no `/ao-vivo` que o card virou o aviso.
+   - `/editor` fora do ar: mesmo efeito (cascata e aviso) por SQL no painel do Supabase:
+     `update alerts set status = 'rejected', reject_reason = '<motivo>', reviewed_at = now() where id = '<id do alerta>' and status = 'published';`
 2. Publicar **nota pública de correção** no site (“O alerta das HH:MM sobre … foi retirado: …”).
 3. **Não apagar** nada no banco: o alerta, as evidências e o histórico (`alert_events`) ficam como trilha de auditoria — as tabelas nem permitem apagar.
 4. Investigar a causa (fonte? citação fora de contexto? extração?) — se for sistemática (ex.: uma série desatualizada), o responsável decide: subir `t_red`, ligar o HITL, ou desligar vermelhos. **Não corrigir código durante o debate.**

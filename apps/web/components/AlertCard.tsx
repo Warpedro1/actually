@@ -1,4 +1,4 @@
-import { attributionText, feedTime, repeatText, VERDICT_LABEL, type FeedAlert } from "@/lib/feed";
+import { attributionText, feedTime, repeatText, RETRACTED_TEXT, VERDICT_LABEL, type FeedAlert } from "@/lib/feed";
 import { formatTime } from "@/lib/format";
 
 const TIER_LABEL: Record<number, string> = {
@@ -16,8 +16,29 @@ function hostOf(url: string): string {
   }
 }
 
+/**
+ * No lugar de um alerta retirado que já estava na tela: aviso neutro, sem
+ * repetir a afirmação, a correção, a fonte nem quem disse.
+ */
+function RetractedCard({ alert }: { alert: FeedAlert }) {
+  const when = feedTime(alert);
+  return (
+    <article
+      aria-label={RETRACTED_TEXT}
+      data-retracted="true"
+      className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-dashed border-border bg-surface-2 px-4 py-3 text-sm text-muted"
+    >
+      <p className="font-medium">{RETRACTED_TEXT}</p>
+      <time dateTime={when} className="text-xs tabular-nums">
+        {formatTime(when)}
+      </time>
+    </article>
+  );
+}
+
 /** Um alerta do feed público. A fonte é SEMPRE visível — nunca recolhida. */
 export function AlertCard({ alert, feed, fresh = false }: { alert: FeedAlert; feed: readonly FeedAlert[]; fresh?: boolean }) {
+  if (alert.retracted) return <RetractedCard alert={alert} />;
   const red = alert.verdict === "contradito";
   const label = VERDICT_LABEL[alert.verdict];
   const repeat = repeatText(alert, feed);

@@ -39,6 +39,12 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * Feed ao vivo: Realtime (postgres_changes em `alerts`) com fallback
  * automático para polling em /api/alerts a cada 3 s. Volta ao Realtime quando
  * o canal reconecta. Deduplica por id.
+ *
+ * Retirada: o anon não recebe o UPDATE para 'rejected' (RLS), então o aviso
+ * chega por `alert_retractions` (Realtime, só ids) e por `retracted_ids` em
+ * toda resposta da API (polling e sincronização de 30 s). O card na tela vira
+ * "Alerta retirado após revisão"; alerta retirado que não estava na tela nunca
+ * aparece.
  */
 export function useLiveAlerts(slug: string, debateId: string, initialAttribution: Attribution): FeedState {
   const [alerts, setAlerts] = useState<FeedAlert[]>([]);
@@ -50,16 +56,24 @@ export function useLiveAlerts(slug: string, debateId: string, initialAttribution
   const alertsRef = useRef<FeedAlert[]>([]);
   const attributionRef = useRef<Attribution>(initialAttribution);
   const loadedRef = useRef(false);
+  /** Tudo que já soubemos que foi retirado (Realtime ou API) — nunca volta. */
+  const retractedRef = useRef<Set<string>>(new Set());
 
-  const commit = useCallback((incoming: FeedAlert[], attribution?: Attribution) => {
+  const commit = useCallback((incoming: FeedAlert[], attribution?: Attribution, retractedIds: readonly string[] = []) => {
     if (attribution) attributionRef.current = attribution;
+    for (const id of retractedIds) retractedRef.current.add(id);
     const prev = alertsRef.current;
-    let next = mergeAlerts(prev, incoming);
+    let next = mergeAlerts(prev, incoming, retractedRef.current);
     if (attribution) next = applyAttribution(next, attribution);
     alertsRef.current = next;
     setAlerts(next);
+    // Aviso de retirada não é "alerta novo" (nem anima, nem é anunciado).
+    const gone = next.filter((a) => a.retracted).map((a) => a.id);
+    if (gone.length) {
+      setFreshIds((s) => (gone.some((id) => s.has(id)) ? new Set([...s].filter((id) => !gone.includes(id))) : s));
+    }
     if (loadedRef.current) {
-      const added = addedIds(prev, next);
+      const added = addedIds(prev, next).filter((id) => !gone.includes(id));
       if (added.length) setFreshIds((s) => new Set([...s, ...added]));
     }
   }, []);
@@ -76,7 +90,7 @@ export function useLiveAlerts(slug: string, debateId: string, initialAttribution
         throw new Error(body?.error ?? `HTTP ${res.status}`);
       }
       const payload = (await res.json()) as AlertsPayload;
-      commit(payload.alerts, payload.attribution);
+      commit(payload.alerts, payload.attribution, payload.retracted_ids ?? []);
       setError(null);
       return true;
     } catch (err) {
@@ -110,7 +124,13 @@ export function useLiveAlerts(slug: string, debateId: string, initialAttribution
     let retry: ReturnType<typeof setTimeout> | undefined;
 
     const onRow = async (row: Alert) => {
-      if (row.status !== "published") return;
+      if (row.status !== "published") {
+        // Normalmente a RLS nem entrega isso ao anon; se entregar e o alerta
+        // estiver na tela, ele saiu do ar: é retirada.
+        if (alertsRef.current.some((a) => a.id === row.id)) commit([], undefined, [row.id]);
+        return;
+      }
+      if (retractedRef.current.has(row.id) || (row.repeat_of && retractedRef.current.has(row.repeat_of))) return;
       await sleep(Math.random() * MAX_JITTER_MS);
       if (disposed) return;
       const { data, error: evErr } = await client
@@ -136,6 +156,10 @@ export function useLiveAlerts(slug: string, debateId: string, initialAttribution
       if (fa.evidence.length) commit([fa]);
     };
 
+    const onRetraction = (row: { alert_id?: string } | null) => {
+      if (row?.alert_id) commit([], undefined, [row.alert_id]);
+    };
+
     const subscribe = () => {
       const ch = client.channel(`alerts:${debateId}:${Math.random().toString(36).slice(2, 8)}`);
       channel = ch;
@@ -145,6 +169,9 @@ export function useLiveAlerts(slug: string, debateId: string, initialAttribution
       })
         .on("postgres_changes", { event: "UPDATE", schema: "public", table: "alerts", filter }, (p) => {
           void onRow(p.new as Alert);
+        })
+        .on("postgres_changes", { event: "INSERT", schema: "public", table: "alert_retractions", filter }, (p) => {
+          onRetraction(p.new as { alert_id?: string });
         })
         .subscribe((status) => {
           if (disposed || ch !== channel) return;

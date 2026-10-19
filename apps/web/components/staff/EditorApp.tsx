@@ -5,6 +5,7 @@ import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { VERDICT_LABEL } from "@/lib/feed";
 import { formatDuration, formatTimeSec, secondsSince } from "@/lib/format";
+import { retractAlert } from "@/lib/staff/retract";
 import { DebatePicker } from "./DebatePicker";
 import { SpeakerMapPanel } from "./SpeakerMapPanel";
 import { Button, Card, ErrorText, Field, inputCls, OkText, Pill, errMsg } from "./ui";
@@ -37,7 +38,10 @@ export function EditorApp({ client, user }: { client: SupabaseClient; user: User
       <ErrorText>{debatesErr}</ErrorText>
       {selected ? (
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start">
-          <ReviewQueue client={client} user={user} debateId={selected.id} />
+          <div className="flex min-w-0 flex-col gap-4">
+            <ReviewQueue client={client} user={user} debateId={selected.id} />
+            <PublishedList client={client} user={user} debateId={selected.id} />
+          </div>
           <SpeakerMapPanel client={client} user={user} debateId={selected.id} />
         </div>
       ) : null}
@@ -376,6 +380,194 @@ function ReviewItem({
             </Button>
           </div>
         ) : null}
+      </div>
+    </article>
+  );
+}
+
+type PublishedAlert = Pick<
+  Alert,
+  "id" | "verdict" | "claim_text" | "correction" | "is_repeat" | "repeat_of" | "speaker_label" | "created_at" | "published_at"
+>;
+
+/** Limite da lista de publicados (os mais recentes primeiro). */
+const PUBLISHED_LIMIT = 100;
+
+/**
+ * Alertas no ar, com "Retirar" (revisão posterior / alerta errado publicado).
+ * Retirar o original retira as repetições (trigger no banco).
+ */
+function PublishedList({ client, user, debateId }: { client: SupabaseClient; user: User; debateId: string }) {
+  const [items, setItems] = useState<PublishedAlert[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [ok, setOk] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    const { data, error: err } = await client
+      .from("alerts")
+      .select("id, verdict, claim_text, correction, is_repeat, repeat_of, speaker_label, created_at, published_at")
+      .eq("debate_id", debateId)
+      .eq("status", "published")
+      .order("published_at", { ascending: false })
+      .limit(PUBLISHED_LIMIT);
+    if (err) return setError(`Falha ao carregar os publicados: ${errMsg(err)}`);
+    setError(null);
+    setItems((data ?? []) as PublishedAlert[]);
+  }, [client, debateId]);
+
+  useEffect(() => {
+    setItems(null);
+    setOk(null);
+    void load();
+    const id = setInterval(() => void load(), 10_000); // rede de segurança se o Realtime cair
+    return () => clearInterval(id);
+  }, [load]);
+
+  useTableChanges(client, "alerts", `debate_id=eq.${debateId}`, load);
+
+  const repeatsOf = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const a of items ?? []) if (a.repeat_of) m.set(a.repeat_of, (m.get(a.repeat_of) ?? 0) + 1);
+    return m;
+  }, [items]);
+
+  const count = items?.length ?? 0;
+  return (
+    <Card
+      id="publicados"
+      title={
+        <>
+          Publicados{" "}
+          <span className="ml-1 rounded-full bg-surface-2 px-2 py-0.5 text-xs text-fg" aria-label={`${count} publicados`}>
+            {count}
+          </span>
+        </>
+      }
+      actions={<span className="text-xs text-muted">Alerta errado no ar? Retire com motivo — some do /ao-vivo em segundos.</span>}
+    >
+      <div className="flex flex-col gap-2">
+        <ErrorText>{error}</ErrorText>
+        <OkText>{ok}</OkText>
+      </div>
+      {items === null ? (
+        <p className="text-sm text-muted">Carregando…</p>
+      ) : items.length === 0 ? (
+        <p className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted">Nenhum alerta no ar.</p>
+      ) : (
+        <ol className="mt-2 flex flex-col gap-3">
+          {items.map((a) => (
+            <li key={a.id}>
+              <PublishedItem
+                client={client}
+                user={user}
+                alert={a}
+                repeats={repeatsOf.get(a.id) ?? 0}
+                onDone={async (msg) => {
+                  setOk(msg);
+                  await load();
+                }}
+              />
+            </li>
+          ))}
+        </ol>
+      )}
+    </Card>
+  );
+}
+
+function PublishedItem({
+  client,
+  user,
+  alert,
+  repeats,
+  onDone,
+}: {
+  client: SupabaseClient;
+  user: User;
+  alert: PublishedAlert;
+  repeats: number;
+  onDone: (msg: string) => Promise<void> | void;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const reasonRef = useRef<HTMLInputElement>(null);
+  const label = VERDICT_LABEL[alert.verdict];
+
+  async function submit() {
+    setBusy(true);
+    setError(null);
+    const res = await retractAlert(client, { alertId: alert.id, userId: user.id, reason });
+    setBusy(false);
+    if (!res.ok) return setError(res.error);
+    setConfirming(false);
+    await onDone(
+      repeats > 0 ? `Retirado, com ${repeats} repetição(ões). Publique a nota de correção.` : "Retirado. Publique a nota de correção.",
+    );
+  }
+
+  return (
+    <article
+      className="rounded-xl border border-border bg-bg p-4"
+      onKeyDown={(e) => {
+        if (e.key === "Escape") setConfirming(false);
+      }}
+    >
+      <header className="flex flex-wrap items-center gap-2">
+        <Pill tone={alert.verdict === "contradito" ? "bad" : "warn"}>
+          {label.icon} {label.text}
+        </Pill>
+        {alert.is_repeat ? <Pill>repetição</Pill> : null}
+        {repeats > 0 ? <Pill>{repeats} repetição(ões) no ar</Pill> : null}
+        <span className="ml-auto text-xs text-muted">
+          {alert.speaker_label ? `speaker ${alert.speaker_label} · ` : ""}
+          no ar desde {formatTimeSec(alert.published_at ?? alert.created_at)}
+        </span>
+      </header>
+      <p className="mt-2 text-sm">“{alert.claim_text}”</p>
+      <p className="text-sm font-semibold">{alert.correction}</p>
+
+      <div className="mt-3 flex flex-col gap-2">
+        <ErrorText>{error}</ErrorText>
+        {confirming ? (
+          <form
+            className="flex flex-col gap-2 sm:flex-row"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void submit();
+            }}
+          >
+            <input
+              ref={reasonRef}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Motivo da retirada (obrigatório)"
+              aria-label="Motivo da retirada"
+              className={inputCls}
+              required
+            />
+            <Button type="submit" variant="danger" disabled={busy || !reason.trim()}>
+              {repeats > 0 ? `Confirmar retirada (+${repeats} repetição(ões))` : "Confirmar retirada"}
+            </Button>
+            <Button variant="ghost" onClick={() => setConfirming(false)}>
+              Cancelar
+            </Button>
+          </form>
+        ) : (
+          <div>
+            <Button
+              variant="danger"
+              disabled={busy}
+              onClick={() => {
+                setConfirming(true);
+                setTimeout(() => reasonRef.current?.focus(), 0);
+              }}
+            >
+              Retirar
+            </Button>
+          </div>
+        )}
       </div>
     </article>
   );
