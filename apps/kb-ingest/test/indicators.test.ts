@@ -20,7 +20,7 @@ import { crossCheckUnemployment } from "../src/commands/indicators";
 
 const fx = (f: string) => JSON.parse(readFileSync(join(import.meta.dirname, "fixtures", f), "utf8")) as unknown;
 
-describe("SGS", () => {
+describe("[RF15] SGS (Banco Central)", () => {
   it("interpreta a resposta real (IPCA 433)", () => {
     expect(parseSgs(fx("sgs_433_ipca_2021.json"))).toEqual([
       { date: "2021-07-01", value: 0.96 },
@@ -56,7 +56,7 @@ describe("SGS", () => {
   });
 });
 
-describe("SIDRA", () => {
+describe("[RF15] SIDRA (IBGE)", () => {
   it("formato flat: acha a dimensão de período pelo cabeçalho e pula '..'", () => {
     expect(parseSidraFlat(fx("sidra_4099_formato.sample.json"))).toEqual([
       { periodCode: "203001", periodLabel: "1º trimestre 2030", value: 11.1, unit: "%" },
@@ -114,7 +114,7 @@ describe("períodos", () => {
   });
 });
 
-describe("catálogo", () => {
+describe("[RF15] catálogo de indicadores", () => {
   it("códigos únicos, aliases, URL pública e tier 1", () => {
     expect(new Set(CATALOG.map((s) => s.code)).size).toBe(CATALOG.length);
     for (const s of CATALOG) {

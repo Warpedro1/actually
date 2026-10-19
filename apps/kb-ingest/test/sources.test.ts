@@ -69,7 +69,7 @@ describe("Google Fact Check Tools", () => {
   });
 });
 
-describe("Senado", () => {
+describe("[RF15] Senado", () => {
   const lista = {
     ListaParlamentarEmExercicio: {
       Parlamentares: {
@@ -202,7 +202,7 @@ describe("pessoa e tópico", () => {
   });
 });
 
-describe("documentos", () => {
+describe("[RF15] documentos", () => {
   it("tier e fonte por lookupSource; validação", () => {
     const d = toDocumentInput({ url: "https://www.tse.jus.br/x.pdf", title: "Programa", doc_type: "programa", person: "Lula" }, "corpo ".repeat(20));
     expect(d).toMatchObject({ tier: 1, source_name: "TSE", person: "Lula", doc_type: "programa" });

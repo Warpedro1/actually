@@ -7,7 +7,7 @@ const req = (token?: string) =>
     headers: token === undefined ? {} : { "x-ingest-token": token },
   });
 
-describe("tokensMatch", () => {
+describe("[RNF05] tokensMatch (tempo constante)", () => {
   it("aceita token idêntico", () => {
     expect(tokensMatch("segredo-123", "segredo-123")).toBe(true);
   });
@@ -23,7 +23,7 @@ describe("tokensMatch", () => {
   });
 });
 
-describe("checkIngestToken", () => {
+describe("[RNF05] checkIngestToken", () => {
   afterEach(() => vi.unstubAllEnvs());
 
   it("503 quando INGEST_TOKEN não está configurado (nunca aceita)", async () => {

@@ -58,7 +58,7 @@ beforeEach(() => {
   state.pipeline.mockReset();
 });
 
-describe("POST /api/ingest/segment", () => {
+describe("[RNF05] [RNF07] [RNF08] [RF12] POST /api/ingest/segment", () => {
   it("401 sem token", async () => {
     state.db = createMockDb({}).db;
     const res = await segment(post(validSegment, null));
@@ -151,7 +151,7 @@ describe("POST /api/ingest/segment", () => {
   });
 });
 
-describe("POST /api/ingest/register e heartbeat", () => {
+describe("[RF12] POST /api/ingest/register e heartbeat", () => {
   it("register: debate por slug → insere agente → heartbeat inicial", async () => {
     const mock = createMockDb({
       debates: () => ok({ id: DEBATE }),
@@ -183,7 +183,7 @@ describe("POST /api/ingest/register e heartbeat", () => {
   });
 });
 
-describe("POST /api/control/poll", () => {
+describe("[RF13] POST /api/control/poll", () => {
   const reported = { state: "running", audio_level_db: -20, segments_sent: 3, reconnects: 0 };
   const body = { machine_name: "notebook-casa", platform: "darwin-arm64", version: "0.1.0", reported };
   const MACHINE = "33333333-3333-4333-8333-333333333333";

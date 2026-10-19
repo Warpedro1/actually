@@ -19,7 +19,7 @@ export interface StageStats {
   p95: number | null;
 }
 
-/** Ordem do pipeline; etapas desconhecidas vão no fim (alfabético), "total" por último. */
+/** Ordem do pipeline; etapas desconhecidas vão no fim (alfabético), o total ("e2e" no pipeline, fim da fala → alerta) por último. */
 const STAGE_ORDER = ["filter", "extract", "dedup", "embed", "retrieve", "factchecks", "indicators", "documents", "web", "verify", "quote_check", "score", "publish"];
 
 export function latencyStats(rows: readonly { latency_ms: Record<string, number> | null }[]): StageStats[] {
@@ -32,7 +32,7 @@ export function latencyStats(rows: readonly { latency_ms: Record<string, number>
       byStage.set(k, list);
     }
   }
-  const rank = (s: string) => (s === "total" ? 1e9 : STAGE_ORDER.indexOf(s) === -1 ? 1e6 : STAGE_ORDER.indexOf(s));
+  const rank = (s: string) => (s === "e2e" || s === "total" ? 1e9 : STAGE_ORDER.indexOf(s) === -1 ? 1e6 : STAGE_ORDER.indexOf(s));
   return [...byStage.entries()]
     .map(([stage, vals]) => ({ stage, n: vals.length, p50: percentile(vals, 0.5), p95: percentile(vals, 0.95) }))
     .sort((a, b) => rank(a.stage) - rank(b.stage) || a.stage.localeCompare(b.stage));

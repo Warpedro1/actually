@@ -22,7 +22,17 @@ jobs:
       - name: Testes (schema, unitários, RF/RNF offline)
         run: pnpm test
       - name: Build do site
-        run: pnpm --filter @actually/web --if-present build
+        run: pnpm --filter @actually/web build
         env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder
+      - name: Chromium para os testes de navegador
+        run: pnpm --filter @actually/web exec playwright-core install --with-deps chromium
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/pw
+      - name: Testes de navegador (RF10, RF11, RNF10)
+        run: pnpm --filter @actually/web test:e2e
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/pw
           NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder

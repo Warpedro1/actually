@@ -54,7 +54,7 @@ const hidden: Attribution = { show: false, speakers: { S0: "Lula", S1: "Flávio 
 const shown: Attribution = { show: true, speakers: { S0: "Lula", S1: "Flávio Bolsonaro", S9: "Outro" } };
 const fa = (id: string, over: Partial<Alert> = {}, attr = hidden): FeedAlert => toFeedAlert(alert(id, over), [EV], attr);
 
-describe("atribuição condicional", () => {
+describe("[RF09] atribuição condicional", () => {
   it("sem show_attribution nunca nomeia, mesmo com speaker mapeado", () => {
     expect(resolvePerson("S0", hidden)).toBeNull();
     expect(attributionText(fa("a"))).toBe(NEUTRAL_ATTRIBUTION);
@@ -79,7 +79,7 @@ describe("atribuição condicional", () => {
   });
 });
 
-describe("mergeAlerts", () => {
+describe("[RNF06] mergeAlerts (Realtime + polling sem duplicar)", () => {
   it("deduplica por id e ordena do mais novo para o mais antigo", () => {
     const a = fa("a", { published_at: "2026-10-23T23:00:00.000Z" });
     const b = fa("b", { published_at: "2026-10-23T23:05:00.000Z" });
@@ -111,7 +111,7 @@ describe("mergeAlerts", () => {
   });
 });
 
-describe("repetição", () => {
+describe("[RF06] repetição", () => {
   it("mostra o horário (Brasília) da verificação original", () => {
     const r = toFeedAlert(alert("r", { is_repeat: true, repeat_of: "a" }), [EV], hidden, "2026-10-24T00:14:00.000Z");
     expect(repeatText(r)).toBe("Repetido — já verificado às 21:14");

@@ -34,7 +34,7 @@ const agent = (active: boolean): CaptureAgent => ({
   created_at: ago(500),
 });
 
-describe("máquinas de captura", () => {
+describe("[RF13] máquinas de captura", () => {
   it("online só com contato nos últimos 10 s", () => {
     expect(machineOnline({ last_seen: ago(9) }, NOW)).toBe(true);
     expect(machineOnline({ last_seen: ago(11) }, NOW)).toBe(false);
@@ -79,11 +79,16 @@ describe("máquinas de captura", () => {
   });
 });
 
-describe("estatísticas do admin", () => {
+describe("[RNF01] [RNF04] estatísticas do admin (latência e neutralidade)", () => {
   it("percentis", () => {
     expect(percentile([1, 2, 3, 4, 5], 0.5)).toBe(3);
     expect(percentile([10, 20], 0.95)).toBeCloseTo(19.5);
     expect(percentile([], 0.5)).toBeNull();
+  });
+
+  it("latência e2e do pipeline (fim da fala → alerta) vem por último", () => {
+    const s = latencyStats([{ latency_ms: { e2e: 4200, verify: 2000, extract: 500 } }]);
+    expect(s.map((x) => x.stage)).toEqual(["extract", "verify", "e2e"]);
   });
 
   it("latência por etapa na ordem do pipeline, total por último", () => {

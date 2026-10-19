@@ -42,7 +42,7 @@ describe("extractPage", () => {
   });
 });
 
-describe("selectQuote / buildFactcheckRow", () => {
+describe("[RF15] [RF05] selectQuote / buildFactcheckRow", () => {
   const page = extractPage(html, URL_);
 
   it("o quote é trecho LITERAL do corpo e sustenta o veredito", () => {

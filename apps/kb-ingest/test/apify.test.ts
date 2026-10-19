@@ -17,7 +17,7 @@ const ARTICLE = [
   "Classificação: Falso",
 ].join("\n");
 
-describe("website-content-crawler", () => {
+describe("[RF15] website-content-crawler (Apify)", () => {
   it("item → página (text ou markdown, metadata.title)", () => {
     expect(mapCrawlItem({ url: "https://a.org/x", text: "Olá **mundo**", metadata: { title: "T" } })).toEqual({
       url: "https://a.org/x",
@@ -60,7 +60,7 @@ describe("website-content-crawler", () => {
   });
 });
 
-describe("transcrições do YouTube", () => {
+describe("[RF15] transcrições do YouTube (Apify)", () => {
   it("aceita string ou lista de segmentos com vários nomes de campo", () => {
     expect(mapTranscriptItem({ url: "https://youtu.be/abc", title: "T", transcript: "texto corrido" })).toEqual({
       url: "https://youtu.be/abc",

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { mapRating, ratingFromLabel, ratingFromTitle, RATING_TABLE } from "../src/factchecks/rating";
 
-describe("mapRating — tabela explícita", () => {
+describe("[RF15] mapRating — tabela explícita", () => {
   const cases: [string, string][] = [
     ["Falso", "contradito"],
     ["FALSO", "contradito"],
