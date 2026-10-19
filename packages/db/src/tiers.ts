@@ -6,23 +6,30 @@ import type { SourceTier, SourceTierRow } from "./types";
 //   2 = imprensa de referência / academia
 //   3 = imprensa geral / material de campanha (fato sobre o que foi dito/proposto)
 //   4 = qualquer outra coisa (nunca sustenta alerta sozinho)
+//
+// Governo: só é tier 1 por domínio ou caminho específico de órgão que publica dado primário
+// (estatística, contas públicas, legislação). Nunca "gov.br" inteiro: comunicação de governo
+// (notícias, Secom, Planalto, ministérios em www.gov.br, governos estaduais e prefeituras em
+// *.uf.gov.br) é parte interessada no debate — um dos candidatos é o governo federal.
 export const SOURCE_TIERS: SourceTierRow[] = [
-  // Oficiais
+  // Oficiais (dado primário)
   { domain: "ibge.gov.br", name: "IBGE", tier: 1, kind: "oficial" },
   { domain: "bcb.gov.br", name: "Banco Central", tier: 1, kind: "oficial" },
   { domain: "ipea.gov.br", name: "Ipea", tier: 1, kind: "oficial" },
+  { domain: "ipeadata.gov.br", name: "Ipeadata", tier: 1, kind: "oficial" },
   { domain: "inpe.br", name: "INPE", tier: 1, kind: "oficial" },
   { domain: "tse.jus.br", name: "TSE", tier: 1, kind: "oficial" },
   { domain: "stf.jus.br", name: "STF", tier: 1, kind: "oficial" },
   { domain: "senado.leg.br", name: "Senado Federal", tier: 1, kind: "oficial" },
   { domain: "camara.leg.br", name: "Câmara dos Deputados", tier: 1, kind: "oficial" },
-  { domain: "planalto.gov.br", name: "Planalto (legislação)", tier: 1, kind: "oficial" },
+  // só a legislação compilada; o resto do Planalto é comunicação do governo (cai em "gov.br")
+  { domain: "planalto.gov.br/ccivil_03", name: "Planalto (legislação)", tier: 1, kind: "oficial" },
   { domain: "portaldatransparencia.gov.br", name: "Portal da Transparência", tier: 1, kind: "oficial" },
   { domain: "tesourotransparente.gov.br", name: "Tesouro Nacional", tier: 1, kind: "oficial" },
   { domain: "tesouro.gov.br", name: "Tesouro Nacional", tier: 1, kind: "oficial" },
-  { domain: "gov.br", name: "Governo Federal", tier: 1, kind: "oficial" },
   { domain: "anp.gov.br", name: "ANP", tier: 1, kind: "oficial" },
   { domain: "datasus.saude.gov.br", name: "DataSUS", tier: 1, kind: "oficial" },
+  { domain: "datasus.gov.br", name: "DataSUS", tier: 1, kind: "oficial" },
   { domain: "forumseguranca.org.br", name: "Fórum Brasileiro de Segurança Pública", tier: 1, kind: "academico" },
   // Checagem profissional
   { domain: "lupa.uol.com.br", name: "Agência Lupa", tier: 1, kind: "checagem" },
@@ -51,6 +58,11 @@ export const SOURCE_TIERS: SourceTierRow[] = [
   { domain: "metropoles.com", name: "Metrópoles", tier: 3, kind: "imprensa" },
   { domain: "exame.com", name: "Exame", tier: 3, kind: "imprensa" },
   { domain: "infomoney.com.br", name: "InfoMoney", tier: 3, kind: "imprensa" },
+  // Parte interessada: qualquer *.gov.br sem entrada específica acima (www.gov.br/secom,
+  // gov.br/planalto/.../noticias, sp.gov.br, prefeituras...) cai aqui — tier 4: nunca sustenta
+  // alerta e fica fora da busca web. Explícita (em vez de omitida) para `kb-ingest tiers`
+  // sobrescrever em source_tiers a antiga linha "gov.br" tier 1.
+  { domain: "gov.br", name: "Governo (gov.br)", tier: 4, kind: "oficial" },
 ];
 
 function hostAndPath(url: string): { host: string; path: string } | null {
