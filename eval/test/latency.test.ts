@@ -29,7 +29,7 @@ describe("stageLatency", () => {
   });
 });
 
-describe("editorStats", () => {
+describe("[RF08] editorStats (espera do editor)", () => {
   const alerts = [
     // aprovado após 20 s; fala terminou 4 s antes da criação
     alert({ id: "1", segment_captured_at: iso(-4), created_at: iso(0), reviewed_at: iso(20), published_at: iso(20) }),

@@ -31,7 +31,7 @@ describe("decideAlert", () => {
   });
 });
 
-describe("varredura", () => {
+describe("[RNF02] [RF07] varredura de thresholds", () => {
   // 3 vermelhos esperados com scores altos, 1 falso alarme com score 0.8
   const recs = [
     rec("r1", "red", [decision({ final_score: 0.95 })]),

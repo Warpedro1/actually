@@ -55,7 +55,7 @@ const set = [
   rec("e1", "inconclusive", [], { error: "timeout", speaker: "B" }),
 ];
 
-describe("precisionRecall", () => {
+describe("[RNF02] precisionRecall", () => {
   it("vermelho", () => {
     const p = precisionRecall(set, "red");
     // emitidos: r1, y2, t2 → VP só r1
@@ -79,7 +79,7 @@ describe("precisionRecall", () => {
   });
 });
 
-describe("falseAlarm", () => {
+describe("[RNF02] falseAlarm", () => {
   it("separa verdadeiras, não checáveis e união", () => {
     const f = falseAlarm(set);
     expect(f.on_true).toEqual({ n: 2, hits: 1, rate: 0.5 });
@@ -107,7 +107,7 @@ describe("silêncio", () => {
   });
 });
 
-describe("latencyByStage", () => {
+describe("[RNF01] latencyByStage", () => {
   it("usa o máximo por item e exclui itens com erro", () => {
     const recs = [
       rec("a", "red", [decision({ latency_ms: { filter: 100, verify: 1000 } }), decision({ latency_ms: { filter: 100, verify: 3000 } })], { wall_ms: 3500 }),
@@ -121,7 +121,7 @@ describe("latencyByStage", () => {
   });
 });
 
-describe("confusão, recortes e erros", () => {
+describe("[RNF04] confusão, recortes por speaker e erros", () => {
   it("matriz", () => {
     const m = confusion(set);
     expect(m.red).toEqual({ red: 1, yellow: 1, none: 1 });
