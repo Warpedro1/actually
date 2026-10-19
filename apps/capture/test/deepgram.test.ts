@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { CHUNK_BYTES } from "../src/audio";
 import { DeepgramStream, buildDeepgramUrl, parseDeepgramMessage, selectResend, type WsLike } from "../src/deepgram";
 
-describe("URL do Deepgram", () => {
+describe("[RF01] URL do Deepgram (pt-BR, diarização)", () => {
   it("leva os parâmetros pedidos", () => {
     const u = new URL(buildDeepgramUrl("nova-3"));
     expect(u.origin + u.pathname).toBe("wss://api.deepgram.com/v1/listen");
@@ -63,7 +63,7 @@ describe("parseDeepgramMessage", () => {
   });
 });
 
-describe("selectResend", () => {
+describe("[RNF09] selectResend (reconexão sem perder áudio)", () => {
   const chunks = [0, 0.1, 0.2, 0.3].map((t) => ({ t, buf: Buffer.alloc(CHUNK_BYTES) }));
   it("começa no pedaço que contém o último final", () => {
     expect(selectResend(chunks, 0.15)).toBe(1);
@@ -95,7 +95,7 @@ class FakeWs extends EventEmitter implements WsLike {
   }
 }
 
-describe("DeepgramStream", () => {
+describe("[RNF09] DeepgramStream", () => {
   afterEach(() => vi.useRealTimers());
 
   it("reconecta, reenvia o áudio não finalizado e corrige o offset", () => {

@@ -20,7 +20,7 @@ function run(events: SegmenterEvent[]) {
   return events.flatMap((e) => s.push(e));
 }
 
-describe("segmentador", () => {
+describe("[RF01] [RNF09] segmentador", () => {
   it("acumula finais e emite no speech_final", () => {
     let st = initialSegmenterState();
     let r = segmenterStep(st, { type: "final", words: phrase(["O", "desemprego"], 0), speechFinal: false });

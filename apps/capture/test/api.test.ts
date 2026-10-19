@@ -77,7 +77,7 @@ describe("IngestClient", () => {
   });
 });
 
-describe("SegmentQueue", () => {
+describe("[RNF09] [RNF08] [RF12] SegmentQueue (retry, duplicate, standby)", () => {
   it("segura os segmentos até o register e envia em ordem com seq crescente", async () => {
     const { queue, calls } = makeQueue([
       json(200, { status: "accepted", segment_id: 1 }),

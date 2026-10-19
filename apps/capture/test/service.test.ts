@@ -52,7 +52,7 @@ const win: ServiceContext = {
   winUser: "SALA\\pedro",
 };
 
-describe("macOS (launchd)", () => {
+describe("[RF13] macOS (launchd)", () => {
   const plist = launchdPlist(mac);
   it("envolve com caffeinate -is e roda o daemon", () => {
     expect(plist).toContain("<string>/usr/bin/caffeinate</string>\n    <string>-is</string>\n    <string>/opt/homebrew/bin/node</string>");
@@ -82,7 +82,7 @@ describe("macOS (launchd)", () => {
   });
 });
 
-describe("Linux (systemd --user)", () => {
+describe("[RF13] Linux (systemd --user)", () => {
   const unit = systemdUnit(linux);
   it("Restart=always e encerramento limpo com SIGINT", () => {
     expect(unit).toContain("Restart=always");
@@ -107,7 +107,7 @@ describe("Linux (systemd --user)", () => {
   });
 });
 
-describe("Windows (Tarefa Agendada)", () => {
+describe("[RF13] Windows (Tarefa Agendada)", () => {
   const xml = windowsTaskXml(win);
   it("no logon, reinicia em falha, sem limite de tempo e sem parar na bateria", () => {
     expect(xml).toContain("<LogonTrigger>");

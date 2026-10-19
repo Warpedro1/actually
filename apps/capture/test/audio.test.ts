@@ -11,7 +11,7 @@ import {
 
 const OUT = ["-vn", "-ac", "1", "-ar", "16000", "-f", "s16le", "pipe:1"];
 
-describe("argumentos do ffmpeg", () => {
+describe("[RF01] argumentos do ffmpeg (youtube, dispositivo, arquivo)", () => {
   it("youtube: lê do stdout do yt-dlp", () => {
     expect(buildFfmpegArgs({ kind: "youtube", url: "u", format: "bestaudio/best" }, "linux")).toEqual([
       "-hide_banner",

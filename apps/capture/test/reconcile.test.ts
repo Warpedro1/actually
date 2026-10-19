@@ -22,7 +22,7 @@ function keyOf(d: MachineDesired): string {
   return specKey(r.spec);
 }
 
-describe("reconcile", () => {
+describe("[RF13] reconcile (daemon remoto)", () => {
   it("sem desejado conhecido não mexe em nada", () => {
     expect(reconcile(input(null))).toEqual({ action: "idle" });
     expect(reconcile(input(null, { runningKey: "x" }))).toEqual({ action: "keep" });
@@ -92,7 +92,7 @@ describe("reconcile", () => {
   });
 });
 
-describe("estado reportado e relógio", () => {
+describe("[RF13] [RNF09] estado reportado e relógio", () => {
   it("mapeia decisões sem runner", () => {
     expect(idleReportedState({ action: "wait", until: 1 }, null)).toBe("waiting_start");
     expect(idleReportedState({ action: "backoff", until: 1 }, "x")).toBe("error");
