@@ -73,8 +73,13 @@ export function levenshtein(a: string, b: string): number {
   return prev[b.length]!;
 }
 
+const numericTokens = (s: string) => s.match(/\d+(?:[.,]\d+)*/g) ?? [];
+
 function checkPart(part: string, source: string, minSimilarity: number): QuoteCheckResult {
   if (source.includes(part)) return { verified: true, method: "exact", similarity: 1 };
+  // no fuzzy, número não tem tolerância: "9,8%" não pode passar por "7,8%"
+  const srcNums = new Set(numericTokens(source));
+  if (numericTokens(part).some((n) => !srcNums.has(n))) return { verified: false, method: "none", similarity: 0 };
   const similarity = 1 - bestWindowDistance(part, source) / part.length;
   return similarity >= minSimilarity
     ? { verified: true, method: "fuzzy", similarity }

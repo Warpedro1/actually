@@ -119,10 +119,16 @@ export function roundSig(v: number, digits = 9): number {
  * Normaliza a lista de números vinda do modelo: se o trecho bruto é
  * interpretável deterministicamente, o valor do código prevalece.
  */
+const KNOWN_UNITS = new Set(["%", "p.p.", "R$", "US$", "km2", "ha"]);
+
 export function normalizeClaimNumbers(numbers: ClaimNumber[]): ClaimNumber[] {
   return numbers.map((n) => {
     const parsed = parsePtBrNumber(n.raw);
-    if (parsed) return { value: parsed.value, unit: parsed.unit ?? canonicalUnit(n.unit), raw: n.raw };
+    if (parsed) {
+      // unidade do modelo só complementa se for unidade de verdade (não "milhão")
+      const modelUnit = canonicalUnit(n.unit);
+      return { value: parsed.value, unit: parsed.unit ?? (modelUnit && KNOWN_UNITS.has(modelUnit) ? modelUnit : null), raw: n.raw };
+    }
     return { value: roundSig(n.value), unit: canonicalUnit(n.unit), raw: n.raw };
   });
 }
