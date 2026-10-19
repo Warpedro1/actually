@@ -86,6 +86,17 @@ describe("[RF13] reconcile (daemon remoto)", () => {
     expect(reconcile(input(bad, { runningKey: keyOf(yt) }))).toMatchObject({ action: "stop" });
   });
 
+  it("[RNF05] URL/caminho recusado no desejado ⇒ invalid, sem subir runner (nem Deepgram nem yt-dlp)", () => {
+    const evil: MachineDesired = { state: "running", debate_slug: "d", source: "youtube", url: "--update-to=atacante/repo@v1" };
+    expect(specFromDesired(evil)).toEqual({ error: expect.stringMatching(/recusada/) });
+    expect(reconcile(input(evil))).toMatchObject({ action: "invalid", error: expect.stringMatching(/recusada/) });
+    expect(reconcile(input({ ...evil, url: "https://example.com/watch?v=x" }))).toMatchObject({ action: "invalid" });
+    // trocar para URL recusada com o runner rodando ⇒ para (não reinicia com ela)
+    expect(reconcile(input(evil, { runningKey: keyOf(yt) }))).toMatchObject({ action: "stop", reason: expect.stringMatching(/inválida/) });
+    const file: MachineDesired = { state: "running", debate_slug: "d", source: "file", url: "-i" };
+    expect(reconcile(input(file))).toMatchObject({ action: "invalid", error: expect.stringMatching(/'-'/) });
+  });
+
   it("role padrão é primary", () => {
     const r = specFromDesired({ state: "running", debate_slug: "d", source: "device", device: ":0" });
     expect(r).toMatchObject({ spec: { role: "primary" } });

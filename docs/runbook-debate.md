@@ -68,7 +68,7 @@ Todos na mesma chamada de voz durante o debate. Preencher os nomes:
 
 ### Durante
 
-- [ ] **Mapear speakers** nas primeiras falas (`/editor`) — só se `show_attribution` for ligado; reconferir após qualquer failover ou reconexão ([atribuicao.md](atribuicao.md)).
+- [ ] **Mapear speakers** nas primeiras falas (`/editor`) — só se `show_attribution` for ligado; **remapear** após qualquer failover ou reconexão ao Deepgram: o rótulo leva a sessão do STT (`s<n>-<agente>:S<k>`) e a sessão nova chega sem mapa ([atribuicao.md](atribuicao.md)).
 - [ ] A cada ~10 min, o operador confere: máquina ativa, último segmento < 30 s (em fala), latência p50/p95 no `/admin`, erros.
 - [ ] Editor segue o SLA (decisão p50 ≤ 15 s); fila > 3 → avisar o responsável.
 - [ ] Registrar incidentes (horário, o que houve, o que foi feito).
@@ -100,7 +100,7 @@ pnpm --filter @actually/capture start -- run --debate <slug> --name reserva --ro
 **Automático**: se o agente ativo fica sem heartbeat por `failover_after_s` (10 s), o banco promove o agente vivo seguinte (primary antes de standby). O standby já está transcrevendo, então a perda é de no máximo ~10 s de fala. Nada a fazer além de:
 
 1. Confirmar no `/admin` que a reserva está **ativa** e mandando segmentos.
-2. Reconferir o mapeamento de speakers (outra sessão de diarização).
+2. Remapear os speakers (outra sessão de diarização: rótulos novos, sem mapa).
 3. Investigar a principal remotamente (abaixo).
 
 **Manual** (`/admin` → Máquinas/agentes → **tornar ativo**): usar quando a principal está “viva” mas ruim — áudio em silêncio, transcrição lixo, atraso crescente, live do YouTube travada. Trocar e observar 1 minuto.

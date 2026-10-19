@@ -13,6 +13,7 @@ import {
   levelDbfs,
   listDevicesCommands,
   peakDbfs,
+  restartsReplayAudio,
   sourceSpecError,
   youtubeUrlError,
   type SourceSpec,
@@ -277,9 +278,9 @@ describe("[RNF09] linha do tempo da fonte ao vivo", () => {
     await f.src.stop();
   });
 
-  it("watchdog: fonte ao vivo sem nenhum byte por N s é morta e reiniciada", async () => {
+  it("watchdog: dispositivo sem nenhum byte por N s é morto e reiniciado", async () => {
     vi.useFakeTimers();
-    const f = fakeSource(YT, { stallTimeoutMs: 10_000 });
+    const f = fakeSource({ kind: "device", device: ":0" }, { stallTimeoutMs: 10_000 });
     f.src.start();
     // dados a cada 4 s: nunca dispara
     for (let i = 0; i < 10; i++) {
@@ -287,7 +288,7 @@ describe("[RNF09] linha do tempo da fonte ao vivo", () => {
       vi.advanceTimersByTime(4000);
     }
     expect(f.restarts).toEqual([]);
-    // playlist parou sem ENDLIST: o ffmpeg fica vivo e mudo
+    // dispositivo travado: o ffmpeg fica vivo e mudo
     const stuck = f.ff();
     vi.advanceTimersByTime(11_000);
     expect(stuck.kills.length).toBeGreaterThan(0);
@@ -306,6 +307,79 @@ describe("[RNF09] linha do tempo da fonte ao vivo", () => {
     expect(f.restarts).toEqual([]);
     vi.advanceTimersByTime(2000);
     expect(f.restarts).toHaveLength(1);
+    await f.src.stop();
+  });
+});
+
+describe("[RNF09] [RF06] live do YouTube parada não é reiniciada (reiniciar o HLS repete áudio já enviado)", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("restartsReplayAudio: só o YouTube reemite áudio ao reiniciar", () => {
+    expect(restartsReplayAudio(YT)).toBe(true);
+    expect(restartsReplayAudio({ kind: "device", device: ":0" })).toBe(false);
+    expect(restartsReplayAudio({ kind: "file", path: "/x/debate.mp4", realtime: true })).toBe(false);
+  });
+
+  it("playlist parada sem ENDLIST: o processo fica vivo e mudo, sem kill nem reinício", async () => {
+    vi.useFakeTimers();
+    const f = fakeSource(YT, { stallTimeoutMs: 10_000, startupTimeoutMs: 30_000 });
+    f.src.start();
+    f.ff().pcm(12); // borda da live
+    for (let i = 0; i < 5; i++) {
+      vi.advanceTimersByTime(4000);
+      f.ff().pcm(4);
+    }
+    const live = f.ff();
+    // playlist congela: 5 min sem nenhum byte
+    vi.advanceTimersByTime(5 * 60_000);
+    expect(f.restarts).toEqual([]);
+    expect(live.kills).toEqual([]);
+    expect(f.procs).toHaveLength(2); // nenhum yt-dlp/ffmpeg novo
+    // a playlist volta a andar no mesmo processo: continua sem silêncio nem repetição
+    live.pcm(4);
+    expect(f.totals()).toEqual({ silence: 0, audio: 36 });
+    await f.src.stop();
+  });
+
+  it("processo reiniciado (yt-dlp saiu) reemite a mesma rajada e trava de novo: não há 2º reinício", async () => {
+    vi.useFakeTimers();
+    const f = fakeSource(YT, { stallTimeoutMs: 10_000, startupTimeoutMs: 30_000 });
+    f.src.start();
+    f.ff().pcm(12);
+    for (let i = 0; i < 4; i++) {
+      vi.advanceTimersByTime(4000);
+      f.ff().pcm(4);
+    }
+    // playlist congela e o yt-dlp sai sozinho: 1 reinício (fora do watchdog)
+    f.ff().exit(1);
+    expect(f.restarts).toHaveLength(1);
+    vi.advanceTimersByTime(2000);
+    const second = f.ff();
+    // o processo novo começa uns fragmentos antes da borda (parada): mesma rajada
+    second.pcm(12);
+    const afterReplay = f.totals();
+    // e trava de novo; o watchdog não o mata (mataria e repetiria a rajada a cada ~20–35 s)
+    vi.advanceTimersByTime(10 * 60_000);
+    expect(second.kills).toEqual([]);
+    expect(f.restarts).toHaveLength(1);
+    expect(f.procs).toHaveLength(4); // yt-dlp+ffmpeg originais e os do único reinício
+    expect(f.totals()).toEqual(afterReplay);
+    expect(f.logs.filter((l) => l.includes("sem áudio"))).toEqual([]);
+    await f.src.stop();
+  });
+
+  it("processo reiniciado que não manda nenhum byte é reiniciado de novo (não emitiu nada, não repete nada)", async () => {
+    vi.useFakeTimers();
+    const f = fakeSource(YT, { stallTimeoutMs: 10_000, startupTimeoutMs: 30_000 });
+    f.src.start();
+    f.ff().pcm(12);
+    f.ff().exit(1);
+    vi.advanceTimersByTime(2000);
+    const mute = f.ff();
+    vi.advanceTimersByTime(31_000);
+    expect(mute.kills.length).toBeGreaterThan(0);
+    expect(f.restarts).toHaveLength(2);
+    expect(f.restarts[1]).toMatch(/sem áudio/);
     await f.src.stop();
   });
 });

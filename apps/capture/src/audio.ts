@@ -1,11 +1,13 @@
 // Fonte de áudio: ffmpeg (e yt-dlp, para o YouTube) → PCM s16le 16 kHz mono.
 //
 // A montagem de argumentos é pura (testada por SO/fonte). A classe AudioSource
-// cuida dos processos: reinicia com backoff quando uma fonte ao vivo cai ou
-// fica muda (watchdog) e mantém a linha do tempo contínua (t só cresce). Só um
-// buraco real (reinício do processo) vira silêncio, e só o que faltar para t
-// alcançar o relógio de parede — as pausas normais entre fragmentos do HLS
-// nunca viram silêncio, e t nunca anda mais rápido que o tempo real.
+// cuida dos processos: reinicia com backoff quando uma fonte ao vivo cai (ou,
+// no dispositivo, fica muda — watchdog) e mantém a linha do tempo contínua (t
+// só cresce). Só um buraco real (reinício do processo) vira silêncio: um
+// separador curto e, se t ficou atrás do relógio de parede, o que faltar para
+// alcançá-lo — as pausas normais entre fragmentos do HLS nunca viram silêncio.
+// t pode ficar adiantado em relação ao relógio: a rajada da borda da live
+// (~12 s no HLS) e o separador de cada reinício não são descontados.
 
 import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
 import { EventEmitter } from "node:events";
@@ -198,9 +200,17 @@ export interface AudioSourceOptions {
    * em vez de emendar áudio de antes e de depois do buraco.
    */
   restartSilenceS?: number;
-  /** Fonte ao vivo sem nenhum byte por este tempo é morta e reiniciada (ms). */
+  /**
+   * Dispositivo que já mandou áudio e fica este tempo sem nenhum byte é morto
+   * e reiniciado (ms). Não vale para o YouTube: lá o processo novo reemitiria
+   * áudio já enviado (veja restartsReplayAudio).
+   */
   stallTimeoutMs?: number;
-  /** Idem antes do 1º byte de cada processo (o yt-dlp demora a resolver a live) (ms). */
+  /**
+   * Fonte ao vivo cujo processo atual ainda não mandou nenhum byte por este
+   * tempo é reiniciada (o yt-dlp demora a resolver a live) (ms). Vale também
+   * para o YouTube: matar um processo que não emitiu nada não repete áudio.
+   */
   startupTimeoutMs?: number;
   /** Para testes. */
   spawn?: SpawnFn;
@@ -211,6 +221,22 @@ export const DEFAULT_MIN_GAP_FILL_S = 3;
 export const DEFAULT_RESTART_SILENCE_S = 1.5;
 export const DEFAULT_SOURCE_STALL_MS = 20_000;
 export const DEFAULT_SOURCE_STARTUP_MS = 60_000;
+
+/**
+ * Reiniciar esta fonte reemite áudio já enviado? No YouTube (HLS) sim: o
+ * processo novo começa uns fragmentos antes da borda da live (~12 s), e com a
+ * playlist parada sem ENDLIST esse trecho é o mesmo que já saiu. Como t só
+ * cresce, o segmentador não o reconhece e o pipeline o trataria como a mesma
+ * afirmação dita de novo ("Repetido", sem HITL). Por isso o watchdog nunca
+ * mata uma live do YouTube que já mandou áudio: se a playlist voltar a andar,
+ * o mesmo processo continua sem repetir nada. (Se o próprio ffmpeg do yt-dlp
+ * desistir da playlist parada e sair, o reinício normal ainda reemite a cauda
+ * — limitação conhecida, fora do watchdog.) Um dispositivo não tem passado
+ * para reemitir.
+ */
+export function restartsReplayAudio(spec: SourceSpec): boolean {
+  return spec.kind === "youtube";
+}
 
 export class AudioSource extends EventEmitter<AudioSourceEvents> {
   private procs: ChildProcess[] = [];
@@ -413,13 +439,23 @@ export class AudioSource extends EventEmitter<AudioSourceEvents> {
     this.emitPcm(Buffer.alloc(bytes));
   }
 
-  /** Fonte ao vivo que para de mandar bytes (HLS parado sem ENDLIST, dispositivo travado) é reiniciada. */
+  /**
+   * Fonte ao vivo muda: processo que nunca mandou nenhum byte (yt-dlp preso
+   * resolvendo a live, dispositivo que não abriu) é reiniciado; dispositivo que
+   * mandou áudio e travou também. Live do YouTube que mandou áudio e parou
+   * (playlist sem ENDLIST) não: reiniciar repetiria áudio já enviado, a cada
+   * novo travamento (restartsReplayAudio). Fica muda até a playlist voltar a
+   * andar ou o yt-dlp sair sozinho; o /admin mostra a fonte em silêncio e o
+   * operador decide (runbook: tornar a reserva ativa, trocar a URL).
+   */
   private startWatchdog(): void {
     const stallMs = this.opts.stallTimeoutMs ?? DEFAULT_SOURCE_STALL_MS;
     const startupMs = Math.max(stallMs, this.opts.startupTimeoutMs ?? DEFAULT_SOURCE_STARTUP_MS);
+    const restartOnStall = !restartsReplayAudio(this.opts.spec);
     this.stopWatchdog();
     this.watchdog = setInterval(() => {
       if (this.stopping || this.procs.length === 0 || this.killReason) return;
+      if (this.genHasData && !restartOnStall) return;
       const idleMs = Date.now() - this.lastActivityWall;
       if (idleMs >= (this.genHasData ? stallMs : startupMs)) this.killPipeline(`fonte sem áudio há ${(idleMs / 1000).toFixed(0)} s`);
     }, Math.min(1000, stallMs));

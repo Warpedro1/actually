@@ -1,7 +1,7 @@
 // Parsing de argumentos (node:util parseArgs). Puro: argv + env → comando.
 
 import { parseArgs } from "node:util";
-import { DEFAULT_YTDLP_FORMAT, type SourceSpec } from "./audio";
+import { DEFAULT_YTDLP_FORMAT, sourceSpecError, type SourceSpec } from "./audio";
 import { DEFAULT_STT_MODEL, FALLBACK_STT_MODEL } from "./deepgram";
 
 export const DEFAULT_LOG_DIR = "./capture-logs";
@@ -164,10 +164,25 @@ function parseRun(rest: string[], env: NodeJS.ProcessEnv): RunArgs {
   };
 }
 
-/** Também usado pelo daemon para validar o estado desejado vindo do /admin. */
+/**
+ * Também usado pelo daemon para validar o estado desejado vindo do /admin:
+ * fonte recusada (URL que não é do YouTube, caminho começando com "-") vira
+ * erro aqui, antes de abrir o Deepgram ou registrar o agente — o daemon
+ * reporta "configuração inválida" e não tenta de novo até o desejado mudar.
+ */
 export function buildSource(
   o: { source?: string; url?: string; device?: string; file?: string; realtime?: boolean; ytdlpFormat?: string },
   E: new (msg: string) => Error = Error,
+): SourceSpec {
+  const spec = buildSourceUnchecked(o, E);
+  const err = sourceSpecError(spec);
+  if (err) throw new E(err);
+  return spec;
+}
+
+function buildSourceUnchecked(
+  o: { source?: string; url?: string; device?: string; file?: string; realtime?: boolean; ytdlpFormat?: string },
+  E: new (msg: string) => Error,
 ): SourceSpec {
   switch (o.source) {
     case "youtube":

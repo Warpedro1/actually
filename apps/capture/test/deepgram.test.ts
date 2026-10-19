@@ -2,6 +2,7 @@ import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CHUNK_BYTES } from "../src/audio";
 import {
+  DEFAULT_STT_RESULT_STALL_MS,
   DEFAULT_STT_STALL_MS,
   DeepgramStream,
   buildDeepgramUrl,
@@ -85,8 +86,15 @@ class FakeWs extends EventEmitter implements WsLike {
   readyState = 0;
   bufferedAmount = 0;
   sent: (Buffer | string)[] = [];
+  pings = 0;
+  /** Responde ping com pong (socket vivo); false = meio-aberto. */
+  autoPong = false;
   send(d: Buffer | string) {
     this.sent.push(d);
+  }
+  ping() {
+    this.pings++;
+    if (this.autoPong) this.emit("pong", Buffer.alloc(0));
   }
   close() {
     this.readyState = 3;
@@ -223,14 +231,16 @@ function result(sp: number, start = 0) {
   };
 }
 
-function streamWithSockets(opts: { stallTimeoutMs?: number } = {}) {
+function streamWithSockets(opts: { stallTimeoutMs?: number; resultStallTimeoutMs?: number; autoPong?: boolean } = {}) {
   const sockets: FakeWs[] = [];
+  const { autoPong = false, ...dgOpts } = opts;
   const dg = new DeepgramStream({
     apiKey: "k",
     model: "nova-3",
-    ...opts,
+    ...dgOpts,
     wsFactory: () => {
       const ws = new FakeWs();
+      ws.autoPong = autoPong;
       sockets.push(ws);
       return ws;
     },
@@ -313,6 +323,7 @@ describe("[RNF09] watchdog do STT (socket meio-aberto)", () => {
     expect(disconnects).toHaveLength(0);
     // a partir daqui o socket aceita áudio mas não responde mais
     stream(dg, 5, DEFAULT_STT_STALL_MS / 1000 + 2);
+    expect(sockets[0]!.pings).toBeGreaterThan(0); // pings saíram, nenhum pong voltou
     expect(disconnects).toHaveLength(1);
     expect(disconnects[0]!.reason).toMatch(/sem resposta/);
     expect(sockets[0]!.readyState).toBe(3); // terminate()
@@ -322,6 +333,22 @@ describe("[RNF09] watchdog do STT (socket meio-aberto)", () => {
     // reenvia a partir do último final (2 s), não perde a fala do período mudo
     const resent = sockets[1]!.sent.filter(Buffer.isBuffer);
     expect(resent.length).toBeGreaterThanOrEqual(DEFAULT_STT_STALL_MS / 100);
+    void dg.finish(10);
+  });
+
+  it("silêncio na transmissão: socket responde ping e o Deepgram fica calado ⇒ não derruba (só após o prazo longo)", () => {
+    vi.useFakeTimers();
+    const { dg, sockets, disconnects } = streamWithSockets({ autoPong: true });
+    dg.start();
+    sockets[0]!.open();
+    // 50 s de áudio sem nenhuma mensagem do Deepgram (nem resultado vazio)
+    stream(dg, 0, 50);
+    expect(sockets[0]!.pings).toBeGreaterThan(5);
+    expect(disconnects).toHaveLength(0);
+    // sessão realmente travada: passa do prazo longo ⇒ reconecta
+    stream(dg, 50, (DEFAULT_STT_RESULT_STALL_MS - 50_000) / 1000 + 2);
+    expect(disconnects).toHaveLength(1);
+    expect(disconnects[0]!.reason).toMatch(/nenhuma mensagem/);
     void dg.finish(10);
   });
 
