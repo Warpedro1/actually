@@ -17,6 +17,7 @@ export { EMBEDDING_DIM };
 /** Timeouts por etapa (ms). Estourou → a etapa conta como "sem resultado" (silêncio). */
 export const TIMEOUTS_MS = {
   extract: 6_000,
+  context: 1_500,
   embed: 2_500,
   dedup: 2_000,
   L1: 2_500,
@@ -24,7 +25,10 @@ export const TIMEOUTS_MS = {
   L3: 2_500,
   L4: 7_000,
   rerank: 2_000,
+  /** Por tentativa (o SDK faz 1 retry). */
   verify: 15_000,
+  /** Teto total da verificação, com retry. */
+  verify_total: 20_000,
   publish: 5_000,
 } as const;
 
