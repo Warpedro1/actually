@@ -59,6 +59,11 @@ export interface Debate {
   ended_at: string | null;
   /** Horário previsto de início (o /admin usa para sugerir o start_at da captura). */
   scheduled_at: string | null;
+  /**
+   * Debate de teste (migration 20261020000009): só editores veem (RLS) e os
+   * vereditos dele não são reaproveitados por outros debates na trava de repetição.
+   */
+  is_test: boolean;
 }
 
 export interface CaptureAgent {

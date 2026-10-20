@@ -186,6 +186,7 @@ export function demoAdminData(now: number) {
     started_at: ago(1800),
     ended_at: null,
     scheduled_at: ago(1800),
+    is_test: false,
   };
   const agents: CaptureAgent[] = [
     {

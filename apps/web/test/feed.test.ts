@@ -183,6 +183,19 @@ describe("loadPublishedAlerts (GET /api/alerts)", () => {
     const mock = createMockDb({ debates: () => ({ data: null, error: null }) });
     expect(await loadPublishedAlerts(mock.db as never, "x")).toBeNull();
   });
+  it("[RNF05] debate de teste: null para o público (service role ignora RLS); payload só com includeTest", async () => {
+    const handlers = {
+      debates: () => ({ data: { id: "d1", slug: "ensaio", title: "Ensaio", status: "live", settings: {}, is_test: true }, error: null }),
+      alerts: () => ({ data: [], error: null }),
+      speaker_map: () => ({ data: [], error: null }),
+    };
+    const pub = createMockDb(handlers);
+    expect(await loadPublishedAlerts(pub.db as never, "ensaio")).toBeNull();
+    // nem chega a consultar os alertas
+    expect(pub.calls.some((c) => c.table === "alerts")).toBe(false);
+    const prev = createMockDb(handlers);
+    expect((await loadPublishedAlerts(prev.db as never, "ensaio", undefined, { includeTest: true }))!.debate.slug).toBe("ensaio");
+  });
 });
 
 describe("youtube", () => {

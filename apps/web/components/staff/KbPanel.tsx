@@ -5,6 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { formatDateTime, formatTimeSec } from "@/lib/format";
 import { jobState, type KbJobView, type KbStatus } from "@/lib/staff/kb";
+import { ConfirmBox } from "./ConfirmBox";
 import { Button, Card, ErrorText, Field, OkText, Pill, errMsg, inputCls } from "./ui";
 import { useNow } from "./useStaffData";
 
@@ -245,30 +246,6 @@ function Coverage({ status }: { status: KbStatus }) {
           </div>
         </details>
       ) : null}
-    </div>
-  );
-}
-
-/** Confirmação no próprio lugar do botão: nada é pedido ao servidor sem o segundo clique. */
-function ConfirmBox({ text, onConfirm, onCancel }: { text: ReactNode; onConfirm: () => void; onCancel: () => void }) {
-  const confirmRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => confirmRef.current?.focus(), []);
-  return (
-    <div
-      role="group"
-      aria-label="Confirmar tarefa"
-      className="flex flex-col gap-2 rounded-lg border border-yellow-border bg-yellow-bg p-3 text-sm text-fg"
-      onKeyDown={(e) => {
-        if (e.key === "Escape") onCancel();
-      }}
-    >
-      <div>{text}</div>
-      <div className="flex flex-wrap gap-2">
-        <Button ref={confirmRef} variant="primary" onClick={onConfirm}>
-          Confirmar
-        </Button>
-        <Button onClick={onCancel}>Cancelar</Button>
-      </div>
     </div>
   );
 }

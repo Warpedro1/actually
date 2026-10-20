@@ -1,4 +1,15 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import type { FeedAlert } from "../feed";
+
+/**
+ * Prévia do editor (/admin/previa): o feed usa a sessão do editor em vez do
+ * cliente anônimo — a RLS esconde debate de teste do público — e pede
+ * `/api/alerts?preview=1` com o token (resposta sem cache de CDN).
+ */
+export interface LivePreview {
+  client: SupabaseClient;
+  token: () => Promise<string | null>;
+}
 
 /** Como o feed está recebendo alertas agora. */
 export type ConnectionMode = "connecting" | "realtime" | "polling" | "demo";

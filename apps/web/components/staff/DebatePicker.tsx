@@ -21,7 +21,7 @@ export function DebatePicker({
       <select value={selected?.id ?? ""} onChange={(e) => onSelect(e.target.value)} className={`${inputCls} sm:w-auto`}>
         {debates.map((d) => (
           <option key={d.id} value={d.id}>
-            {d.title} ({STATUS[d.status]}) — /{d.slug}
+            {d.title} ({STATUS[d.status]}{d.is_test ? ", teste" : ""}) — /{d.slug}
           </option>
         ))}
       </select>

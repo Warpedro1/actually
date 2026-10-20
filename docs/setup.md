@@ -19,7 +19,8 @@ Passo a passo para subir o ambiente do zero. Ordem: Supabase → chaves → Verc
    - `supabase/migrations/20261019000005_mfa.sql` — `editors.mfa_required`: com a flag, `is_editor()` só vale com sessão `aal2` (2FA no banco; ver seção 4);
    - `supabase/migrations/20261019000006_settings_patch.sql` — settings do debate gravadas por patch sobre o valor atual;
    - `supabase/migrations/20261019000007_indicator_aggregation.sql` — `indicator_series.aggregation` (como somar/médiar cada série no L2; sem ela, a camada L2 fica em silêncio);
-   - `supabase/migrations/20261020000008_kb_jobs.sql` — fila `kb_jobs` e RPCs `kb_job_claim`/`kb_counts` da carga da base pelo /admin (seção 5).
+   - `supabase/migrations/20261020000008_kb_jobs.sql` — fila `kb_jobs` e RPCs `kb_job_claim`/`kb_counts` da carga da base pelo /admin (seção 5);
+   - `supabase/migrations/20261020000009_debates_teste.sql` — `debates.is_test`: debate de teste só para editores (RLS) e fora da trava de repetição entre debates.
 
    Com a CLI: `supabase link --project-ref <ref>` e `supabase db push`. Sem a CLI: colar cada arquivo no SQL Editor, na ordem.
 3. Conferir: Database → Extensions mostra `vector`, `pg_trgm` e `unaccent` no schema `extensions`; Advisors → Security sem alertas além dos INFO intencionais das tabelas `kb_*`/`indicator_*` (RLS sem políticas, só service role).

@@ -1,6 +1,7 @@
 "use client";
 
 import type { Segment } from "@actually/db";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { useEffect, useRef, useState } from "react";
 import { resolvePerson, type Attribution } from "../feed";
 import { publicBrowserClient } from "../supabase/browser";
@@ -15,8 +16,14 @@ function toLine(s: Pick<Segment, "id" | "speaker_label" | "text" | "received_at"
 /**
  * Transcrição ao vivo (opcional): só assina o Realtime de `segments` enquanto
  * o painel está aberto, para não gastar conexão de quem não usa.
+ * `sessionClient`: cliente do editor na prévia (debate de teste não sai para o anônimo).
  */
-export function useLiveSegments(debateId: string, enabled: boolean, attribution: Attribution): TranscriptState {
+export function useLiveSegments(
+  debateId: string,
+  enabled: boolean,
+  attribution: Attribution,
+  sessionClient?: SupabaseClient,
+): TranscriptState {
   const [lines, setLines] = useState<TranscriptLine[]>([]);
   const [error, setError] = useState<string | null>(null);
   const attrRef = useRef(attribution);
@@ -25,9 +32,9 @@ export function useLiveSegments(debateId: string, enabled: boolean, attribution:
   useEffect(() => {
     if (!enabled) return;
     let disposed = false;
-    let client: ReturnType<typeof publicBrowserClient>;
+    let client: SupabaseClient;
     try {
-      client = publicBrowserClient();
+      client = sessionClient ?? publicBrowserClient();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       return;
@@ -70,7 +77,7 @@ export function useLiveSegments(debateId: string, enabled: boolean, attribution:
       disposed = true;
       void client.removeChannel(ch);
     };
-  }, [debateId, enabled]);
+  }, [debateId, enabled, sessionClient]);
 
   return { lines, error };
 }

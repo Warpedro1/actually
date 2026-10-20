@@ -43,7 +43,8 @@ Todos na mesma chamada de voz durante o debate. Preencher os nomes:
 - [ ] `kb-ingest status`: L1, L2 e L3 carregadas; checagens sobre o debate de 18/10 presentes; indicadores com o último dado divulgado.
 - [ ] L2: migration `20261019000007_indicator_aggregation.sql` aplicada e `kb-ingest indicators` rodado **depois** dela; no `kb-ingest status`, nenhuma série `SEM AGREGAÇÃO` ou `DESATUALIZADA` (nelas a L2 fica calada ou usa aliases antigos).
 - [ ] Eval rodado com a configuração final; decisão de HITL registrada em [human-in-the-loop.md](human-in-the-loop.md#registro-da-decisão).
-- [ ] Debate criado no `/admin` (slug, título, `scheduled_at`, URL do YouTube quando sair).
+- [ ] Debate oficial criado no `/admin` (slug, título, `scheduled_at`, URL do YouTube quando sair) **com “Debate de teste” desmarcado** — ele nasce marcado por padrão. Conferir o selo “Público” no cartão do debate.
+- [ ] Ensaios: sempre como **debate de teste** (só editores veem, pela prévia `/admin/previa/<slug>`; os vereditos não valem para o oficial). Nunca tornar público um ensaio antes do dia 23.
 - [ ] Settings conferidas: `t_red`, `t_yellow`, `web_penalty`, `require_red_approval`, `require_yellow_approval`, `show_attribution` (padrão `false`), `failover_after_s` (padrão 10).
 - [ ] Editores com login e 2FA funcionando.
 - [ ] Saldos/limites: Anthropic, Voyage, Tavily, Deepgram.

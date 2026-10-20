@@ -7,7 +7,7 @@ export const ALERTS_PAGE_SIZE = 200;
 /** Teto de ids retirados por resposta (retirada é rara; isto é só proteção). */
 export const RETRACTED_LIMIT = 1000;
 
-type DebateRow = FeedDebate & { settings: Partial<DebateSettings> | null };
+type DebateRow = FeedDebate & { settings: Partial<DebateSettings> | null; is_test: boolean };
 
 /**
  * Alertas publicados de um debate (+ evidências verificadas + pessoa resolvida).
@@ -21,14 +21,16 @@ export async function loadPublishedAlerts(
   db: SupabaseClient,
   slug: string,
   since?: string,
+  opts: { includeTest?: boolean } = {},
 ): Promise<AlertsPayload | null> {
   const { data: debate, error: debateErr } = await db
     .from("debates")
-    .select("id, slug, title, status, settings")
+    .select("id, slug, title, status, settings, is_test")
     .eq("slug", slug)
     .maybeSingle<DebateRow>();
   if (debateErr) throw debateErr;
-  if (!debate) return null;
+  // Service role passa por cima da RLS: debate de teste só sai na prévia do editor.
+  if (!debate || (debate.is_test && !opts.includeTest)) return null;
 
   let q = db
     .from("alerts")

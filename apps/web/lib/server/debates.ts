@@ -15,7 +15,8 @@ const STATUS_ORDER = { live: 0, scheduled: 1, ended: 2 } as const;
 export async function listDebates(): Promise<LoadResult<PublicDebate[]>> {
   const db = publicServerClient();
   if (!db) return { ok: false, reason: "unconfigured", message: "Supabase não configurado" };
-  const { data, error } = await db.from("debates").select(FIELDS).order("created_at", { ascending: false }).limit(50);
+  // A RLS já esconde debate de teste do anônimo; o filtro explícito é defesa extra.
+  const { data, error } = await db.from("debates").select(FIELDS).eq("is_test", false).order("created_at", { ascending: false }).limit(50);
   if (error) return { ok: false, reason: "error", message: error.message };
   const list = (data ?? []) as PublicDebate[];
   list.sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status]);
@@ -27,7 +28,7 @@ export const loadDebate = cache(
   async (slug: string): Promise<LoadResult<{ debate: PublicDebate; attribution: Attribution } | null>> => {
     const db = publicServerClient();
     if (!db) return { ok: false, reason: "unconfigured", message: "Supabase não configurado" };
-    const { data, error } = await db.from("debates").select(`${FIELDS}, settings`).eq("slug", slug).maybeSingle();
+    const { data, error } = await db.from("debates").select(`${FIELDS}, settings`).eq("slug", slug).eq("is_test", false).maybeSingle();
     if (error) return { ok: false, reason: "error", message: error.message };
     if (!data) return { ok: true, data: null };
     const row = data as PublicDebate & { settings: Debate["settings"] | null };

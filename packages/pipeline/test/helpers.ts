@@ -71,7 +71,7 @@ export class MemoryStore implements PipelineStore {
   constructor(public kb: KbFixture = {}, settings: Partial<DebateSettings> = {}, public delays: DelayFixture = {}) {
     this.debate = {
       id: DEBATE_ID, slug: "teste", title: "Debate teste", youtube_url: null, status: "live",
-      settings, created_at: "2026-10-23T22:00:00Z", started_at: null, ended_at: null, scheduled_at: null,
+      settings, created_at: "2026-10-23T22:00:00Z", started_at: null, ended_at: null, scheduled_at: null, is_test: false,
     };
   }
 

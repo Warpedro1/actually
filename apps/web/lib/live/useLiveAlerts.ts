@@ -14,7 +14,7 @@ import {
   type FeedAlert,
 } from "../feed";
 import { publicBrowserClient } from "../supabase/browser";
-import { addedIds, type ConnectionMode, type FeedState } from "./types";
+import { addedIds, type ConnectionMode, type FeedState, type LivePreview } from "./types";
 
 /** Intervalo do polling quando o Realtime está fora. */
 export const POLL_MS = 3000;
@@ -46,7 +46,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * "Alerta retirado após revisão"; alerta retirado que não estava na tela nunca
  * aparece.
  */
-export function useLiveAlerts(slug: string, debateId: string, initialAttribution: Attribution): FeedState {
+export function useLiveAlerts(slug: string, debateId: string, initialAttribution: Attribution, preview?: LivePreview): FeedState {
   const [alerts, setAlerts] = useState<FeedAlert[]>([]);
   const [mode, setMode] = useState<ConnectionMode>("connecting");
   const [error, setError] = useState<string | null>(null);
@@ -83,8 +83,10 @@ export function useLiveAlerts(slug: string, debateId: string, initialAttribution
     const params = new URLSearchParams({ debate: slug });
     const since = cursorFrom(alertsRef.current);
     if (since) params.set("since", since);
+    if (preview) params.set("preview", "1");
     try {
-      const res = await fetch(`/api/alerts?${params.toString()}`);
+      const token = preview ? await preview.token() : null;
+      const res = await fetch(`/api/alerts?${params.toString()}`, token ? { headers: { Authorization: `Bearer ${token}` } } : undefined);
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
         throw new Error(body?.error ?? `HTTP ${res.status}`);
@@ -102,7 +104,7 @@ export function useLiveAlerts(slug: string, debateId: string, initialAttribution
         setLoaded(true);
       }
     }
-  }, [slug, commit]);
+  }, [slug, commit, preview]);
 
   // Carga inicial
   useEffect(() => {
@@ -113,7 +115,7 @@ export function useLiveAlerts(slug: string, debateId: string, initialAttribution
   useEffect(() => {
     let client: SupabaseClient;
     try {
-      client = publicBrowserClient();
+      client = preview?.client ?? publicBrowserClient();
     } catch (err) {
       setMode("polling");
       console.error("[feed] Realtime indisponível:", err);
@@ -204,7 +206,7 @@ export function useLiveAlerts(slug: string, debateId: string, initialAttribution
       channel = null;
       if (old) void client.removeChannel(old);
     };
-  }, [debateId, sync, commit]);
+  }, [debateId, sync, commit, preview]);
 
   // Polling (fallback) e sincronização periódica
   useEffect(() => {

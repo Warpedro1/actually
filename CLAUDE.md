@@ -34,6 +34,7 @@ Fluxo: `apps/capture` (máquina do usuário, ffmpeg + Deepgram streaming) → `P
   - trigger `alerts_require_evidence`: alerta não vira `published` sem `evidence` com URL http(s) e `quote_verified = true` (vale também para aprovação no /editor);
   - `segments`, `verifications`, `evidence`, `alert_events` são append-only; `alerts` não pode ser apagado;
   - RLS: anon só lê alertas `published` (+ evidência ligada); escrita só service role ou editor (`is_editor()`); tabelas `kb_*`/`indicator_*` só service role;
+  - debate de teste (`debates.is_test`, padrão no /admin): anon não vê nada dele (`public_debate()` nas políticas; rotas com service role filtram à mão, `/api/alerts?preview=1` só com editor e sem cache) e `match_verified_claims` não reaproveita vereditos dele em outros debates; prévia do editor em `/admin/previa/[slug]`;
   - índice único parcial `claims (debate_id, claim_hash) where duplicate_of is null` = trava de repetição contra corrida;
   - `capture_heartbeat()` faz failover atômico entre agentes de captura (só service role executa).
   Mudou o schema? Atualize `packages/db/src/types.ts` no mesmo commit e aplique a migration no projeto Supabase.
