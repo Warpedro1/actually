@@ -12,6 +12,7 @@ import { ingestDocument, type DocumentInput } from "../documents/ingest";
 import {
   compactDate,
   findSenador,
+  type DiscursoResumo,
   parseDiscursos,
   parseSenadores,
   parseVotacoes,
@@ -30,7 +31,11 @@ export interface SenadoOpts {
   limit?: number;
 }
 
-async function resolveCodigo(ctx: Ctx, nome: string): Promise<number> {
+export const SENADO_PERSON: Person = "Flávio Bolsonaro";
+/** Posse da 56ª legislatura (início do mandato de senador). */
+export const SENADO_SINCE = "2019-02-01";
+
+export async function resolveCodigo(ctx: Pick<Ctx, "log">, nome: string): Promise<number> {
   for (const path of ["/senador/lista/atual.json", "/senador/afastados.json"]) {
     const list = parseSenadores(await fetchJson(`${SENADO_BASE}${path}`));
     const s = findSenador(list, nome);
@@ -42,50 +47,66 @@ async function resolveCodigo(ctx: Ctx, nome: string): Promise<number> {
   throw new Error(`não encontrei "${nome}" nas listas de senadores em exercício/afastados; use --codigo`);
 }
 
+/** Votações nominais do parlamentar na janela [a, b] → documentos L3. */
+export async function votesDocuments(codigo: number, a: string, b: string, person: string = SENADO_PERSON): Promise<{ votes: number; docs: DocumentInput[] }> {
+  const qs = new URLSearchParams({ codigoParlamentar: String(codigo), dataInicio: a, dataFim: b });
+  const votos = parseVotacoes(await fetchJson(`${SENADO_BASE}/votacao.json?${qs}`, { timeoutMs: 60_000 }), codigo);
+  const docs = votos.map((v) => votacaoToDocument(v, person)).filter((d): d is DocumentInput => d !== null);
+  return { votes: votos.length, docs };
+}
+
+/** Discursos do parlamentar na janela [a, b] (só a lista; o texto vem em speechDocument). */
+export async function speechList(codigo: number, a: string, b: string): Promise<DiscursoResumo[]> {
+  const qs = new URLSearchParams({ dataInicio: compactDate(a), dataFim: compactDate(b) });
+  return parseDiscursos(await fetchJson(`${SENADO_BASE}/senador/${codigo}/discursos.json?${qs}`)).filter(
+    (d) => d.url && /^https?:\/\//.test(d.url),
+  );
+}
+
+/** Texto integral de um discurso → documento L3 (null se curto demais). */
+export async function speechDocument(d: DiscursoResumo, person: string = SENADO_PERSON): Promise<DocumentInput | null> {
+  const texto = cleanText(
+    await fetchText(`${SENADO_BASE}/discurso/texto-integral/${d.codigo}`, { headers: { Accept: "text/plain, application/json" } }),
+  );
+  if (texto.length < 200) return null;
+  return {
+    url: d.url!,
+    title: `${person} — discurso no Senado${d.data ? ` (${d.data})` : ""}${d.resumo ? `: ${d.resumo.slice(0, 120)}` : ""}`,
+    doc_type: "discurso",
+    person,
+    source_name: "Senado Federal — dados abertos",
+    tier: 1,
+    published_at: d.data ? `${d.data.slice(0, 10)}T00:00:00Z` : null,
+    topics: detectTopics(d.resumo, texto.slice(0, 5000)).slice(0, 3),
+    body: texto,
+  };
+}
+
 export async function runSenado(ctx: Ctx, opts: SenadoOpts): Promise<void> {
-  const person: Person = "Flávio Bolsonaro";
+  const person = SENADO_PERSON;
   const codigo = opts.codigo ?? (await resolveCodigo(ctx, opts.nome ?? person));
-  // 2019-02-01: posse da 56ª legislatura (início do mandato de senador). Ajustável por --since.
-  const since = opts.since ?? "2019-02-01";
+  // Ajustável por --since.
+  const since = opts.since ?? SENADO_SINCE;
   const until = opts.until ?? new Date().toISOString().slice(0, 10);
 
   const docs: DocumentInput[] = [];
   for (const [a, b] of yearWindows(since, until)) {
-    const qs = new URLSearchParams({ codigoParlamentar: String(codigo), dataInicio: a, dataFim: b });
-    const votos = parseVotacoes(await fetchJson(`${SENADO_BASE}/votacao.json?${qs}`, { timeoutMs: 60_000 }), codigo);
-    const ds = votos.map((v) => votacaoToDocument(v, person)).filter((d): d is DocumentInput => d !== null);
-    ctx.log(`votações ${a}..${b}: ${votos.length} (${ds.length} viram documento)`);
+    const { votes, docs: ds } = await votesDocuments(codigo, a, b, person);
+    ctx.log(`votações ${a}..${b}: ${votes} (${ds.length} viram documento)`);
     docs.push(...ds);
   }
 
   if (opts.discursos) {
     for (const [a, b] of yearWindows(since, until)) {
-      const qs = new URLSearchParams({ dataInicio: compactDate(a), dataFim: compactDate(b) });
-      const lista = parseDiscursos(await fetchJson(`${SENADO_BASE}/senador/${codigo}/discursos.json?${qs}`));
+      const lista = await speechList(codigo, a, b);
       ctx.log(`discursos ${a}..${b}: ${lista.length}`);
       for (const d of lista) {
-        if (!d.url || !/^https?:\/\//.test(d.url)) continue;
-        let texto: string;
         try {
-          texto = cleanText(
-            await fetchText(`${SENADO_BASE}/discurso/texto-integral/${d.codigo}`, { headers: { Accept: "text/plain, application/json" } }),
-          );
+          const doc = await speechDocument(d, person);
+          if (doc) docs.push(doc);
         } catch (e) {
           ctx.warn(`discurso ${d.codigo}: ${(e as Error).message}`);
-          continue;
         }
-        if (texto.length < 200) continue;
-        docs.push({
-          url: d.url,
-          title: `${person} — discurso no Senado${d.data ? ` (${d.data})` : ""}${d.resumo ? `: ${d.resumo.slice(0, 120)}` : ""}`,
-          doc_type: "discurso",
-          person,
-          source_name: "Senado Federal — dados abertos",
-          tier: 1,
-          published_at: d.data ? `${d.data.slice(0, 10)}T00:00:00Z` : null,
-          topics: detectTopics(d.resumo, texto.slice(0, 5000)).slice(0, 3),
-          body: texto,
-        });
       }
     }
   }

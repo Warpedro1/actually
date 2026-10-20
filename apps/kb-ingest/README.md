@@ -26,6 +26,22 @@ pnpm --filter @actually/kb-ingest start -- --help
 As páginas (checagens, documentos, feeds) respeitam `robots.txt` (inclusive `Crawl-delay`); APIs
 documentadas (BCB, IBGE, Senado, Google, Voyage, Deepgram) não passam pelo robots.
 
+## Pelo /admin (sem a sua máquina)
+
+As mesmas cargas rodam na Vercel pela seção *Base de conhecimento* do /admin (`src/jobs/`):
+
+- cada pedido vira uma tarefa em `kb_jobs` com uma fila de etapas curtas (`src/jobs/presets.ts`): uma série por
+  etapa, uma consulta do Google por etapa, páginas de checagem em lotes, o Senado por ano, o Apify em
+  iniciar → aguardar → ler resultados;
+- cada etapa respeita um prazo (`src/jobs/steps.ts`) e o que não couber volta para o início da fila;
+  `src/jobs/runner.ts` grava o progresso depois de cada etapa e segura um lease para rodar uma tarefa por vez;
+- se a função cair no meio, a etapa em andamento é repetida na próxima rodada (na 3ª queda é dada como falha);
+- os manifestos `sources/apify.yaml` e `sources/feeds.yaml` vão embutidos em `src/generated/sources.ts`
+  (a função não lê o disco): depois de editar os YAML, rode `pnpm --filter @actually/kb-ingest gen:sources`
+  (`test/jobs.test.ts` falha se esquecer);
+- vídeo do YouTube sem `youtube.input` no manifesto: o input do Actor sai do schema publicado por ele
+  (campo de URLs reconhecido; sem campo reconhecível, a etapa falha antes de cobrar).
+
 ## Ordem recomendada de carga (dia do ensaio e véspera do debate)
 
 1. `tiers` — sincroniza `SOURCE_TIERS` → `source_tiers` (segundos).

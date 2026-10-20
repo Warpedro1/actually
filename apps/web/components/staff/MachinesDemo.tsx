@@ -3,6 +3,7 @@
 import type { CaptureMachine, MachineDesired } from "@actually/db";
 import { useEffect, useState } from "react";
 import { demoAdminData } from "@/lib/demo/fixtures";
+import { KbDemo } from "./KbDemo";
 import { MachinesPanel } from "./MachinesPanel";
 import { useNow } from "./useStaffData";
 
@@ -34,7 +35,7 @@ export function MachinesDemo() {
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-4 px-4 py-4">
       <div className="rounded-lg border border-dashed border-border bg-surface px-3 py-2 text-xs text-muted">
-        <strong className="uppercase tracking-wide text-fg">Demonstração</strong> — máquinas e estados fictícios; os
+        <strong className="uppercase tracking-wide text-fg">Demonstração</strong> — máquinas, base e estados fictícios; os
         botões só alteram esta tela.
       </div>
       <MachinesPanel
@@ -48,6 +49,7 @@ export function MachinesDemo() {
         onSaveDesired={onSaveDesired}
         onSetActive={onSetActive}
       />
+      <KbDemo />
     </div>
   );
 }

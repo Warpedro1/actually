@@ -169,6 +169,27 @@ export async function fetchJson<T = unknown>(url: string, opts: FetchOptions = {
   }
 }
 
+/**
+ * Como mapLimit, mas nenhum item começa depois de `deadline` (epoch ms; sem
+ * prazo = todos). Devolve os itens que não chegaram a começar, na ordem.
+ */
+export async function mapUntil<T>(
+  items: T[],
+  limit: number,
+  deadline: number | undefined,
+  fn: (item: T, i: number) => Promise<unknown>,
+): Promise<{ started: number; rest: T[] }> {
+  let next = 0;
+  async function worker() {
+    while (next < items.length && (deadline === undefined || Date.now() < deadline)) {
+      const i = next++;
+      await fn(items[i]!, i);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return { started: next, rest: items.slice(next) };
+}
+
 /** Executa `fn` sobre `items` com no máximo `limit` em paralelo, preservando a ordem. */
 export async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T, i: number) => Promise<R>): Promise<R[]> {
   const out = new Array<R>(items.length);

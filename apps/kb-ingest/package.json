@@ -3,10 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "exports": {
+    "./jobs": "./src/jobs/index.ts"
+  },
   "scripts": {
     "start": "tsx src/cli.ts",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "gen:sources": "tsx scripts/gen-sources.ts"
   },
   "dependencies": {
     "@actually/db": "workspace:*",

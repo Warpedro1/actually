@@ -31,6 +31,72 @@ export async function runActor(
   return { runId: run.id, datasetId: run.defaultDatasetId, items };
 }
 
+/**
+ * Inicia o Actor sem esperar (painel do /admin: cada função da Vercel tem tempo
+ * limitado; quem espera é a etapa apify-wait, em rodadas curtas).
+ */
+export async function startActor(
+  actorId: string,
+  input: unknown,
+  opts: { maxItems?: number; log: (...a: unknown[]) => void },
+): Promise<{ runId: string; datasetId: string }> {
+  const client = apifyClient();
+  opts.log(`apify: iniciando ${actorId} (teto de custo US$ ${MAX_CHARGE_USD})`);
+  const run = await client.actor(actorId).start(input, { maxItems: opts.maxItems, maxTotalChargeUsd: MAX_CHARGE_USD });
+  opts.log(`apify: run ${run.id} (dataset ${run.defaultDatasetId})`);
+  return { runId: run.id, datasetId: run.defaultDatasetId };
+}
+
+/** Espera até `waitSecs` (máx. 60 pela API) e devolve o status do run. */
+export async function waitRun(runId: string, waitSecs: number): Promise<string> {
+  const run = await apifyClient().run(runId).waitForFinish({ waitSecs: Math.max(0, Math.min(60, Math.floor(waitSecs))) });
+  return run.status;
+}
+
+export async function abortRun(runId: string): Promise<void> {
+  await apifyClient().run(runId).abort();
+}
+
+export async function datasetPage(datasetId: string, offset: number, limit: number): Promise<Record<string, unknown>[]> {
+  const page = await apifyClient().dataset(datasetId).listItems({ offset, limit, clean: true });
+  return page.items as Record<string, unknown>[];
+}
+
+/** Campos de input declarados pelo Actor (build padrão), ou null se não houver schema. */
+export async function actorInputProps(actorId: string): Promise<Record<string, ActorInputProp> | null> {
+  const build = await (await apifyClient().actor(actorId).defaultBuild()).get();
+  const schema = build?.actorDefinition?.input ?? (build?.inputSchema ? JSON.parse(build.inputSchema) : null);
+  return (schema as { properties?: Record<string, ActorInputProp> } | null)?.properties ?? null;
+}
+
+export interface ActorInputProp {
+  type?: string;
+  title?: string;
+  editor?: string;
+  default?: unknown;
+  items?: { type?: string };
+}
+
+/** Nomes usuais do campo de URLs em Actors de transcrição do YouTube, em ordem de preferência. */
+const URL_FIELDS = ["startUrls", "urls", "videoUrls", "youtubeUrls", "video_urls", "links", "videoUrl", "url"];
+
+/**
+ * Monta o input de um Actor de transcrição a partir do schema dele, quando o
+ * manifesto não fixou `youtube.input`: acha o campo de URLs e usa o formato que
+ * o campo declara (lista de {url} para requestListSources, lista de strings ou
+ * string). Sem campo reconhecível ⇒ erro listando os campos (nada é cobrado).
+ */
+export function inputFromSchema(props: Record<string, ActorInputProp>, urls: string[]): Record<string, unknown> {
+  const field = URL_FIELDS.find((f) => props[f]);
+  if (!field) {
+    throw new Error(`não achei o campo de URLs no input do Actor (campos: ${Object.keys(props).join(", ") || "nenhum"}); defina youtube.input em sources/apify.yaml`);
+  }
+  const p = props[field]!;
+  if (p.type === "string") return { [field]: urls[0] };
+  if (p.editor === "requestListSources" || p.items?.type === "object") return { [field]: urls.map((url) => ({ url })) };
+  return { [field]: urls };
+}
+
 export async function datasetItems(datasetId: string): Promise<Record<string, unknown>[]> {
   const client = apifyClient();
   const out: Record<string, unknown>[] = [];
@@ -96,7 +162,11 @@ export const ApifyManifest = z.object({
 export type ApifyManifest = z.infer<typeof ApifyManifest>;
 
 export function loadApifyManifest(path: string): ApifyManifest {
-  const parsed = ApifyManifest.safeParse(parseYaml(readFileSync(path, "utf8")) ?? {});
-  if (!parsed.success) throw new Error(`manifesto Apify inválido (${path}): ${parsed.error.message}`);
+  return parseApifyManifest(parseYaml(readFileSync(path, "utf8")) ?? {}, path);
+}
+
+export function parseApifyManifest(raw: unknown, origin = "sources/apify.yaml"): ApifyManifest {
+  const parsed = ApifyManifest.safeParse(raw);
+  if (!parsed.success) throw new Error(`manifesto Apify inválido (${origin}): ${parsed.error.message}`);
   return parsed.data;
 }

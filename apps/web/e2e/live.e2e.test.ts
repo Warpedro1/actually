@@ -142,7 +142,7 @@ describe("[RF05] [RF04] alerta na interface", () => {
 });
 
 describe("[RNF10] celular e acessibilidade", () => {
-  for (const path of ["/ao-vivo/demo", "/metodologia", "/"]) {
+  for (const path of ["/ao-vivo/demo", "/metodologia", "/", "/admin/demo"]) {
     it(`[RNF10] ${path} em 390 px sem rolagem horizontal`, async () => {
       const { ctx, page } = await open(path, { accepted: true, mobile: true });
       const { scroll, width } = await page.evaluate(() => ({

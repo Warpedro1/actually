@@ -97,12 +97,14 @@ export function parseFeed(xmlText: string): FeedItem[] {
 }
 
 export async function collectFeeds(opts: {
-  pinnedPath: string;
+  /** sources/feeds.yaml (CLI) ou a lista já lida (painel do /admin, sem disco). */
+  pinnedPath?: string;
+  pinned?: { name: string; url: string }[];
   since?: string;
   log: (...a: unknown[]) => void;
   warn: (...a: unknown[]) => void;
 }): Promise<{ candidates: FactcheckCandidate[]; feedsUsed: { agency: string; url: string }[] }> {
-  const pinned = loadPinnedFeeds(opts.pinnedPath);
+  const pinned = opts.pinned ?? (opts.pinnedPath ? loadPinnedFeeds(opts.pinnedPath) : []);
   const feedsUsed: { agency: string; url: string }[] = pinned.map((p) => ({ agency: p.name, url: p.url }));
   for (const a of agencies()) {
     if (pinned.some((p) => p.name === a.name)) continue;

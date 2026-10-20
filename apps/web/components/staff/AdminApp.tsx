@@ -8,6 +8,7 @@ import { formatTimeSec } from "@/lib/format";
 import { countByPerson, latencyStats, type PersonCount, type StageStats } from "@/lib/staff/stats";
 import { DebateForms } from "./DebateForms";
 import { DebatePicker } from "./DebatePicker";
+import { KbPanel } from "./KbPanel";
 import { MachinesPanel } from "./MachinesPanel";
 import { SettingsForm } from "./SettingsForm";
 import { Card, ErrorText, Pill, errMsg } from "./ui";
@@ -30,6 +31,7 @@ export function AdminApp({ client }: { client: SupabaseClient }) {
           ["latencia", "Latência"],
           ["neutralidade", "Neutralidade"],
           ["alertas", "Alertas"],
+          ["base", "Base de conhecimento"],
         ].map(([id, t]) => (
           <a key={id} href={`#${id}`} className="text-muted underline hover:text-fg">
             {t}
@@ -46,6 +48,7 @@ export function AdminApp({ client }: { client: SupabaseClient }) {
           <AlertsTable client={client} debateId={selected.id} />
         </>
       ) : null}
+      <KbPanel client={client} />
     </div>
   );
 }

@@ -302,3 +302,72 @@ export function demoAdminData(now: number) {
   ];
   return { debate, agents, machines };
 }
+
+/** Painel "Base de conhecimento" do /admin/demo: contagens e tarefas fictícias. */
+export function demoKbStatus(now: number): import("../staff/kb").KbStatus {
+  const ago = (s: number) => new Date(now - s * 1000).toISOString();
+  const line = (s: number, level: "info" | "warn" | "error", msg: string) => ({ t: ago(s), level, msg });
+  return {
+    env: { SUPABASE_SERVICE_ROLE_KEY: true, VOYAGE_API_KEY: true, GOOGLE_FACTCHECK_API_KEY: true, APIFY_TOKEN: false, CRON_SECRET: true },
+    counts: {
+      source_tiers: 47,
+      kb_factchecks: 1284,
+      kb_factchecks_sem_embedding: 12,
+      ultima_checagem: ago(3 * 3600),
+      checagens_por_veredito: { contradito: 702, impreciso: 311, confirmado: 198, inconclusivo: 73 },
+      indicator_series: 3,
+      indicator_values: 812,
+      series: [
+        { code: "serie_a", name: "Série A (exemplo)", aggregation: "mean_or_last", values: 287, last: "2026-09-30" },
+        { code: "serie_b", name: "Série B (exemplo)", aggregation: "sum", values: 275, last: "2026-08-31" },
+        { code: "serie_c", name: "Série C (exemplo)", aggregation: null, values: 250, last: "2026-06-30" },
+      ],
+      kb_documents: 356,
+      documentos_por_tipo: { votacao: 301, debate: 2, entrevista: 41, programa: 12 },
+      kb_chunks: 4210,
+      kb_chunks_sem_embedding: 0,
+    },
+    counts_error: null,
+    jobs: [
+      {
+        id: "00000000-0000-4000-8000-00000000a001",
+        preset: "carga-completa",
+        title: "Carga completa (checagens desde 2025-01-01)",
+        status: "running",
+        current_attempts: 1,
+        steps_done: 41,
+        steps_failed: 1,
+        steps_pending: 17,
+        log: [
+          line(400, "info", "pedida no /admin: 58 etapas"),
+          line(300, "info", "ok: Fontes confiáveis (níveis 1–4) (1 s)"),
+          line(120, "error", "falhou: Indicador serie_c — HTTP 503 em https://example.org/api"),
+          line(30, "info", "ok: Google Fact Check: \"tema exemplo\" (4 s) — continua"),
+        ],
+        created_at: ago(400),
+        started_at: ago(399),
+        finished_at: null,
+        updated_at: ago(5),
+        lease_until: new Date(now + 200_000).toISOString(),
+        current_label: "Páginas de checagem (Google \"tema exemplo\"): 86",
+      },
+      {
+        id: "00000000-0000-4000-8000-00000000a002",
+        preset: "fontes",
+        title: "Fontes confiáveis",
+        status: "done",
+        current_attempts: 0,
+        steps_done: 1,
+        steps_failed: 0,
+        steps_pending: 0,
+        log: [line(4000, "info", "concluída: 1 etapas executadas, 0 com falha")],
+        created_at: ago(4010),
+        started_at: ago(4009),
+        finished_at: ago(4000),
+        updated_at: ago(4000),
+        lease_until: null,
+        current_label: null,
+      },
+    ],
+  };
+}

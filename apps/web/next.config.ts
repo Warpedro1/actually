@@ -5,7 +5,7 @@ const noindex = [{ key: "X-Robots-Tag", value: "noindex, nofollow" }];
 
 const nextConfig: NextConfig = {
   // Pacotes do monorepo exportam TypeScript direto (sem build próprio).
-  transpilePackages: ["@actually/db", "@actually/pipeline"],
+  transpilePackages: ["@actually/db", "@actually/pipeline", "@actually/kb-ingest"],
   poweredByHeader: false,
   async headers() {
     return [

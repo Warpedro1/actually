@@ -85,6 +85,9 @@ importers:
       '@actually/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@actually/kb-ingest':
+        specifier: workspace:*
+        version: link:../kb-ingest
       '@actually/pipeline':
         specifier: workspace:*
         version: link:../../packages/pipeline

@@ -100,3 +100,49 @@ export const ControlPollResponse = z.object({
   server_time: z.string().datetime(),
 });
 export type ControlPollResponse = z.infer<typeof ControlPollResponse>;
+
+// ---------------------------------------------------------------------------
+// Carga da base pelo /admin (POST /api/kb/jobs)
+// ---------------------------------------------------------------------------
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "data no formato AAAA-MM-DD");
+const httpUrl = z.string().url().max(2000).regex(/^https?:\/\//i, "URL precisa ser http(s)");
+const person = z.string().trim().min(1).max(80).nullish();
+
+/** Pedidos aceitos pelo painel; cada um vira uma fila de etapas no kb-ingest. */
+export const KbJobCreate = z.discriminatedUnion("preset", [
+  /** tiers → indicadores → checagens (Google + feeds) → Senado → embeddings → resumo. */
+  z.object({ preset: z.literal("carga-completa"), since: isoDate.optional() }),
+  z.object({ preset: z.literal("fontes") }),
+  z.object({ preset: z.literal("indicadores") }),
+  z.object({
+    preset: z.literal("checagens"),
+    since: isoDate.optional(),
+    source: z.enum(["google", "feeds", "all"]).default("all"),
+  }),
+  z.object({ preset: z.literal("senado"), since: isoDate.optional(), discursos: z.boolean().default(false) }),
+  z.object({
+    preset: z.literal("documento"),
+    url: httpUrl,
+    title: z.string().trim().min(1).max(300),
+    doc_type: z.enum(["programa", "entrevista", "discurso", "debate", "lei", "votacao", "noticia", "dado", "outro"]),
+    person,
+    published_at: isoDate.nullish(),
+  }),
+  z.object({
+    preset: z.literal("youtube"),
+    url: httpUrl,
+    title: z.string().trim().min(1).max(300).nullish(),
+    doc_type: z.enum(["debate", "entrevista", "discurso"]),
+    person,
+    published_at: isoDate.nullish(),
+  }),
+  /** website-content-crawler nos sites das agências (jobs de sources/apify.yaml). */
+  z.object({ preset: z.literal("apify-agencias"), job: z.string().max(80).optional() }),
+  /** google-search-scraper: descobre checagens novas. */
+  z.object({ preset: z.literal("apify-busca") }),
+  z.object({ preset: z.literal("embeddings") }),
+  /** Checagens dos últimos dias + indicadores + embeddings (também roda no cron diário). */
+  z.object({ preset: z.literal("atualizacao-diaria") }),
+]);
+export type KbJobCreate = z.infer<typeof KbJobCreate>;
+export type KbJobPreset = KbJobCreate["preset"];

@@ -18,7 +18,8 @@ Passo a passo para subir o ambiente do zero. Ordem: Supabase → chaves → Verc
    - `supabase/migrations/20261019000004_retraction.sql` — retirada de alerta publicado: cascata para as repetições e sinal público `alert_retractions` (Realtime);
    - `supabase/migrations/20261019000005_mfa.sql` — `editors.mfa_required`: com a flag, `is_editor()` só vale com sessão `aal2` (2FA no banco; ver seção 4);
    - `supabase/migrations/20261019000006_settings_patch.sql` — settings do debate gravadas por patch sobre o valor atual;
-   - `supabase/migrations/20261019000007_indicator_aggregation.sql` — `indicator_series.aggregation` (como somar/médiar cada série no L2; sem ela, a camada L2 fica em silêncio).
+   - `supabase/migrations/20261019000007_indicator_aggregation.sql` — `indicator_series.aggregation` (como somar/médiar cada série no L2; sem ela, a camada L2 fica em silêncio);
+   - `supabase/migrations/20261020000008_kb_jobs.sql` — fila `kb_jobs` e RPCs `kb_job_claim`/`kb_counts` da carga da base pelo /admin (seção 5).
 
    Com a CLI: `supabase link --project-ref <ref>` e `supabase db push`. Sem a CLI: colar cada arquivo no SQL Editor, na ordem.
 3. Conferir: Database → Extensions mostra `vector`, `pg_trgm` e `unaccent` no schema `extensions`; Advisors → Security sem alertas além dos INFO intencionais das tabelas `kb_*`/`indicator_*` (RLS sem políticas, só service role).
@@ -37,10 +38,11 @@ Passo a passo para subir o ambiente do zero. Ordem: Supabase → chaves → Verc
 | `ANTHROPIC_API_KEY` | console.anthropic.com → API Keys | pipeline (Vercel), eval |
 | `VOYAGE_API_KEY` | dash.voyageai.com | pipeline (embeddings/rerank), kb-ingest, eval |
 | `TAVILY_API_KEY` | app.tavily.com | pipeline (L4) |
-| `GOOGLE_FACTCHECK_API_KEY` | Google Cloud Console → habilitar *Fact Check Tools API* → Credenciais → chave de API (restrita a essa API) | kb-ingest (L1) |
+| `GOOGLE_FACTCHECK_API_KEY` | Google Cloud Console → habilitar *Fact Check Tools API* → Credenciais → chave de API (restrita a essa API) | kb-ingest (L1), na máquina ou no painel do /admin |
 | `DEEPGRAM_API_KEY` | console.deepgram.com | capture agent, `kb-ingest transcribe` |
-| `APIFY_TOKEN` | console.apify.com → Settings → API & Integrations | kb-ingest (`apify-crawl`, `apify-youtube`, `apify-search`) |
+| `APIFY_TOKEN` | console.apify.com → Settings → API & Integrations | kb-ingest (`apify-crawl`, `apify-youtube`, `apify-search`), na máquina ou no painel do /admin |
 | `INGEST_TOKEN` | gerar: `openssl rand -hex 32` | Vercel **e** máquinas de captura (mesmo valor) |
+| `CRON_SECRET` | gerar: `openssl rand -hex 32` | só Vercel: a carga pelo /admin continua sozinha entre rodadas e o cron diário se autentica com ele |
 
 Conferir limites de taxa e saldo de cada serviço para ~2 h de debate + ensaios (Anthropic: tier com folga para Haiku contínuo; Deepgram: streaming simultâneo de 2 conexões — principal e standby).
 
@@ -54,7 +56,8 @@ Conferir limites de taxa e saldo de cada serviço para ~2 h de debate + ensaios 
    - `ANTHROPIC_API_KEY`, `VOYAGE_API_KEY`, `TAVILY_API_KEY`
    - `INGEST_TOKEN`
    - `REQUIRE_MFA` = `1` para exigir 2FA no /editor e /admin (recomendado em produção)
-   - (as chaves `GOOGLE_FACTCHECK_API_KEY`, `DEEPGRAM_API_KEY` e `APIFY_TOKEN` não são necessárias na Vercel)
+   - `CRON_SECRET`, e `GOOGLE_FACTCHECK_API_KEY` / `APIFY_TOKEN` se a base for carregada pelo painel do /admin (seção 5)
+   - (`DEEPGRAM_API_KEY` não é necessária na Vercel: só a captura e o `transcribe` em lote usam)
 5. Deploy. Plano Pro recomendado (duração de função e concorrência).
 6. Conferir `GET https://<app>/api/alerts?debate=teste` responde (404/200 em JSON, não 500).
 
@@ -93,7 +96,17 @@ Só usuários presentes na tabela `editors` acessam `/editor` e `/admin`.
 
 ## 5. Base de conhecimento
 
-Ver [fontes.md](fontes.md). Com o `.env` preenchido (service role, Voyage, Google Fact Check, Deepgram, Apify):
+Ver [fontes.md](fontes.md). Dois caminhos, que gravam a mesma coisa (cargas idempotentes):
+
+**Pelo /admin, sem a sua máquina** — seção *Base de conhecimento*. Cada botão vira uma tarefa na fila
+`kb_jobs`; funções da Vercel executam as etapas em rodadas de ~3 min e encadeiam a próxima sozinhas
+(precisa de `CRON_SECRET`). Pode fechar a página: o painel mostra progresso, log e o resumo da base
+quando reabrir. O cron diário (09:00 UTC, `vercel.json`) agenda a *atualização diária* (checagens dos
+últimos 3 dias + indicadores + embeddings) e retoma tarefas que pararam. Na Vercel: `VOYAGE_API_KEY`,
+`GOOGLE_FACTCHECK_API_KEY` (checagens do Google) e `APIFY_TOKEN` (sites das agências, busca e vídeos do
+YouTube). O `transcribe` com Deepgram continua só na CLI (precisa de arquivo de áudio).
+
+**Pela CLI, na sua máquina** — com o `.env` preenchido (service role, Voyage, Google Fact Check, Deepgram, Apify):
 
 ```bash
 pnpm --filter @actually/kb-ingest start -- tiers         # sincroniza SOURCE_TIERS → source_tiers

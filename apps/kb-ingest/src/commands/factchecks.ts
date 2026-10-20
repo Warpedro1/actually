@@ -11,7 +11,7 @@ import { toPgVector } from "@actually/db";
 import { selectAll, upsertRows, type Ctx } from "../lib/ctx";
 import { embedDocuments, hasEmbeddingKey } from "../lib/embed";
 import { extractPage } from "../lib/html";
-import { fetchText, mapLimit } from "../lib/http";
+import { fetchText, mapUntil } from "../lib/http";
 import { collectFeeds, agencies, discoverFeedLinks } from "../factchecks/feeds";
 import { GOOGLE_QUERIES, searchGoogle } from "../factchecks/google";
 import { buildFactcheckRow, canonicalUrl, isRelevant, type FactcheckCandidate, type FactcheckRow, type PageContent } from "../factchecks/normalize";
@@ -58,7 +58,19 @@ export async function ingestCandidates(
   candidates: FactcheckCandidate[],
   opts: { allTopics?: boolean; refresh?: boolean; limit?: number; skipEmbed?: boolean },
 ): Promise<void> {
-  // dedup por URL canônica; o primeiro candidato (Google tem mais metadados) vence
+  let todo = await pendingCandidates(ctx, candidates, opts);
+  if (opts.limit) todo = todo.slice(0, opts.limit);
+  ctx.log(`${todo.length} páginas para baixar`);
+  await processCandidates(ctx, todo, opts);
+}
+
+/** Dedup por URL canônica e (sem `refresh`) tira as que já estão no banco. */
+export async function pendingCandidates(
+  ctx: Ctx,
+  candidates: FactcheckCandidate[],
+  opts: { refresh?: boolean } = {},
+): Promise<FactcheckCandidate[]> {
+  // o primeiro candidato (Google tem mais metadados) vence
   const byUrl = new Map<string, FactcheckCandidate>();
   for (const c of candidates) {
     const key = canonicalUrl(c.url);
@@ -71,13 +83,22 @@ export async function ingestCandidates(
     todo = todo.filter((c) => !existing.has(c.url));
     ctx.log(`${before - todo.length} já estão no banco (use --refresh para reprocessar)`);
   }
-  if (opts.limit) todo = todo.slice(0, opts.limit);
-  ctx.log(`${todo.length} páginas para baixar`);
+  return todo;
+}
 
+/**
+ * Baixa, normaliza, filtra e grava. Com `deadline` (epoch ms) não começa página
+ * nova depois do prazo e devolve as que ficaram para a próxima rodada.
+ */
+export async function processCandidates(
+  ctx: Ctx,
+  todo: FactcheckCandidate[],
+  opts: { allTopics?: boolean; skipEmbed?: boolean; deadline?: number },
+): Promise<{ rest: FactcheckCandidate[] }> {
   const reasons: Record<string, number> = {};
   const count = (r: string) => (reasons[r] = (reasons[r] ?? 0) + 1);
   const rows: FactcheckRow[] = [];
-  await mapLimit(todo, 3, async (c) => {
+  const { rest } = await mapUntil(todo, 3, opts.deadline, async (c) => {
     let page: PageContent;
     try {
       page = extractPage(await fetchText(c.url, { respectRobots: true }), c.url);
@@ -100,6 +121,7 @@ export async function ingestCandidates(
   });
   ctx.log(`checagens aproveitadas: ${rows.length}; descartes: ${JSON.stringify(reasons)}`);
   await writeFactchecks(ctx, rows, opts.skipEmbed);
+  return { rest };
 }
 
 export async function writeFactchecks(ctx: Ctx, rows: FactcheckRow[], skipEmbed?: boolean): Promise<void> {

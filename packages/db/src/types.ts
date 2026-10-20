@@ -348,3 +348,60 @@ export interface CaptureMachine {
   desired_updated_by: string | null;
   created_at: string;
 }
+
+// Carga da base pelo /admin (migration 20261020000008) ----------------------
+
+export type KbJobStatus = "queued" | "running" | "done" | "canceled";
+
+export interface KbLogLine {
+  t: string;
+  level: "info" | "warn" | "error";
+  msg: string;
+}
+
+/** Etapa da fila (forma completa em apps/kb-ingest/src/jobs/steps.ts). */
+export interface KbStepJson {
+  kind: string;
+  [k: string]: unknown;
+}
+
+export interface KbJob {
+  id: string;
+  preset: string;
+  title: string;
+  params: Record<string, unknown>;
+  status: KbJobStatus;
+  /** Etapas pendentes; a primeira é a próxima. */
+  steps: KbStepJson[];
+  /** Coluna gerada: tamanho de `steps`. */
+  steps_pending: number;
+  /** Etapa em execução (volta para a fila se o lease vencer). */
+  current: KbStepJson | null;
+  current_attempts: number;
+  steps_done: number;
+  steps_failed: number;
+  log: KbLogLine[];
+  created_by: string | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  updated_at: string;
+  lease_owner: string | null;
+  lease_until: string | null;
+}
+
+/** Retorno da RPC kb_counts() (só service role): quanto a base cobre. */
+export interface KbCounts {
+  source_tiers: number;
+  kb_factchecks: number;
+  kb_factchecks_sem_embedding: number;
+  ultima_checagem: string | null;
+  checagens_por_veredito: Partial<Record<Verdict, number>>;
+  indicator_series: number;
+  indicator_values: number;
+  series: { code: string; name: string; aggregation: IndicatorAggregation | null; values: number; last: string | null }[];
+  kb_documents: number;
+  documentos_por_tipo: Partial<Record<DocType, number>>;
+  kb_chunks: number;
+  kb_chunks_sem_embedding: number;
+}
