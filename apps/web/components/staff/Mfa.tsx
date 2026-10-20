@@ -93,6 +93,9 @@ export function MfaEnroll({ client, onDone }: { client: SupabaseClient; onDone: 
     }
     const { data, error: err } = await client.auth.mfa.enroll({
       factorType: "totp",
+      // Nome que aparece no app autenticador. Sem ele o Supabase usa o host da
+      // Site URL do Auth (que pode ainda ser localhost:3000).
+      issuer: "actually",
       friendlyName: `actually ${new Date().toISOString().slice(0, 16)}`,
     });
     setBusy(false);
@@ -109,7 +112,9 @@ export function MfaEnroll({ client, onDone }: { client: SupabaseClient; onDone: 
     setBusy(false);
     if (err) {
       setCode("");
-      return setError("Código inválido. Confira o horário do celular e use o código atual.");
+      return setError(
+        "Código não aceito. Use o código atual da entrada “actually” no app (não de outra conta) e confira se a hora do celular está automática.",
+      );
     }
     setPending(null);
     await onDone();
@@ -129,9 +134,12 @@ export function MfaEnroll({ client, onDone }: { client: SupabaseClient; onDone: 
   return (
     <form onSubmit={confirm} className="flex flex-col gap-3">
       <ol className="list-decimal space-y-1 pl-5 text-sm">
-        <li>Abra o aplicativo autenticador (Google Authenticator, 1Password, Authy…).</li>
-        <li>Escaneie o QR code ou digite a chave manualmente.</li>
-        <li>Digite o código de 6 dígitos que aparecer.</li>
+        <li>Abra o aplicativo autenticador (Google Authenticator, Microsoft Authenticator, 1Password, Authy…).</li>
+        <li>
+          No app, toque em <strong>+</strong> e escaneie o QR code <strong>de dentro do app</strong> (a câmera comum do celular não
+          cadastra). Ou escolha “inserir chave” e digite a chave abaixo, tipo “baseada em tempo”.
+        </li>
+        <li>Digite o código de 6 dígitos que o app mostrar para “actually”.</li>
       </ol>
       {/* SVG em data: URI gerado pelo Supabase — <img> simples, sem next/image */}
       <img src={pending.qr} alt="QR code para o aplicativo autenticador" className="mx-auto h-48 w-48 rounded-lg bg-white p-2" />
