@@ -28,7 +28,7 @@ const DOC_TYPES = [
   ["outro", "Outro"],
 ] as const;
 const PEOPLE = ["Lula", "Flávio Bolsonaro", "Jair Bolsonaro"];
-const APIFY_COST = "Usa créditos do Apify (teto de US$ 5 por execução). Continuar?";
+const APIFY_COST = "Usa créditos do Apify (até US$ 5 por execução).";
 
 /** Chama /api/kb/* com o token da sessão do editor (o servidor confere is_editor e 2FA). */
 async function kbFetch<T>(client: SupabaseClient, path: string, init: RequestInit = {}): Promise<T> {
@@ -85,8 +85,7 @@ export function KbPanel({ client }: { client: SupabaseClient }) {
     return () => clearInterval(id);
   }, [load, running]);
 
-  async function start(req: KbJobCreate, confirmMsg?: string) {
-    if (confirmMsg && !window.confirm(confirmMsg)) return;
+  async function start(req: KbJobCreate) {
     setBusy(true);
     setError(null);
     setOk(null);
@@ -119,7 +118,7 @@ export function KbPanel({ client }: { client: SupabaseClient }) {
       busy={busy}
       now={now}
       onRefresh={() => void load(true)}
-      onStart={(r, c) => void start(r, c)}
+      onStart={(r) => void start(r)}
       onCancel={(id) => void cancel(id)}
     />
   );
@@ -142,7 +141,7 @@ export function KbPanelView({
   busy: boolean;
   now: number;
   onRefresh: () => void;
-  onStart: (r: KbJobCreate, confirm?: string) => void;
+  onStart: (r: KbJobCreate) => void;
   onCancel: (id: string) => void;
 }) {
   return (
@@ -152,7 +151,7 @@ export function KbPanelView({
         <OkText>{ok}</OkText>
         {status ? <KeysRow env={status.env} /> : <p className="text-sm text-muted">Carregando…</p>}
         {status ? <Coverage status={status} /> : null}
-        <Actions busy={busy} env={status?.env ?? {}} onStart={onStart} />
+        <Actions busy={busy} env={status?.env ?? {}} jobs={status?.jobs ?? []} onStart={onStart} />
         <section aria-labelledby="kb-jobs-title" className="flex flex-col gap-2">
           <h3 id="kb-jobs-title" className="text-sm font-semibold">
             Tarefas
@@ -250,75 +249,267 @@ function Coverage({ status }: { status: KbStatus }) {
   );
 }
 
-function Actions({ busy, env, onStart }: { busy: boolean; env: Record<string, boolean>; onStart: (r: KbJobCreate, confirm?: string) => void }) {
-  const [since, setSince] = useState("2025-01-01");
+/** Confirmação no próprio lugar do botão: nada é pedido ao servidor sem o segundo clique. */
+function ConfirmBox({ text, onConfirm, onCancel }: { text: ReactNode; onConfirm: () => void; onCancel: () => void }) {
+  const confirmRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => confirmRef.current?.focus(), []);
+  return (
+    <div
+      role="group"
+      aria-label="Confirmar tarefa"
+      className="flex flex-col gap-2 rounded-lg border border-yellow-border bg-yellow-bg p-3 text-sm text-fg"
+      onKeyDown={(e) => {
+        if (e.key === "Escape") onCancel();
+      }}
+    >
+      <div>{text}</div>
+      <div className="flex flex-wrap gap-2">
+        <Button ref={confirmRef} variant="primary" onClick={onConfirm}>
+          Confirmar
+        </Button>
+        <Button onClick={onCancel}>Cancelar</Button>
+      </div>
+    </div>
+  );
+}
+
+/** Uma ação: nome, o que faz e o botão; o clique abre a confirmação. */
+function ActionItem({
+  label,
+  description,
+  confirm,
+  disabled,
+  disabledReason,
+  children,
+  onRun,
+}: {
+  label: string;
+  description: ReactNode;
+  confirm: ReactNode;
+  disabled?: boolean;
+  disabledReason?: string;
+  children?: ReactNode;
+  onRun: () => void;
+}) {
+  const [asking, setAsking] = useState(false);
+  return (
+    <li className="flex flex-col gap-2 border-t border-border py-3 first:border-t-0 first:pt-0">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <p className="text-sm font-medium">{label}</p>
+          <p className="text-xs leading-snug text-muted">{description}</p>
+          {disabled && disabledReason ? <p className="text-xs text-red-fg">{disabledReason}</p> : null}
+        </div>
+        {!asking ? (
+          <Button className="shrink-0" disabled={disabled} onClick={() => setAsking(true)}>
+            {label}
+          </Button>
+        ) : null}
+      </div>
+      {children}
+      {asking ? (
+        <ConfirmBox
+          text={confirm}
+          onCancel={() => setAsking(false)}
+          onConfirm={() => {
+            setAsking(false);
+            onRun();
+          }}
+        />
+      ) : null}
+    </li>
+  );
+}
+
+function Group({ id, title, hint, children }: { id: string; title: string; hint?: string; children: ReactNode }) {
+  return (
+    <section aria-labelledby={id} className="flex flex-col gap-2 rounded-lg border border-border p-3">
+      <div>
+        <h3 id={id} className="text-sm font-semibold">
+          {title}
+        </h3>
+        {hint ? <p className="text-xs text-muted">{hint}</p> : null}
+      </div>
+      <ul className="flex flex-col">{children}</ul>
+    </section>
+  );
+}
+
+const PRESET_NAME: Record<string, string> = {
+  "carga-completa": "carga completa",
+  fontes: "fontes",
+  indicadores: "indicadores",
+  checagens: "checagens",
+  senado: "Senado",
+  documento: "documento",
+  youtube: "vídeo do YouTube",
+  "apify-agencias": "sites das agências",
+  "apify-busca": "busca de checagens",
+  embeddings: "embeddings",
+  "atualizacao-diaria": "atualização diária",
+};
+
+function Actions({
+  busy,
+  env,
+  jobs,
+  onStart,
+}: {
+  busy: boolean;
+  env: Record<string, boolean>;
+  jobs: KbJobView[];
+  onStart: (r: KbJobCreate) => void;
+}) {
+  const [fullSince, setFullSince] = useState("2025-01-01");
+  const [checkSince, setCheckSince] = useState("2025-01-01");
   const [discursos, setDiscursos] = useState(false);
   const noApify = env.APIFY_TOKEN === false;
+  const noVoyage = env.VOYAGE_API_KEY === false;
+  const apifyReason = noApify ? "Precisa do APIFY_TOKEN na Vercel." : undefined;
+
+  /** Texto da confirmação + aviso se já houver tarefa igual na fila. */
+  const ask = (preset: string, text: ReactNode, extra?: string) => {
+    const dup = jobs.some((j) => pending(j) && j.preset === preset);
+    return (
+      <>
+        <p>{text}</p>
+        {extra ? <p className="mt-1 text-xs">{extra}</p> : null}
+        {dup ? (
+          <p className="mt-1 text-xs font-semibold">
+            Já existe uma tarefa de {PRESET_NAME[preset] ?? preset} na fila ou rodando: esta vai esperar e repetir o trabalho.
+          </p>
+        ) : null}
+      </>
+    );
+  };
+
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-col gap-2 rounded-lg border border-border p-3">
-        <p className="text-sm">
-          <strong>Carga completa</strong>: fontes, indicadores do BCB e IBGE, checagens (Google + feeds das agências), votações do Flávio no
-          Senado e embeddings. Roda em segundo plano, em rodadas de ~3 min; pode fechar a página.
-        </p>
-        <div className="flex flex-wrap items-end gap-2">
-          <Field label="Checagens desde" htmlFor="kb-since">
-            <input id="kb-since" type="date" className={inputCls} value={since} onChange={(e) => setSince(e.target.value)} />
+      <p className="text-xs text-muted">
+        Cada botão pede confirmação e vira uma tarefa na lista “Tarefas” abaixo. As tarefas rodam em segundo plano, uma por vez;
+        pode fechar a página. Rodar de novo atualiza o que já existe, sem duplicar.
+      </p>
+
+      <Group id="kb-g-inicial" title="Carga inicial" hint="Para encher a base do zero. Use uma vez; depois, a manutenção basta.">
+        <ActionItem
+          label="Rodar carga completa"
+          description="Fontes confiáveis, indicadores do BCB e IBGE desde 2003, checagens desde a data escolhida, votações no Senado e embeddings."
+          disabled={busy || !fullSince}
+          confirm={ask(
+            "carga-completa",
+            `Rodar a carga completa, com checagens desde ${fullSince}?`,
+            "É a tarefa mais longa: várias rodadas de ~3 min em segundo plano.",
+          )}
+          onRun={() => onStart({ preset: "carga-completa", since: fullSince })}
+        >
+          <Field label="Checagens desde" htmlFor="kb-full-since">
+            <input id="kb-full-since" type="date" className={`${inputCls} sm:max-w-48`} value={fullSince} onChange={(e) => setFullSince(e.target.value)} />
           </Field>
-          <Button variant="primary" disabled={busy || !since} onClick={() => onStart({ preset: "carga-completa", since })}>
-            Rodar carga completa
-          </Button>
-        </div>
-      </div>
+        </ActionItem>
+      </Group>
 
-      <div className="flex flex-wrap gap-2">
-        <Button disabled={busy} onClick={() => onStart({ preset: "fontes" })}>
-          Fontes
-        </Button>
-        <Button disabled={busy} onClick={() => onStart({ preset: "indicadores" })}>
-          Indicadores
-        </Button>
-        <Button disabled={busy || !since} onClick={() => onStart({ preset: "checagens", since, source: "all" })}>
-          Checagens desde {since || "…"}
-        </Button>
-        <span className="inline-flex items-center gap-2">
-          <Button disabled={busy} onClick={() => onStart({ preset: "senado", discursos })}>
-            Senado
-          </Button>
-          <label className="inline-flex items-center gap-1 text-sm">
-            <input type="checkbox" checked={discursos} onChange={(e) => setDiscursos(e.target.checked)} /> com discursos
+      <Group id="kb-g-manut" title="Manutenção" hint="Rápidas e baratas. Não baixam a base inteira de novo.">
+        <ActionItem
+          label="Atualização diária"
+          description="Checagens dos últimos 3 dias + indicadores + embeddings faltando. É o mesmo que o cron roda sozinho às 6h (Brasília)."
+          disabled={busy}
+          confirm={ask("atualizacao-diaria", "Rodar a atualização diária agora?")}
+          onRun={() => onStart({ preset: "atualizacao-diaria" })}
+        />
+        <ActionItem
+          label="Embeddings faltando"
+          description="Gera a busca por sentido só para o que entrou sem ela (ex.: falha da Voyage no meio de uma carga). Não baixa nada de fora."
+          disabled={busy || noVoyage}
+          disabledReason={noVoyage ? "Precisa da VOYAGE_API_KEY na Vercel." : undefined}
+          confirm={ask("embeddings", "Gerar os embeddings que estão faltando?")}
+          onRun={() => onStart({ preset: "embeddings" })}
+        />
+        <ActionItem
+          label="Fontes confiáveis"
+          description="Atualiza no banco a lista de sites e o nível de confiança de cada um (1 a 4). Segundos."
+          disabled={busy}
+          confirm={ask("fontes", "Atualizar a lista de fontes confiáveis?")}
+          onRun={() => onStart({ preset: "fontes" })}
+        />
+      </Group>
+
+      <Group id="kb-g-l1" title="Checagens já publicadas (L1)" hint="O que as agências de checagem já verificaram.">
+        <ActionItem
+          label="Buscar checagens"
+          description="Google Fact Check (se a chave estiver na Vercel) + feeds das agências, a partir da data escolhida."
+          disabled={busy || !checkSince}
+          confirm={ask("checagens", `Buscar checagens publicadas desde ${checkSince}?`)}
+          onRun={() => onStart({ preset: "checagens", since: checkSince, source: "all" })}
+        >
+          <Field label="Desde" htmlFor="kb-check-since">
+            <input id="kb-check-since" type="date" className={`${inputCls} sm:max-w-48`} value={checkSince} onChange={(e) => setCheckSince(e.target.value)} />
+          </Field>
+        </ActionItem>
+        <ActionItem
+          label="Sites das agências (Apify)"
+          description="Robô percorre os sites das agências (Lupa, Aos Fatos, Estadão Verifica…) atrás de checagens que não estão no Google nem nos feeds."
+          disabled={busy || noApify}
+          disabledReason={apifyReason}
+          confirm={ask("apify-agencias", "Rodar o robô do Apify nos sites das agências?", `${APIFY_COST} Uma execução por agência.`)}
+          onRun={() => onStart({ preset: "apify-agencias" })}
+        />
+        <ActionItem
+          label="Busca de checagens (Apify)"
+          description="Pesquisa no Google por checagens recentes sobre os candidatos e temas do debate; só aproveita resultados de agências."
+          disabled={busy || noApify}
+          disabledReason={apifyReason}
+          confirm={ask("apify-busca", "Rodar a busca de checagens no Apify?", APIFY_COST)}
+          onRun={() => onStart({ preset: "apify-busca" })}
+        />
+      </Group>
+
+      <Group id="kb-g-l2" title="Indicadores oficiais (L2)" hint="Números do Banco Central e do IBGE, comparados em código com o que for dito.">
+        <ActionItem
+          label="Indicadores"
+          description="Inflação, juros, desemprego, PIB, dólar e outros, desde 2003. Alguns minutos."
+          disabled={busy}
+          confirm={ask("indicadores", "Baixar e atualizar os indicadores oficiais?")}
+          onRun={() => onStart({ preset: "indicadores" })}
+        />
+      </Group>
+
+      <Group id="kb-g-l3" title="Documentos e registros (L3)" hint="Textos de referência: votações, discursos, programas, entrevistas, debates.">
+        <ActionItem
+          label="Senado"
+          description="Votações nominais de Flávio Bolsonaro no Senado desde 2019 (registro oficial)."
+          disabled={busy}
+          confirm={ask(
+            "senado",
+            `Baixar as votações${discursos ? " e os discursos" : ""} de Flávio Bolsonaro no Senado?`,
+            discursos ? "Com discursos demora bem mais: um download por discurso." : undefined,
+          )}
+          onRun={() => onStart({ preset: "senado", discursos })}
+        >
+          <label className="inline-flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={discursos} onChange={(e) => setDiscursos(e.target.checked)} />
+            incluir os discursos em plenário (texto integral da taquigrafia; bem mais demorado)
           </label>
-        </span>
-        <Button disabled={busy} onClick={() => onStart({ preset: "embeddings" })}>
-          Embeddings faltando
-        </Button>
-        <Button disabled={busy} onClick={() => onStart({ preset: "atualizacao-diaria" })}>
-          Atualização diária
-        </Button>
-        <Button disabled={busy || noApify} title={noApify ? "APIFY_TOKEN não configurado" : undefined} onClick={() => onStart({ preset: "apify-agencias" }, APIFY_COST)}>
-          Sites das agências (Apify)
-        </Button>
-        <Button disabled={busy || noApify} title={noApify ? "APIFY_TOKEN não configurado" : undefined} onClick={() => onStart({ preset: "apify-busca" }, APIFY_COST)}>
-          Busca de checagens (Apify)
-        </Button>
-      </div>
-
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-        <SourceForm
-          kind="documento"
-          title="Documento por URL"
-          hint="Página ou PDF público (programa de governo, entrevista transcrita, relatório). O nível da fonte sai do domínio."
-          busy={busy}
-          onStart={onStart}
-        />
-        <SourceForm
-          kind="youtube"
-          title="Vídeo do YouTube (transcrição via Apify)"
-          hint="Ex.: o debate de ontem. Legenda automática entra como fonte nível 4: ajuda a achar contexto, nunca sustenta alerta sozinha."
-          busy={busy || noApify}
-          onStart={(r) => onStart(r, APIFY_COST)}
-        />
-      </div>
+        </ActionItem>
+        <li className="grid grid-cols-1 gap-3 border-t border-border pt-3 lg:grid-cols-2">
+          <SourceForm
+            kind="documento"
+            title="Documento por URL"
+            hint="Página ou PDF público (programa de governo, entrevista transcrita, relatório). O nível da fonte sai do domínio."
+            busy={busy}
+            jobs={jobs}
+            onStart={onStart}
+          />
+          <SourceForm
+            kind="youtube"
+            title="Vídeo do YouTube (legenda via Apify)"
+            hint="Ex.: o debate de ontem. Legenda automática entra como fonte nível 4: dá contexto, nunca sustenta alerta sozinha."
+            busy={busy || noApify}
+            disabledReason={apifyReason}
+            jobs={jobs}
+            onStart={onStart}
+          />
+        </li>
+      </Group>
     </div>
   );
 }
@@ -328,12 +519,16 @@ function SourceForm({
   title,
   hint,
   busy,
+  disabledReason,
+  jobs,
   onStart,
 }: {
   kind: "documento" | "youtube";
   title: string;
   hint: string;
   busy: boolean;
+  disabledReason?: string;
+  jobs: KbJobView[];
   onStart: (r: KbJobCreate) => void;
 }) {
   const [url, setUrl] = useState("");
@@ -341,20 +536,26 @@ function SourceForm({
   const [docType, setDocType] = useState(kind === "youtube" ? "debate" : "programa");
   const [person, setPerson] = useState("");
   const [date, setDate] = useState("");
+  const [asking, setAsking] = useState<KbJobCreate | null>(null);
   const id = (f: string) => `kb-${kind}-${f}`;
   const types = kind === "youtube" ? DOC_TYPES.filter(([v]) => v === "debate" || v === "entrevista" || v === "discurso") : DOC_TYPES;
+  const typeLabel = DOC_TYPES.find(([v]) => v === docType)?.[1] ?? docType;
 
   function submit(e: FormEvent) {
     e.preventDefault();
     const common = { url: url.trim(), person: person || null, published_at: date || null };
-    if (kind === "documento") onStart({ preset: "documento", ...common, title: name.trim(), doc_type: docType as DocReq["doc_type"] });
-    else onStart({ preset: "youtube", ...common, title: name.trim() || null, doc_type: docType as VideoReq["doc_type"] });
+    setAsking(
+      kind === "documento"
+        ? { preset: "documento", ...common, title: name.trim(), doc_type: docType as DocReq["doc_type"] }
+        : { preset: "youtube", ...common, title: name.trim() || null, doc_type: docType as VideoReq["doc_type"] },
+    );
   }
 
   return (
     <form onSubmit={submit} className="flex flex-col gap-2 rounded-lg border border-border p-3">
       <p className="text-sm font-semibold">{title}</p>
       <p className="text-xs text-muted">{hint}</p>
+      {busy && disabledReason ? <p className="text-xs text-red-fg">{disabledReason}</p> : null}
       <Field label="URL" htmlFor={id("url")}>
         <input id={id("url")} type="url" required className={inputCls} value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://" />
       </Field>
@@ -385,11 +586,37 @@ function SourceForm({
           <input id={id("date")} type="date" className={inputCls} value={date} onChange={(e) => setDate(e.target.value)} />
         </Field>
       </div>
-      <div>
-        <Button type="submit" variant="secondary" disabled={busy}>
-          Adicionar à base
-        </Button>
-      </div>
+      {asking ? (
+        <ConfirmBox
+          text={
+            <>
+              <p>
+                Adicionar à base: <strong>{name.trim() || url.trim()}</strong> ({typeLabel}
+                {person ? `, ${person}` : ""})?
+              </p>
+              <p className="mt-1 break-all text-xs">{url.trim()}</p>
+              {kind === "youtube" ? <p className="mt-1 text-xs">{APIFY_COST} Leva alguns minutos.</p> : null}
+              {jobs.some((j) => pending(j) && j.preset === kind) ? (
+                <p className="mt-1 text-xs font-semibold">Já há uma tarefa deste tipo na fila: esta espera a anterior terminar.</p>
+              ) : null}
+            </>
+          }
+          onCancel={() => setAsking(null)}
+          onConfirm={() => {
+            onStart(asking);
+            setAsking(null);
+            setUrl("");
+            setName("");
+            setDate("");
+          }}
+        />
+      ) : (
+        <div>
+          <Button type="submit" variant="secondary" disabled={busy}>
+            Adicionar à base
+          </Button>
+        </div>
+      )}
     </form>
   );
 }

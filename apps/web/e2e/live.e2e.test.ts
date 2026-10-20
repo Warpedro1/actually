@@ -141,6 +141,47 @@ describe("[RF05] [RF04] alerta na interface", () => {
   });
 });
 
+describe("[RF15] painel da base no /admin: confirmação antes de criar tarefa", () => {
+  it("[RF15] clique abre a confirmação no lugar; Cancelar não pede nada; Confirmar pede", async () => {
+    const { ctx, page } = await open("/admin/demo");
+    const base = page.locator("#base");
+    await base.waitFor();
+    const status = base.locator('[role="status"]');
+    const confirmBox = base.getByRole("group", { name: "Confirmar tarefa" });
+
+    await base.getByRole("button", { name: "Atualização diária", exact: true }).click();
+    expect(await confirmBox.count()).toBe(1);
+    expect(await confirmBox.textContent()).toMatch(/atualização diária/i);
+    // foco vai para o botão de confirmar (teclado: Enter confirma, Esc cancela)
+    expect(await page.evaluate(() => document.activeElement?.textContent)).toBe("Confirmar");
+    expect(await status.count()).toBe(0);
+
+    await confirmBox.getByRole("button", { name: "Cancelar" }).click();
+    expect(await confirmBox.count()).toBe(0);
+    expect(await status.count()).toBe(0);
+
+    await base.getByRole("button", { name: "Atualização diária", exact: true }).click();
+    await page.keyboard.press("Escape");
+    expect(await confirmBox.count()).toBe(0);
+
+    await base.getByRole("button", { name: "Atualização diária", exact: true }).click();
+    await confirmBox.getByRole("button", { name: "Confirmar" }).click();
+    expect(await status.textContent()).toMatch(/atualizacao-diaria/);
+    await ctx.close();
+  });
+
+  it("[RF15] ações agrupadas por categoria", async () => {
+    const { ctx, page } = await open("/admin/demo");
+    const base = page.locator("#base");
+    await base.waitFor();
+    const groups = await base.locator("section h3").allTextContents();
+    expect(groups).toEqual(
+      expect.arrayContaining(["Carga inicial", "Manutenção", "Checagens já publicadas (L1)", "Indicadores oficiais (L2)", "Documentos e registros (L3)"]),
+    );
+    await ctx.close();
+  });
+});
+
 describe("[RNF10] celular e acessibilidade", () => {
   for (const path of ["/ao-vivo/demo", "/metodologia", "/", "/admin/demo"]) {
     it(`[RNF10] ${path} em 390 px sem rolagem horizontal`, async () => {

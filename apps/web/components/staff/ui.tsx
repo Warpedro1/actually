@@ -1,5 +1,5 @@
 // Primitivas visuais das áreas restritas (editor/admin).
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import type { ComponentProps, ReactNode } from "react";
 
 export function Card({ title, actions, children, id }: { title?: ReactNode; actions?: ReactNode; children: ReactNode; id?: string }) {
   return (
@@ -33,7 +33,7 @@ export function Button({
   variant = "secondary",
   className = "",
   ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: Variant }) {
+}: ComponentProps<"button"> & { variant?: Variant }) {
   return (
     <button
       type="button"
