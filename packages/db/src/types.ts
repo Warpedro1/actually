@@ -123,6 +123,8 @@ export interface RefMandate {
   fonte_nome: string;
   fonte_url: string;
   trecho: string;
+  /** Como a linha foi conferida (auditoria). */
+  conferencia?: string;
   notas: string | null;
 }
 
@@ -139,6 +141,8 @@ export interface RefElection {
   fonte_nome: string;
   fonte_url: string;
   trecho: string;
+  /** Como a linha foi conferida (auditoria). */
+  conferencia?: string;
 }
 
 export type ClaimKindDb = "fato" | "estatistica" | "acusacao" | "opiniao_mensuravel" | "previsao";
