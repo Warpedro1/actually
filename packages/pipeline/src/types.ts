@@ -9,11 +9,24 @@ export const TOPICS = [
 ] as const;
 export type Topic = (typeof TOPICS)[number];
 
+/**
+ * Tipo da fala. Promessa e opinião pura saem na extração (não há como medir);
+ * opinião mensurável e previsão são julgadas com regras mais duras (só amarelo,
+ * limite maior); acusação só no que é fato processual, com revisão humana.
+ */
+export const CLAIM_KINDS = ["fato", "estatistica", "acusacao", "opiniao_mensuravel", "previsao"] as const;
+export type ClaimKind = (typeof CLAIM_KINDS)[number];
+/** Tipos que o extrator marca para o código descartar. */
+export const DROPPED_KINDS = ["promessa", "opiniao"] as const;
+
 /** Afirmação atômica saída da extração (antes de virar linha em `claims`). */
 export interface ExtractedClaim {
   text_original: string;
   text_normalized: string;
   topic: Topic;
+  kind: ClaimKind;
+  /** Opinião mensurável/previsão: o dado ou projeção que mede a fala (consulta da L3/L4). */
+  measurable: string | null;
   numbers: ClaimNumber[];
   indicator: IndicatorRef | null;
   time_reference: string | null;

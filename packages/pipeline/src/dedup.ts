@@ -120,6 +120,8 @@ function claimRow(a: DedupArgs, duplicateOf: string | null): NewClaim {
     claim_hash: a.hash,
     numbers: a.claim.numbers,
     topic: a.claim.topic,
+    kind: a.claim.kind,
+    measurable: a.claim.measurable,
     indicator: a.claim.indicator,
     embedding: a.embedding,
     duplicate_of: duplicateOf,

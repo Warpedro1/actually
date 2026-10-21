@@ -1,7 +1,8 @@
-// Orquestra a recuperação: L1–L3 em paralelo (cada uma com seu timeout);
-// L4 (web) só quando nenhuma camada da base trouxe evidência relevante.
+// Orquestra a recuperação: L1–L3 em paralelo (cada uma com seu timeout). A L4
+// (web) começa junto e só é aguardada quando a base vem fraca (sem evidência,
+// ou só com evidência de relevância baixa): aí entra como complemento.
 import type { KbLayer } from "@actually/db";
-import { TIMEOUTS_MS } from "../config";
+import { TIMEOUTS_MS, WEB_SKIP_MIN_RELEVANCE } from "../config";
 import type { PipelineDeps } from "../deps";
 import { errorFields, withTimeout } from "../log";
 import type { EvidenceCandidate, ExtractedClaim, IndicatorComparison, LayerOutcome, RetrievalResult } from "../types";
@@ -39,12 +40,30 @@ async function runLayer(
   return r.outcome;
 }
 
+/**
+ * A base resolve sozinha? Indicador com dado, ou checagem/documento com
+ * relevância alta. Se não, a web complementa (o verificador recebe as duas).
+ */
+export function baseIsStrong(candidates: EvidenceCandidate[], comparison: IndicatorComparison | null): boolean {
+  if (comparison && comparison.status !== "no_data") return true;
+  return candidates.some(
+    (c) => (c.layer === "L1" || c.layer === "L3") && c.relevance >= WEB_SKIP_MIN_RELEVANCE[c.layer],
+  );
+}
+
 export async function retrieveAll(
   deps: PipelineDeps,
   claim: ExtractedClaim,
   embedding: number[] | null,
 ): Promise<RetrievalResult> {
   const query = claim.text_normalized;
+  // opinião/previsão: documentos e web procuram o dado que mede a fala; checagens, a própria fala
+  const measureQuery = claim.measurable ?? query;
+
+  // a web começa já (latência); o resultado só é usado se a base vier fraca.
+  // runLayer nunca rejeita e tem timeout: se não for aguardada, termina sozinha.
+  const search = deps.webSearch;
+  const web = search ? runLayer("L4", deps, () => retrieveWeb(measureQuery, search, deps.rerank)) : null;
 
   const tasks: Promise<LayerOutcome>[] = [];
   if (embedding) {
@@ -61,19 +80,18 @@ export async function retrieveAll(
     tasks.push(l2.then((r) => r.outcome));
   }
   if (embedding) {
-    tasks.push(runLayer("L3", deps, () => retrieveDocuments(query, embedding, deps.store, deps.rerank, deps.logger)));
+    tasks.push(runLayer("L3", deps, () => retrieveDocuments(measureQuery, embedding, deps.store, deps.rerank, deps.logger)));
   }
   const layers = await Promise.all(tasks);
   const comparison = l2 ? (await l2).extra : null;
 
   let candidates = layers.flatMap((l) => l.candidates);
   let usedWeb = false;
-  if (!candidates.length && deps.webSearch) {
-    const search = deps.webSearch;
-    const web = await runLayer("L4", deps, () => retrieveWeb(query, search, deps.rerank));
-    layers.push(web);
-    candidates = web.candidates;
-    usedWeb = web.candidates.length > 0;
+  if (web && !baseIsStrong(candidates, comparison)) {
+    const w = await web;
+    layers.push(w);
+    candidates = [...candidates, ...w.candidates];
+    usedWeb = w.candidates.length > 0;
   }
 
   // ordem para o verificador: indicador determinístico, checagens, documentos, web;

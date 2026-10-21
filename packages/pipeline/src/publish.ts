@@ -53,6 +53,8 @@ export interface PublishInput {
   latency_ms: Record<string, number>;
   evidence: EvidenceRecord[];
   alert: AlertLevel | null;
+  /** Passa pelo editor mesmo com HITL desligado (ex.: acusação). */
+  force_review?: boolean;
   settings: DebateSettings;
 }
 
@@ -96,7 +98,7 @@ export async function publishVerification(store: PipelineStore, input: PublishIn
     claim_id: input.claim_id,
     verification_id: ver.id,
     verdict,
-    status: alertStatusFor(input.alert, input.settings),
+    status: input.force_review ? "pending_review" : alertStatusFor(input.alert, input.settings),
     claim_text: input.claim_text,
     summary: input.summary || input.correction,
     correction: input.correction,

@@ -1,8 +1,9 @@
 // Score final + regras duras. FUNÇÃO PURA: tudo que decide se um alerta sai
 // está aqui, testável sem rede. Na dúvida, silêncio.
 import type { DebateSettings, KbLayer, SourceTier, Verdict } from "@actually/db";
+import { KIND_RULES } from "./config";
 import type { AlertLevel } from "./index";
-import type { EvidenceRecord, IndicatorComparison } from "./types";
+import type { ClaimKind, EvidenceRecord, IndicatorComparison } from "./types";
 
 export const TIER_WEIGHT: Record<SourceTier, number> = { 1: 1, 2: 0.85, 3: 0.6, 4: 0.2 };
 export const SCORE_WEIGHTS = { confidence: 0.5, tier: 0.2, agreement: 0.2, quotes: 0.1 } as const;
@@ -22,6 +23,8 @@ export interface ScoreInput {
   correction: string;
   /** Números da correção/resumo existem nas fontes verificadas. */
   correction_numbers_ok: boolean;
+  /** Tipo da fala (regras em KIND_RULES). Ausente = "fato". */
+  kind?: ClaimKind;
   settings: Pick<DebateSettings, "t_red" | "t_yellow" | "web_penalty">;
 }
 
@@ -31,6 +34,8 @@ export interface ScoreResult {
   silence_reason: string | null;
   layer: KbLayer | null;
   components: Record<string, number | string | boolean>;
+  /** O alerta passa pelo editor mesmo com HITL desligado (ex.: acusação). */
+  review: boolean;
 }
 
 const LAYER_PREF: Record<KbLayer, number> = { L2: 0, L1: 1, L3: 2, L4: 3 };
@@ -93,9 +98,16 @@ export function scoreDecision(input: ScoreInput): ScoreResult {
 
   // web: toda a evidência verificada veio da L4
   const usedWeb = verified.length > 0 && verified.every((e) => e.layer === "L4");
-  const level: AlertLevel | null = input.verdict === "contradito" ? "red" : input.verdict === "impreciso" ? "yellow" : null;
+  const kind: ClaimKind = input.kind ?? "fato";
+  const rules = KIND_RULES[kind];
+  const verdictLevel: AlertLevel | null = input.verdict === "contradito" ? "red" : input.verdict === "impreciso" ? "yellow" : null;
+  // opinião e previsão nunca viram vermelho: no máximo "impreciso"
+  const capped = verdictLevel === "red" && rules.max_level === "yellow";
+  const level: AlertLevel | null = capped ? "yellow" : verdictLevel;
   const threshold = level
-    ? (level === "red" ? input.settings.t_red : input.settings.t_yellow) + (usedWeb ? input.settings.web_penalty : 0)
+    ? (level === "red" ? input.settings.t_red : input.settings.t_yellow) +
+      (usedWeb ? input.settings.web_penalty : 0) +
+      rules.extra_threshold
     : null;
 
   const components: Record<string, number | string | boolean> = {
@@ -105,12 +117,14 @@ export function scoreDecision(input: ScoreInput): ScoreResult {
     quote_fraction: quoteFraction,
     verified_evidence: verified.length,
     used_web: usedWeb,
+    kind,
+    ...(capped ? { level_capped: true } : {}),
     ...(best ? { best_tier: best.source_tier, best_layer: best.layer } : {}),
     ...(threshold !== null ? { threshold } : {}),
     ...(input.comparison ? { l2_status: input.comparison.status } : {}),
   };
   const layer = best?.layer ?? input.evidence[0]?.layer ?? null;
-  const silence = (reason: string): ScoreResult => ({ final_score, alert: null, silence_reason: reason, layer, components });
+  const silence = (reason: string): ScoreResult => ({ final_score, alert: null, silence_reason: reason, layer, components, review: false });
 
   // Regras duras — a ordem define qual motivo aparece no log
   if (input.forced_reason) return silence(input.forced_reason);
@@ -120,10 +134,14 @@ export function scoreDecision(input: ScoreInput): ScoreResult {
   if (conflict) return silence("camadas_em_conflito");
   if (!best) return silence("sem_citacao_verificada");
   if (best.source_tier >= 4) return silence("fonte_tier_4");
-  if (level === "red" && best.source_tier > 2) return silence("vermelho_exige_tier_1_2");
+  if (level === "red" && best.source_tier > rules.red_max_tier) {
+    return silence(kind === "acusacao" ? "acusacao_vermelho_exige_tier_1" : "vermelho_exige_tier_1_2");
+  }
+  // opinião, previsão e acusação: só com fonte de nível 1–2, mesmo em amarelo
+  if (best.source_tier > rules.max_tier) return silence("tipo_exige_tier_1_2");
   if (!input.correction.trim()) return silence("sem_correcao");
   if (!input.correction_numbers_ok) return silence("numero_sem_fonte");
   if (threshold === null || final_score < threshold) return silence("abaixo_do_threshold");
 
-  return { final_score, alert: level, silence_reason: null, layer, components };
+  return { final_score, alert: level, silence_reason: null, layer, components, review: rules.force_review };
 }

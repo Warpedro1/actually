@@ -6,7 +6,7 @@ import { z } from "zod";
 import { EVIDENCE_CHARS_FOR_VERIFY, MAX_EVIDENCE_FOR_VERIFY, MODEL_VERIFY, SUMMARY_MAX_CHARS, TIMEOUTS_MS } from "./config";
 import type { AnthropicLike } from "./deps";
 import { errorFields, type Logger } from "./log";
-import type { EvidenceCandidate, ModelVerdict } from "./types";
+import type { ClaimKind, EvidenceCandidate, ModelVerdict } from "./types";
 import { anthropicUsageRow, type UsageMeter } from "./usage";
 
 export const VerifySchema = z.object({
@@ -38,7 +38,10 @@ Regras:
 5. Citações: para cada evidência usada, copie em "quote" um trecho LITERAL e contíguo do texto da evidência (sem parafrasear, sem juntar partes, sem corrigir erros) que sustente o veredito. Use o número da evidência em "evidence_index". Sem citação literal, não há alerta.
 6. "correction": uma linha em português com o dado correto, apenas com números que aparecem nas evidências (ex.: "Segundo o IBGE, a taxa de desocupação em 2023 foi de 7,8%."). Vazio se "confirmado" ou "inconclusivo".
 7. "summary": até 140 caracteres, neutro, sem adjetivos, sem nomear o candidato.
-8. "confidence": calibrada — 0,9+ só quando a evidência é direta, oficial e sobre exatamente o mesmo fato e período.`;
+8. "confidence": calibrada — 0,9+ só quando a evidência é direta, oficial e sobre exatamente o mesmo fato e período.
+9. Tipo "opinião mensurável": julgue se os dados que medem o ponto indicado em "O que medir" contradizem a fala de forma clara. Exagero retórico com fundo verdadeiro não é impreciso. Sem dado direto sobre exatamente isso, "inconclusivo". Nunca "contradito": use "impreciso" quando os dados mostram o contrário.
+10. Tipo "previsão": compare com as projeções publicadas nas evidências (Banco Central/Focus, IFI, Tesouro, FMI, agências de rating...). "impreciso" só se a fala diverge claramente de todas as projeções citadas; projeções divergentes entre si ou ausentes, "inconclusivo". Nunca "contradito". A correção diz quem projetou e quando.
+11. Tipo "acusação": julgue só fatos processuais — denunciado, réu, condenado, absolvido, anulado, arquivado, prescrito, investigado, indiciado, inelegível — com órgão e data. Nunca julgue culpa nem intenção. Anulação não é absolvição; investigação não é condenação. A correção cita o órgão e a data da decisão.`;
 
 function evidenceBlock(c: EvidenceCandidate, i: number): string {
   const kind = { L1: "checagem publicada", L2: "indicador oficial (série)", L3: "documento", L4: "página web" }[c.layer];
@@ -55,16 +58,29 @@ function evidenceBlock(c: EvidenceCandidate, i: number): string {
 export interface VerifyInput {
   claim_normalized: string;
   claim_original: string;
+  kind?: ClaimKind;
+  /** Opinião/previsão: o dado ou a projeção que mede a fala. */
+  measurable?: string | null;
   context: string;
   today: string;
   evidence: EvidenceCandidate[];
 }
+
+const KIND_LABEL: Record<ClaimKind, string> = {
+  fato: "fato",
+  estatistica: "estatística",
+  acusacao: "acusação (regra 11)",
+  opiniao_mensuravel: "opinião mensurável (regra 9)",
+  previsao: "previsão (regra 10)",
+};
 
 export function buildVerifyMessage(input: VerifyInput): string {
   return [
     `Data da fala: ${input.today}. Contexto: debate eleitoral presidencial de 2026.`,
     `Afirmação a verificar: "${input.claim_normalized}"`,
     `Trecho original da fala: "${input.claim_original}"`,
+    input.kind && input.kind !== "fato" && input.kind !== "estatistica" ? `Tipo da fala: ${KIND_LABEL[input.kind]}` : null,
+    input.measurable ? `O que medir: ${input.measurable}` : null,
     input.context.trim() ? `<contexto>\n${input.context.trim()}\n</contexto>` : null,
     `Evidências:\n\n${input.evidence.map(evidenceBlock).join("\n\n")}`,
   ].filter(Boolean).join("\n\n");

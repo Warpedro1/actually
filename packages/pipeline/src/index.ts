@@ -29,6 +29,10 @@ export type AlertLevel = "red" | "yellow";
 export interface ClaimDecision {
   /** Afirmação atômica, já com contexto resolvido. */
   claim: string;
+  /** Tipo da fala (fato, estatística, acusação, opinião mensurável, previsão). */
+  kind: import("./types").ClaimKind;
+  /** O alerta passa pelo editor mesmo com HITL desligado (ex.: acusação). */
+  review: boolean;
   verdict: import("@actually/db").Verdict;
   final_score: number;
   /** null = silêncio (abaixo do threshold, regra dura ou não checável). */
@@ -127,7 +131,7 @@ function toRecord(c: EvidenceCandidate, quote: string, verified: boolean, simila
 
 function silentDecision(claim: ExtractedClaim, reason: string, latency: Record<string, number>, layer: KbLayer | null = null): ClaimDecision {
   return {
-    claim: claim.text_normalized, verdict: "inconclusivo", final_score: 0, alert: null,
+    claim: claim.text_normalized, kind: claim.kind, review: false, verdict: "inconclusivo", final_score: 0, alert: null,
     silence_reason: reason, layer, correction: null, evidence: [], latency_ms: latency,
   };
 }
@@ -157,6 +161,7 @@ export async function assessClaim(
   const model = await withTimeout(
     verifyClaim(deps.anthropic, {
       claim_normalized: claim.text_normalized, claim_original: claim.text_original,
+      kind: claim.kind, measurable: claim.measurable,
       context, today: today(deps), evidence: candidates,
     }, deps.logger, deps.usage),
     TIMEOUTS_MS.verify_total,
@@ -189,12 +194,15 @@ export async function assessClaim(
     forced_reason: model.forced_reason,
     correction: model.correction,
     correction_numbers_ok: nums.ok,
+    kind: claim.kind,
     settings,
   });
   if (!nums.ok) deps.logger("warn", "correction_number_unsupported", { unsupported: nums.unsupported });
 
   const decision: ClaimDecision = {
     claim: claim.text_normalized,
+    kind: claim.kind,
+    review: score.review,
     verdict: model.verdict,
     final_score: score.final_score,
     alert: score.alert,
@@ -313,6 +321,7 @@ export function createPipeline(deps: PipelineDeps) {
       latency_ms: persisted,
       evidence: a.evidence,
       alert: a.decision.alert,
+      force_review: a.decision.review,
       settings,
     }, logger), TIMEOUTS_MS.publish, "publish");
     latency.publish = deps.now() - tPub;

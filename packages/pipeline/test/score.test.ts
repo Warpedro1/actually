@@ -114,3 +114,45 @@ describe("layerAgreement", () => {
     expect(a).toEqual({ agreement: 0.25, conflict: false, l2_divergent: false });
   });
 });
+
+describe("[RF02] [RF04] regras por tipo de fala", () => {
+  it("fato e estatística: sem mudança (vermelho com nível 1–2, sem revisão forçada)", () => {
+    expect(scoreDecision(base({ kind: "fato" }))).toMatchObject({ alert: "red", review: false });
+    expect(scoreDecision(base({ kind: "estatistica" }))).toMatchObject({ alert: "red", review: false });
+  });
+
+  it("opinião mensurável e previsão nunca são vermelhas: contradito vira amarelo, com limite maior", () => {
+    for (const kind of ["opiniao_mensuravel", "previsao"] as const) {
+      const r = scoreDecision(base({ kind }));
+      expect(r).toMatchObject({ alert: "yellow", review: false });
+      expect(r.components).toMatchObject({ kind, level_capped: true, threshold: DEFAULT_SETTINGS.t_yellow + 0.1 });
+    }
+  });
+
+  it("opinião/previsão: score que passaria num fato fica em silêncio (limite +0,1)", () => {
+    // 0,5·0,7 + 0,2·1 + 0,2·0,5 + 0,1·1 = 0,75 ⇒ fato amarelo (0,75); opinião exige 0,85
+    const input = { verdict: "impreciso" as const, model_confidence: 0.7 };
+    expect(scoreDecision(base({ ...input, kind: "fato" }))).toMatchObject({ alert: "yellow" });
+    expect(scoreDecision(base({ ...input, kind: "opiniao_mensuravel" }))).toMatchObject({ alert: null, silence_reason: "abaixo_do_threshold" });
+  });
+
+  it("opinião/previsão só com fonte de nível 1–2, mesmo em amarelo", () => {
+    const tier3 = [ev({ source_tier: 3 })];
+    expect(scoreDecision(base({ verdict: "impreciso", evidence: tier3, kind: "fato" }))).toMatchObject({ alert: "yellow" });
+    expect(scoreDecision(base({ verdict: "impreciso", evidence: tier3, kind: "previsao" }))).toMatchObject({ alert: null, silence_reason: "tipo_exige_tier_1_2" });
+  });
+
+  it("acusação: vermelho só com nível 1, amarelo só com nível 1–2, e sempre passa pelo editor", () => {
+    expect(scoreDecision(base({ kind: "acusacao" }))).toMatchObject({ alert: "red", review: true });
+    expect(scoreDecision(base({ kind: "acusacao", evidence: [ev({ source_tier: 2 })] })))
+      .toMatchObject({ alert: null, silence_reason: "acusacao_vermelho_exige_tier_1" });
+    expect(scoreDecision(base({ kind: "acusacao", verdict: "impreciso", evidence: [ev({ source_tier: 2 })] })))
+      .toMatchObject({ alert: "yellow", review: true });
+    expect(scoreDecision(base({ kind: "acusacao", verdict: "impreciso", evidence: [ev({ source_tier: 3 })] })))
+      .toMatchObject({ alert: null, silence_reason: "tipo_exige_tier_1_2" });
+  });
+
+  it("silêncio nunca pede revisão", () => {
+    expect(scoreDecision(base({ kind: "acusacao", verdict: "confirmado" }))).toMatchObject({ alert: null, review: false });
+  });
+});

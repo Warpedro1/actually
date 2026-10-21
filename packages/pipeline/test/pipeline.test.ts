@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ExtractionOutput } from "../src/extract";
 import { ORIGINAL_IN_PROGRESS_MS } from "../src/dedup";
 import { createPipeline } from "../src/index";
+import type { WebSearchFn } from "../src/retrieve/web";
 import type { VerifyOutput } from "../src/verify";
 import {
   DOC_CHUNK, DOC_TEXT, FACTCHECK, PNAD, PNAD_VALUES, fakeAnthropic, fakeEmbed, fakeRerank, fakeWeb, makeDeps,
@@ -11,9 +12,12 @@ import {
 } from "./helpers";
 
 type ClaimOut = ExtractionOutput["claims"][number];
-const claimOut = (original: string, normalized: string, indicator: IndicatorRef | null = null): ClaimOut => ({
-  text_original: original, text_normalized: normalized, topic: "economia", numbers: [],
-  indicator: indicator ? { ...indicator } : null, time_reference: null,
+const claimOut = (
+  original: string, normalized: string, indicator: IndicatorRef | null = null,
+  over: Partial<Pick<ClaimOut, "tipo" | "measurable">> = {},
+): ClaimOut => ({
+  text_original: original, text_normalized: normalized, topic: "economia", tipo: "fato", measurable: null, numbers: [],
+  indicator: indicator ? { ...indicator } : null, time_reference: null, ...over,
 });
 const extracting = (...claims: ClaimOut[]) => (): FakeReply<ExtractionOutput> => ({ output: { claims } });
 const verdict = (o: Partial<VerifyOutput>): FakeReply<VerifyOutput> => ({
@@ -34,6 +38,14 @@ const L2_VERDICT = verdict({
   citations: [{ evidence_index: 1, quote: "2023 (média anual) = 7,8 %" }],
 });
 
+const WEB_RESULT = {
+  url: "https://g1.globo.com/saude/noticia/2013/10/22/dilma-sanciona-lei-do-mais-medicos.ghtml",
+  title: "Dilma sanciona lei do Mais Médicos",
+  content: "A presidente Dilma Rousseff sancionou nesta terça-feira (22) a lei que cria o programa Mais Médicos.",
+  raw_content: "A presidente Dilma Rousseff sancionou nesta terça-feira (22) a lei que cria o programa Mais Médicos.",
+  published_date: "2013-10-22",
+  score: 0.9,
+};
 const DOC_SEGMENT = "O Mais Médicos foi criado em 2015 pelo governo Temer.";
 const DOC_CLAIM = claimOut("O Mais Médicos foi criado em 2015 pelo governo Temer", "O programa Mais Médicos foi criado em 2015 pelo governo Michel Temer.");
 const docVerdict = (quote: string) => verdict({
@@ -280,6 +292,68 @@ describe("[RF05] evidência pública = texto literal da fonte; números só de t
   });
 });
 
+describe("[RF02] [RF04] tipos de fala", () => {
+  it("[RF02] promessa e opinião pura são descartadas na extração (nada gravado, motivo no log)", async () => {
+    const seg = "Eu vou construir meio milhão de vagas. Ele passa a mão na cabeça de bandido.";
+    const { store, pipeline, deps } = setup({
+      extract: extracting(
+        claimOut("Eu vou construir meio milhão de vagas", "O candidato vai construir meio milhão de vagas.", null, { tipo: "promessa" }),
+        claimOut("Ele passa a mão na cabeça de bandido", "O adversário passa a mão na cabeça de bandido.", null, { tipo: "opiniao" }),
+      ),
+      verify: () => ({ error: new Error("não deveria verificar") }),
+    });
+    const res = await pipeline.runPipeline(store.addSegment(seg).id);
+    expect(res.claims).toBe(0);
+    expect(store.claims).toHaveLength(0);
+    const dropped = deps.logs.filter((l) => l.event === "extract_dropped").map((l) => l.fields?.reason);
+    expect(dropped).toEqual(["promessa", "opiniao"]);
+  });
+
+  it("[RF02] opinião mensurável sem o dado que a mede é descartada; com o dado, segue e grava o tipo", async () => {
+    const seg = "Não tem mais carne na mesa do brasileiro.";
+    const sem = claimOut("Não tem mais carne na mesa do brasileiro", "Não há mais carne na mesa dos brasileiros.", null, { tipo: "opiniao_mensuravel" });
+    const com = { ...sem, measurable: "consumo de carne bovina por pessoa no Brasil em 2025 e 2026" };
+    const a = setup({ extract: extracting(sem), verify: () => verdict({ verdict: "inconclusivo", confidence: 0.2 }) });
+    expect((await a.pipeline.runPipeline(a.store.addSegment(seg).id)).claims).toBe(0);
+    expect(a.deps.logs.some((l) => l.event === "extract_dropped" && l.fields?.reason === "sem_medida")).toBe(true);
+
+    const b = setup({ extract: extracting(com), verify: () => verdict({ verdict: "inconclusivo", confidence: 0.2 }) }, { chunks: [DOC_CHUNK] });
+    await b.pipeline.runPipeline(b.store.addSegment(seg).id);
+    expect(b.store.claims[0]).toMatchObject({ kind: "opiniao_mensuravel", measurable: com.measurable });
+  });
+
+  it("[RF03] opinião/previsão: a web procura o dado que mede a fala, e o verificador recebe o tipo", async () => {
+    const queries: string[] = [];
+    const webSearch: WebSearchFn = async (q) => (queries.push(q), [WEB_RESULT]);
+    const prev = claimOut("o Brasil vai crescer 3% no ano que vem", "O Brasil vai crescer 3% em 2027.", null, {
+      tipo: "previsao", measurable: "projeções de crescimento do PIB do Brasil para 2027 (Focus, FMI)",
+    });
+    let verifyMsg = "";
+    const store = new MemoryStore({}, { require_red_approval: false });
+    const deps = makeDeps({
+      store, webSearch,
+      anthropic: fakeAnthropic({ extract: extracting(prev), verify: (u) => ((verifyMsg = u), verdict({ verdict: "inconclusivo", confidence: 0.2 })) }),
+    });
+    await createPipeline(deps).runPipeline(store.addSegment("E o Brasil vai crescer 3% no ano que vem.").id);
+    expect(queries).toEqual([prev.measurable]);
+    expect(verifyMsg).toContain("Tipo da fala: previsão");
+    expect(verifyMsg).toContain(`O que medir: ${prev.measurable}`);
+  });
+
+  it("[RF08] acusação vai para a fila do editor mesmo com aprovação desligada", async () => {
+    const seg = "No meu governo o desemprego em 2023 foi de 12%, uma vergonha.";
+    const acc = { ...L2_CLAIM, tipo: "acusacao" };
+    const { store, pipeline } = setup(
+      { extract: extracting(acc), verify: () => L2_VERDICT },
+      { series: [PNAD], values: PNAD_VALUES },
+      { require_red_approval: false, require_yellow_approval: false },
+    );
+    await pipeline.runPipeline(store.addSegment(seg).id);
+    expect(store.alerts).toHaveLength(1);
+    expect(store.alerts[0]).toMatchObject({ status: "pending_review" });
+  });
+});
+
 describe("[RNF03] falhas e timeouts ⇒ silêncio, sem exceção", () => {
   const kbL2 = { series: [PNAD], values: PNAD_VALUES };
 
@@ -365,12 +439,45 @@ describe("[RNF03] falhas e timeouts ⇒ silêncio, sem exceção", () => {
     }
   });
 
-  it("L4 só roda quando a base não tem evidência", async () => {
-    const web = fakeWeb([]);
+  it("[RF03] base forte (indicador com dado) ⇒ o resultado da web não é usado", async () => {
+    const web = fakeWeb([WEB_RESULT]);
     const store = new MemoryStore({ series: [PNAD], values: PNAD_VALUES });
-    const deps = makeDeps({ store, webSearch: web, anthropic: fakeAnthropic({ extract: extracting(L2_CLAIM), verify: () => L2_VERDICT }) });
+    let verifyMsg = "";
+    const deps = makeDeps({
+      store, webSearch: web,
+      anthropic: fakeAnthropic({ extract: extracting(L2_CLAIM), verify: (u) => ((verifyMsg = u), L2_VERDICT) }),
+    });
     await createPipeline(deps).runPipeline(store.addSegment(L2_SEGMENT).id);
-    expect(web.calls).toBe(0);
+    expect(verifyMsg).not.toContain(WEB_RESULT.url);
+    expect(store.verifications[0]?.latency_ms).not.toHaveProperty("retrieve_L4");
+  });
+
+  it("[RF03] base fraca (documento pouco relevante) ⇒ a web complementa e o verificador recebe as duas", async () => {
+    const web = fakeWeb([WEB_RESULT]);
+    const store = new MemoryStore({ chunks: [DOC_CHUNK] }, { require_red_approval: false });
+    let verifyMsg = "";
+    const deps = makeDeps({
+      store, webSearch: web, rerank: fakeRerank({ score: 0.6 }),
+      anthropic: fakeAnthropic({ extract: extracting(DOC_CLAIM), verify: (u) => ((verifyMsg = u), docVerdict(DOC_TEXT)) }),
+    });
+    await createPipeline(deps).runPipeline(store.addSegment(DOC_SEGMENT).id);
+    expect(web.calls).toBe(1);
+    expect(verifyMsg).toContain(DOC_CHUNK.url);
+    expect(verifyMsg).toContain(WEB_RESULT.url);
+    expect(store.verifications[0]?.latency_ms).toHaveProperty("retrieve_L4");
+  });
+
+  it("[RF03] [RNF01] base forte não espera a web: a busca começa junto, mas não atrasa", async () => {
+    const web = fakeWeb([WEB_RESULT], { delayMs: 1_500 });
+    const store = new MemoryStore({ chunks: [DOC_CHUNK] }, { require_red_approval: false });
+    const deps = makeDeps({
+      store, webSearch: web, rerank: fakeRerank({ score: 0.9 }),
+      anthropic: fakeAnthropic({ extract: extracting(DOC_CLAIM), verify: () => docVerdict(DOC_TEXT) }),
+    });
+    const t0 = Date.now();
+    await createPipeline(deps).runPipeline(store.addSegment(DOC_SEGMENT).id);
+    expect(Date.now() - t0).toBeLessThan(1_000);
+    expect(web.calls).toBe(1);
   });
 
   it("banco falhando ao gravar a verificação ⇒ claim_failed logado, sem exceção", async () => {

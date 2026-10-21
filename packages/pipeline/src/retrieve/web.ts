@@ -1,6 +1,6 @@
-// L4 — busca web (Tavily) restrita aos domínios de tier 1–2. Só roda quando
-// nenhuma camada da base trouxe evidência relevante. O conteúdo das páginas é
-// guardado inteiro: a citação do verificador é conferida contra ele.
+// L4 — busca web (Tavily) restrita aos domínios de tier 1–2. Começa junto com a
+// base e só é usada quando a base vem fraca (ver retrieve/index.ts). O conteúdo
+// das páginas é guardado inteiro: a citação do verificador é conferida contra ele.
 import { tierForUrl, lookupSource, webSearchDomains } from "@actually/db";
 import { RERANK_MIN_RELEVANCE, RERANK_TOP_K, RETRIEVE_COUNT, TAVILY_SEARCH_URL, TIMEOUTS_MS } from "../config";
 import type { RerankFn } from "../rerank";

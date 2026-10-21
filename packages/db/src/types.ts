@@ -111,6 +111,8 @@ export interface IndicatorRef {
   kind: "level" | "change_abs" | "change_pct" | "max" | "min";
 }
 
+export type ClaimKindDb = "fato" | "estatistica" | "acusacao" | "opiniao_mensuravel" | "previsao";
+
 export interface Claim {
   id: string;
   debate_id: string;
@@ -121,6 +123,10 @@ export interface Claim {
   claim_hash: string;
   numbers: ClaimNumber[];
   topic: string | null;
+  /** fato | estatistica | acusacao | opiniao_mensuravel | previsao (migration 0011). */
+  kind: ClaimKindDb;
+  /** Opinião/previsão: o dado ou a projeção que mede a fala. */
+  measurable: string | null;
   indicator: IndicatorRef | null;
   embedding: number[] | string | null;
   duplicate_of: string | null;

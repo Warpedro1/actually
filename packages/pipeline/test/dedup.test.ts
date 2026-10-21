@@ -15,7 +15,7 @@ const noLLM = fakeAnthropic({
 });
 
 const claim = (text: string): ExtractedClaim => ({
-  text_original: text, text_normalized: text, topic: "economia", numbers: [], indicator: null, time_reference: null,
+  text_original: text, text_normalized: text, topic: "economia", kind: "fato", measurable: null, numbers: [], indicator: null, time_reference: null,
 });
 
 const SEG = { id: 1, speaker_label: "SPEAKER_1", t_end: 18 };
@@ -29,7 +29,7 @@ async function seedOriginal(
   const verdict = opts.verdict ?? "contradito";
   const { id: claimId } = await store.insertClaim({
     debate_id: debateId, segment_id: 1, speaker_label: "SPEAKER_1", text_original: text, text_normalized: text,
-    claim_hash: claimHash(text), numbers: [], topic: "economia", indicator: null, embedding, duplicate_of: null,
+    claim_hash: claimHash(text), numbers: [], topic: "economia", kind: "fato", measurable: null, indicator: null, embedding, duplicate_of: null,
   });
   const ver = await store.insertVerification({
     claim_id: claimId, verdict, correction: "Segundo o IBGE, foi 7,8%.", model_confidence: 0.95,
@@ -54,7 +54,7 @@ async function seedOriginal(
 async function seedUnverified(store: MemoryStore, text: string) {
   const { id } = await store.insertClaim({
     debate_id: DEBATE_ID, segment_id: 1, speaker_label: "SPEAKER_1", text_original: text, text_normalized: text,
-    claim_hash: claimHash(text), numbers: [], topic: "economia", indicator: null, embedding: fakeVector(text), duplicate_of: null,
+    claim_hash: claimHash(text), numbers: [], topic: "economia", kind: "fato", measurable: null, indicator: null, embedding: fakeVector(text), duplicate_of: null,
   });
   return id;
 }

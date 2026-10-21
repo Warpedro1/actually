@@ -8,7 +8,7 @@ import type { AnthropicLike } from "./deps";
 import type { Logger } from "./log";
 import { normalizeClaimNumbers } from "./normalize";
 import { normalizeForQuote, quoteCheck } from "./quoteCheck";
-import { TOPICS, type ExtractedClaim, type Topic } from "./types";
+import { CLAIM_KINDS, DROPPED_KINDS, TOPICS, type ClaimKind, type ExtractedClaim, type Topic } from "./types";
 import { anthropicUsageRow, type UsageMeter } from "./usage";
 
 // Schema leniente de propósito: enums viram texto e são validados em código,
@@ -19,6 +19,11 @@ export const ExtractionSchema = z.object({
       text_original: z.string().describe("Trecho literal da fala atual que contém a afirmação."),
       text_normalized: z.string().describe("Afirmação autossuficiente em PT-BR, com sujeito e tempo resolvidos."),
       topic: z.string().describe(`Um de: ${TOPICS.join(", ")}`),
+      tipo: z.string().describe(`Tipo da fala, um de: ${[...CLAIM_KINDS, ...DROPPED_KINDS].join(", ")}`),
+      measurable: z
+        .string()
+        .nullable()
+        .describe("Só para opiniao_mensuravel e previsao: o dado ou a projeção pública que mede a fala. null nos outros tipos."),
       numbers: z.array(
         z.object({
           value: z.number().describe("Valor numérico absoluto (\"1,5 milhão\" → 1500000; \"6%\" → 6)."),
@@ -46,18 +51,23 @@ const INDICATOR_KINDS: IndicatorRef["kind"][] = ["level", "change_abs", "change_
 // Prompt de sistema estável (sem data nem nada variável) — bom para cache.
 export const EXTRACT_SYSTEM = `Você é o extrator de afirmações checáveis de um sistema de checagem de fatos AO VIVO do debate presidencial brasileiro de 2026 (Lula x Flávio Bolsonaro). Precisão vale mais que cobertura: na dúvida, NÃO extraia.
 
-Você recebe a transcrição automática dos últimos segundos (<contexto>) e a fala atual (<fala_atual>). Extraia SOMENTE afirmações da fala atual que sejam fatos verificáveis contra dados públicos: números, estatísticas, datas, atos de governo, leis, votações, declarações passadas, resultados de políticas.
+Você recebe a transcrição automática dos últimos segundos (<contexto>) e a fala atual (<fala_atual>). Extraia da fala atual as afirmações que podem ser julgadas com dados ou fontes públicas, e classifique cada uma em "tipo":
+- "fato": fato verificável — ato de governo, lei, votação, data, evento, declaração passada, resultado de política.
+- "estatistica": número, percentual, valor ou indicador.
+- "acusacao": situação judicial ou policial de uma pessoa ou partido (preso, condenado, réu, denunciado, investigado, indiciado, inelegível, absolvido, processo anulado ou arquivado) ou escândalo concreto. Só a parte factual: "ele foi condenado por corrupção" entra; "ele é ladrão" é opinião.
+- "opiniao_mensuravel": juízo de valor ou exagero cuja essência um dado público mede. Ex.: "não tem mais carne na mesa do brasileiro" (consumo de carne por pessoa); "os estados fracassaram na segurança" (taxas de homicídio por estado). Preencha "measurable" com o dado que mede a fala.
+- "previsao": previsão ou projeção sobre o futuro que dá para comparar com projeções publicadas (Banco Central/Focus, IFI, Tesouro, FMI, agências de rating). Ex.: "o Brasil vai crescer 3% no ano que vem". Preencha "measurable" com a projeção a consultar.
+- "promessa": compromisso do próprio falante sobre o que vai fazer ("vou construir 500 mil vagas"). Não dá para medir; marque assim e o sistema descarta.
+- "opiniao": juízo de valor sem base mensurável, ataque pessoal ou adjetivo ("ele é incompetente", "passa a mão na cabeça de bandido"). Marque assim e o sistema descarta.
 
 NÃO extraia:
-- opiniões e juízos de valor ("o melhor governo da história", "a economia vai mal");
-- promessas, planos e previsões ("vou criar 10 milhões de empregos");
-- hipóteses e condicionais; perguntas; ataques sem fato concreto ("ele é mentiroso");
-- cumprimentos, falas do mediador, regras do debate, fatos sobre o próprio debate;
+- cumprimentos, falas do mediador, regras do debate, fatos sobre o próprio debate, perguntas;
+- hipóteses e condicionais ("se eu tivesse...", "poderia ter...");
 - afirmações cujo sujeito, objeto ou período não dá para resolver com segurança pelo contexto.
 
 Para cada afirmação:
 - text_original: trecho LITERAL da fala atual (copie exatamente como transcrito).
-- text_normalized: frase autossuficiente em português, com sujeito e tempo explícitos. Resolva "isso", "ele", "lá", "no meu governo", "no governo dele", "ano passado" usando o contexto e a data do debate. Se o falante não puder ser identificado com segurança, NÃO atribua o governo a ninguém — descarte a afirmação se ela depender disso.
+- text_normalized: frase autossuficiente em português, com sujeito e tempo explícitos. Em opinião e previsão, mantenha o sentido literal da fala (a métrica vai em "measurable", não no texto). Resolva "isso", "ele", "lá", "no meu governo", "no governo dele", "ano passado" usando o contexto e a data do debate. Se o falante não puder ser identificado com segurança, NÃO atribua o governo a ninguém — descarte a afirmação se ela depender disso.
 - Uma afirmação = um fato. Separe frases com dois fatos em duas afirmações.
 - topic: economia, impostos, programas_sociais, seguranca, corrupcao_justica, saude, meio_ambiente, educacao, politica_externa ou outro.
 - numbers: todos os números da afirmação, com valor absoluto ("1,5 milhão" → 1500000; "R$ 600" → 600 com unidade "R$"; "6%" → 6 com unidade "%").
@@ -68,15 +78,27 @@ Se não houver nada checável, devolva {"claims": []}.
 
 Exemplos (resumidos):
 Fala: "Boa noite a todos, é uma honra estar aqui." → {"claims": []}
-Fala: "Eu vou acabar com a fome em dois anos." → {"claims": []}
-Fala: "No meu governo o desemprego caiu para 6,6%." (contexto indica o presidente Lula, falando de 2024) → text_normalized "A taxa de desemprego no Brasil foi de 6,6% em 2024, durante o governo Lula."; indicator {query "desemprego", period "2024", claimed_value 6.6, unit "%", kind "level"}.
-Fala: "O desmatamento na Amazônia caiu quase 50% de 2022 para 2023." → indicator {query "desmatamento Amazônia", period "2022..2023", claimed_value 50, unit "%", kind "change_pct"}; numbers [{value 50, unit "%", raw "quase 50%"}].
-Fala: "Ele votou contra a PEC da Transição." (contexto: o senador Flávio Bolsonaro) → text_normalized "O senador Flávio Bolsonaro votou contra a PEC da Transição."; indicator null.`;
+Fala: "Eu vou acabar com a fome em dois anos." → tipo "promessa".
+Fala: "Hoje o brasileiro não consegue mais comprar carne." → tipo "opiniao_mensuravel"; measurable "consumo de carne bovina por pessoa no Brasil em 2025 e 2026".
+Fala: "Ele foi condenado em três instâncias." (contexto: falando de Lula) → tipo "acusacao"; text_normalized "Lula foi condenado em três instâncias da Justiça."
+Fala: "No meu governo o desemprego caiu para 6,6%." (contexto indica o presidente Lula, falando de 2024) → text_normalized "A taxa de desemprego no Brasil foi de 6,6% em 2024, durante o governo Lula."; tipo "estatistica"; indicator {query "desemprego", period "2024", claimed_value 6.6, unit "%", kind "level"}.
+Fala: "O desmatamento na Amazônia caiu quase 50% de 2022 para 2023." → tipo "estatistica"; indicator {query "desmatamento Amazônia", period "2022..2023", claimed_value 50, unit "%", kind "change_pct"}; numbers [{value 50, unit "%", raw "quase 50%"}].
+Fala: "Ele votou contra a PEC da Transição." (contexto: o senador Flávio Bolsonaro) → text_normalized "O senador Flávio Bolsonaro votou contra a PEC da Transição."; tipo "fato"; indicator null.`;
 
 function toTopic(t: string): Topic {
   const n = t.trim().toLowerCase();
   return (TOPICS as readonly string[]).includes(n) ? (n as Topic) : "outro";
 }
+
+/** Tipo da fala; desconhecido vira "fato" (o schema é leniente). null = descartar. */
+export function toKind(k: string | null | undefined): ClaimKind | null {
+  const n = (k ?? "").trim().toLowerCase();
+  if ((DROPPED_KINDS as readonly string[]).includes(n)) return null;
+  return (CLAIM_KINDS as readonly string[]).includes(n) ? (n as ClaimKind) : "fato";
+}
+
+/** Opinião e previsão só são julgáveis com o dado que as mede. */
+const NEEDS_MEASURE: readonly ClaimKind[] = ["opiniao_mensuravel", "previsao"];
 
 function toIndicator(raw: ExtractionOutput["claims"][number]["indicator"]): IndicatorRef | null {
   if (!raw || !raw.query.trim()) return null;
@@ -105,10 +127,22 @@ export function postprocessExtraction(out: ExtractionOutput, segmentText: string
       logger("warn", "extract_claim_not_in_segment", { text_original: original });
       continue;
     }
+    const kind = toKind(c.tipo);
+    const measurable = c.measurable?.trim() || null;
+    if (!kind) {
+      logger("info", "extract_dropped", { reason: c.tipo.trim().toLowerCase(), text_original: original });
+      continue;
+    }
+    if (NEEDS_MEASURE.includes(kind) && !measurable) {
+      logger("info", "extract_dropped", { reason: "sem_medida", kind, text_original: original });
+      continue;
+    }
     claims.push({
       text_original: original,
       text_normalized: normalized,
       topic: toTopic(c.topic),
+      kind,
+      measurable: NEEDS_MEASURE.includes(kind) ? measurable : null,
       numbers: normalizeClaimNumbers(c.numbers),
       indicator: toIndicator(c.indicator),
       time_reference: c.time_reference?.trim() || null,

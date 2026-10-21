@@ -47,6 +47,22 @@ export const TIMEOUTS_MS = {
   usage: 3_000,
 } as const;
 
+/**
+ * Regras por tipo de fala (score.ts):
+ * - max_level: nível máximo do alerta (opinião e previsão nunca são vermelhas);
+ * - extra_threshold: soma ao threshold do nível (exige mais certeza);
+ * - max_tier: qualquer alerta só com fonte deste nível ou melhor (o nível 4 nunca vale);
+ * - red_max_tier: vermelho só com fonte deste nível ou melhor;
+ * - force_review: alerta sempre passa pelo editor, com HITL ligado ou não.
+ */
+export const KIND_RULES = {
+  fato: { max_level: "red", extra_threshold: 0, max_tier: 3, red_max_tier: 2, force_review: false },
+  estatistica: { max_level: "red", extra_threshold: 0, max_tier: 3, red_max_tier: 2, force_review: false },
+  acusacao: { max_level: "red", extra_threshold: 0, max_tier: 2, red_max_tier: 1, force_review: true },
+  opiniao_mensuravel: { max_level: "yellow", extra_threshold: 0.1, max_tier: 2, red_max_tier: 2, force_review: false },
+  previsao: { max_level: "yellow", extra_threshold: 0.1, max_tier: 2, red_max_tier: 2, force_review: false },
+} as const;
+
 /** Quantos candidatos cada RPC devolve antes do rerank. */
 export const RETRIEVE_COUNT = { L1: 8, L3: 10, L4: 6 } as const;
 /** Quantos sobrevivem ao rerank por camada. */
@@ -56,6 +72,13 @@ export const RERANK_TOP_K = { L1: 3, L3: 3, L4: 3 } as const;
  * Calibrar no eval; L1 é mais exigente porque checagem é sobre afirmação específica.
  */
 export const RERANK_MIN_RELEVANCE = { L1: 0.6, L3: 0.5, L4: 0.5 } as const;
+/**
+ * Base "forte" dispensa a web: checagem ou documento com relevância a partir
+ * disto (ou indicador com dado). Abaixo, a web (L4) entra como complemento —
+ * no ensaio de 21/10, votações do Senado vizinhas do assunto (relevância ≥ 0,5)
+ * travavam a web e as afirmações saíam inconclusivas. Calibrar no eval.
+ */
+export const WEB_SKIP_MIN_RELEVANCE = { L1: 0.75, L3: 0.75 } as const;
 /** Sem rerank (falhou/estourou): só aceita candidato com similaridade vetorial alta. */
 export const FALLBACK_MIN_SIMILARITY = 0.8;
 /** Similaridade (pg_trgm) mínima para aceitar a série encontrada por find_indicator. */

@@ -14,7 +14,7 @@ const extracting = (): FakeReply<ExtractionOutput> => ({
   output: {
     claims: [{
       text_original: "o desemprego em 2023 foi de 12%", text_normalized: "A taxa de desemprego no Brasil em 2023 foi de 12%.",
-      topic: "economia", numbers: [], indicator: { ...INDICATOR }, time_reference: null,
+      topic: "economia", tipo: "estatistica", measurable: null, numbers: [], indicator: { ...INDICATOR }, time_reference: null,
     }],
   },
 });

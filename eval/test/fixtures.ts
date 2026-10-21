@@ -4,6 +4,8 @@ import type { DecisionRecord, Expected } from "../src/dataset";
 export function decision(over: Partial<ClaimDecision> = {}): ClaimDecision {
   return {
     claim: "afirmação",
+    kind: "fato",
+    review: false,
     verdict: "contradito",
     final_score: 0.9,
     alert: "red",

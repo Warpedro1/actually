@@ -7,6 +7,7 @@ import {
   type Segment, type Verdict, type VerifiedClaimMatch, type serviceClient,
 } from "@actually/db";
 import type { ApiUsageRow, EvidenceType, SourceTier } from "@actually/db";
+import type { ClaimKind } from "./types";
 
 /** Erro do banco com o código SQLSTATE preservado (ex.: 23505, 23514). */
 export class DbError extends Error {
@@ -51,6 +52,8 @@ export interface NewClaim {
   claim_hash: string;
   numbers: ClaimNumber[];
   topic: string | null;
+  kind: ClaimKind;
+  measurable: string | null;
   indicator: IndicatorRef | null;
   embedding: number[] | null;
   duplicate_of: string | null;
