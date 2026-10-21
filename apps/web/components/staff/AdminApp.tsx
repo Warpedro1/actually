@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { VERDICT_LABEL } from "@/lib/feed";
 import { formatTimeSec } from "@/lib/format";
 import { countByPerson, latencyStats, type PersonCount, type StageStats } from "@/lib/staff/stats";
+import { AdminTabs, useAdminTab } from "./AdminTabs";
 import { ApiUsagePanel } from "./ApiUsagePanel";
 import { DebateForms } from "./DebateForms";
 import { DebatePicker } from "./DebatePicker";
@@ -15,43 +16,60 @@ import { SettingsForm } from "./SettingsForm";
 import { Card, ErrorText, Pill, errMsg } from "./ui";
 import { useDebates, useNow, useTableChanges } from "./useStaffData";
 
+const TABS = [
+  { id: "ao-vivo", label: "Ao vivo" },
+  { id: "debates", label: "Debates" },
+  { id: "base", label: "Base de conhecimento" },
+  { id: "uso", label: "Uso das APIs" },
+] as const;
+type TabId = (typeof TABS)[number]["id"];
+const TAB_IDS: readonly TabId[] = TABS.map((t) => t.id);
+
 export function AdminApp({ client }: { client: SupabaseClient }) {
   const { debates, selected, select, reload, error } = useDebates(client);
+  const [tab, setTab] = useAdminTab(TAB_IDS, "actually:admin-tab");
+  // o seletor do topo só vale nas abas que dependem do debate
+  const usesDebate = tab === "ao-vivo" || tab === "debates";
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-4 px-4 py-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-xl font-semibold">Admin</h1>
-        <DebatePicker debates={debates} selected={selected} onSelect={select} />
+        {usesDebate ? <DebatePicker debates={debates} selected={selected} onSelect={select} /> : null}
       </div>
       <ErrorText>{error}</ErrorText>
-      <nav aria-label="Seções" className="flex flex-wrap gap-x-3 gap-y-1 text-sm">
-        {[
-          ["maquinas", "Máquinas"],
-          ["debate", "Debate"],
-          ["config", "Configurações"],
-          ["latencia", "Latência"],
-          ["neutralidade", "Neutralidade"],
-          ["alertas", "Alertas"],
-          ["base", "Base de conhecimento"],
-          ["uso", "Uso das APIs"],
-        ].map(([id, t]) => (
-          <a key={id} href={`#${id}`} className="text-muted underline hover:text-fg">
-            {t}
-          </a>
-        ))}
-      </nav>
-      <LiveMachines client={client} debates={debates} selected={selected} />
-      <DebateForms client={client} selected={selected} onSaved={reload} onCreated={(id) => void reload().then(() => select(id))} />
-      {selected ? (
-        <>
-          <SettingsForm client={client} debate={selected} onSaved={reload} />
-          <LatencyPanel client={client} debateId={selected.id} />
-          <NeutralityPanel client={client} debateId={selected.id} />
-          <AlertsTable client={client} debateId={selected.id} />
-        </>
-      ) : null}
-      <KbPanel client={client} />
-      <ApiUsagePanel client={client} />
+      <AdminTabs tabs={TABS} active={tab} onSelect={setTab} label="Seções do admin">
+        {tab === "ao-vivo" ? (
+          <>
+            <LiveMachines client={client} debates={debates} selected={selected} />
+            {selected ? (
+              <>
+                <AlertsTable client={client} debateId={selected.id} />
+                <LatencyPanel client={client} debateId={selected.id} />
+                <NeutralityPanel client={client} debateId={selected.id} />
+              </>
+            ) : (
+              <Card>
+                <p className="text-sm text-muted">
+                  Nenhum debate ainda. Crie um na aba{" "}
+                  <button type="button" className="underline hover:text-fg" onClick={() => setTab("debates")}>
+                    Debates
+                  </button>{" "}
+                  para ver alertas, latência e neutralidade.
+                </p>
+              </Card>
+            )}
+          </>
+        ) : tab === "debates" ? (
+          <>
+            <DebateForms client={client} selected={selected} onSaved={reload} onCreated={(id) => void reload().then(() => select(id))} />
+            {selected ? <SettingsForm client={client} debate={selected} onSaved={reload} /> : null}
+          </>
+        ) : tab === "base" ? (
+          <KbPanel client={client} />
+        ) : (
+          <ApiUsagePanel client={client} />
+        )}
+      </AdminTabs>
     </div>
   );
 }

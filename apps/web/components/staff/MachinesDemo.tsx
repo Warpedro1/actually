@@ -3,14 +3,24 @@
 import type { CaptureMachine, MachineDesired } from "@actually/db";
 import { useEffect, useState } from "react";
 import { demoAdminData } from "@/lib/demo/fixtures";
+import { AdminTabs, useAdminTab } from "./AdminTabs";
 import { ApiUsageDemo } from "./ApiUsageDemo";
 import { KbDemo } from "./KbDemo";
 import { MachinesPanel } from "./MachinesPanel";
 import { useNow } from "./useStaffData";
 
-/** /admin/demo: painel de máquinas com dados fictícios; comandos só mudam o estado local. */
+const TABS = [
+  { id: "ao-vivo", label: "Ao vivo" },
+  { id: "base", label: "Base de conhecimento" },
+  { id: "uso", label: "Uso das APIs" },
+] as const;
+type TabId = (typeof TABS)[number]["id"];
+const TAB_IDS: readonly TabId[] = TABS.map((t) => t.id);
+
+/** /admin/demo: abas do /admin com dados fictícios; comandos só mudam o estado local. */
 export function MachinesDemo() {
   const now = useNow(1000);
+  const [tab, setTab] = useAdminTab(TAB_IDS, "actually:admin-demo-tab");
   // Fixtures ancoradas no carregamento (só no navegador: idades dependem do relógio
   // e divergiriam entre SSR e hidratação); o relógio corre e as idades crescem.
   const [data, setData] = useState<ReturnType<typeof demoAdminData> | null>(null);
@@ -39,19 +49,25 @@ export function MachinesDemo() {
         <strong className="uppercase tracking-wide text-fg">Demonstração</strong> — máquinas, base, uso das APIs e estados fictícios; os
         botões só alteram esta tela.
       </div>
-      <MachinesPanel
-        machines={data.machines}
-        agents={data.agents}
-        debates={[data.debate]}
-        defaultDebateSlug={data.debate.slug}
-        failoverAfterS={10}
-        now={now}
-        realtime="demo"
-        onSaveDesired={onSaveDesired}
-        onSetActive={onSetActive}
-      />
-      <KbDemo />
-      <ApiUsageDemo />
+      <AdminTabs tabs={TABS} active={tab} onSelect={setTab} label="Seções do admin">
+        {tab === "ao-vivo" ? (
+          <MachinesPanel
+            machines={data.machines}
+            agents={data.agents}
+            debates={[data.debate]}
+            defaultDebateSlug={data.debate.slug}
+            failoverAfterS={10}
+            now={now}
+            realtime="demo"
+            onSaveDesired={onSaveDesired}
+            onSetActive={onSetActive}
+          />
+        ) : tab === "base" ? (
+          <KbDemo />
+        ) : (
+          <ApiUsageDemo />
+        )}
+      </AdminTabs>
     </div>
   );
 }

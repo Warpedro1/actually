@@ -144,6 +144,7 @@ describe("[RF05] [RF04] alerta na interface", () => {
 describe("[RF15] painel da base no /admin: confirmação antes de criar tarefa", () => {
   it("[RF15] clique abre a confirmação no lugar; Cancelar não pede nada; Confirmar pede", async () => {
     const { ctx, page } = await open("/admin/demo");
+    await page.getByRole("tab", { name: "Base de conhecimento" }).click();
     const base = page.locator("#base");
     await base.waitFor();
     const status = base.locator('[role="status"]');
@@ -171,7 +172,7 @@ describe("[RF15] painel da base no /admin: confirmação antes de criar tarefa",
   });
 
   it("[RF15] ações agrupadas por categoria", async () => {
-    const { ctx, page } = await open("/admin/demo");
+    const { ctx, page } = await open("/admin/demo#base");
     const base = page.locator("#base");
     await base.waitFor();
     const groups = await base.locator("section h3").allTextContents();
@@ -185,6 +186,7 @@ describe("[RF15] painel da base no /admin: confirmação antes de criar tarefa",
 describe("[RNF05] painel de uso das APIs no /admin", () => {
   it("[RNF05] um cartão por provedor, com situação, barra de limite acessível e link do provedor", async () => {
     const { ctx, page } = await open("/admin/demo", { mobile: true });
+    await page.getByRole("tab", { name: "Uso das APIs" }).click();
     const uso = page.locator("#uso");
     await uso.waitFor();
     const cards = uso.locator("article");
@@ -199,6 +201,37 @@ describe("[RNF05] painel de uso das APIs no /admin", () => {
       expect(href).toMatch(/^https:\/\//);
     }
     await ctx.close();
+  });
+});
+
+describe("[RNF10] abas do /admin", () => {
+  it("[RNF10] teclado troca de aba e move o foco, só o painel ativo fica na página e o # da URL abre a aba", async () => {
+    const { ctx, page } = await open("/admin/demo");
+    await page.getByRole("tablist", { name: "Seções do admin" }).waitFor();
+    expect(await page.getByRole("tab").allTextContents()).toEqual(["Ao vivo", "Base de conhecimento", "Uso das APIs"]);
+    const aoVivo = page.getByRole("tab", { name: "Ao vivo" });
+    expect(await aoVivo.getAttribute("aria-selected")).toBe("true");
+    expect(await page.locator("#maquinas").count()).toBe(1);
+    expect(await page.locator("#base").count()).toBe(0);
+
+    await aoVivo.focus();
+    await page.keyboard.press("ArrowRight");
+    expect(await page.getByRole("tab", { name: "Base de conhecimento" }).getAttribute("aria-selected")).toBe("true");
+    expect(await page.evaluate(() => document.activeElement?.textContent)).toBe("Base de conhecimento");
+    await page.locator("#base").waitFor();
+    expect(await page.locator("#maquinas").count()).toBe(0);
+    expect(new URL(page.url()).hash).toBe("#base");
+
+    await page.keyboard.press("End");
+    expect(await page.getByRole("tab", { name: "Uso das APIs" }).getAttribute("aria-selected")).toBe("true");
+    await page.keyboard.press("ArrowRight");
+    expect(await aoVivo.getAttribute("aria-selected")).toBe("true");
+    await ctx.close();
+
+    const direct = await open("/admin/demo#uso");
+    await direct.page.locator("#uso").waitFor();
+    expect(await direct.page.getByRole("tab", { name: "Uso das APIs" }).getAttribute("aria-selected")).toBe("true");
+    await direct.ctx.close();
   });
 });
 
