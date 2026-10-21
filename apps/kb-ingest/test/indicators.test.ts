@@ -190,18 +190,22 @@ describe("[RF15] catálogo de indicadores", () => {
       for (const a of ["desempregados", "desocupados", "pessoas desocupadas", "número de desempregados"]) expect(s.aliases).not.toContain(a);
     }
   });
-  it("alias repetido entre séries ativas só nos pares do IPCA e do PIB (empate que a afirmação desempata)", () => {
+  it("alias repetido entre séries ativas só no par do IPCA (empate que a afirmação desempata)", () => {
     const norm = (a: string) => a.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().trim();
     const owners = new Map<string, string[]>();
     for (const s of activeSeries()) for (const a of new Set(s.aliases.map(norm))) owners.set(a, [...(owners.get(a) ?? []), s.code]);
     const shared = new Map([...owners].filter(([, codes]) => codes.length > 1).map(([a, codes]) => [a, codes.sort()]));
     const ipcaPair = ["ipca_12m", "ipca_mensal"];
-    const pibPair = ["pib_variacao_anual", "pib_variacao_trimestral"];
-    expect([...shared.keys()].sort()).toEqual([
-      "crescimento da economia", "crescimento do pib", "custo de vida", "indice de precos ao consumidor amplo", "inflacao", "ipca", "pib", "variacao do pib",
-    ]);
+    expect([...shared.keys()].sort()).toEqual(["custo de vida", "indice de precos ao consumidor amplo", "inflacao", "ipca"]);
     for (const a of ["custo de vida", "indice de precos ao consumidor amplo", "inflacao", "ipca"]) expect(shared.get(a)).toEqual(ipcaPair);
-    for (const a of ["crescimento da economia", "crescimento do pib", "pib", "variacao do pib"]) expect(shared.get(a)).toEqual(pibPair);
+    // PIB: os apelidos genéricos são só da anual. A trimestral compara com o mesmo trimestre do
+    // ano anterior, e a manchete trimestral do IBGE costuma ser contra o trimestre anterior:
+    // "o PIB cresceu 0,4% no trimestre" não pode cair nela (viraria falso "contradito").
+    const trimAliases = serie("pib_variacao_trimestral").aliases.map(norm);
+    for (const a of ["pib", "crescimento do pib", "crescimento da economia", "variacao do pib"]) {
+      expect(trimAliases).not.toContain(a);
+      expect(serie("pib_variacao_anual").aliases.map(norm)).toContain(a);
+    }
     // "inflação de 2023": a variação mensal não agrega em ano, só o acumulado 12m cabe
     const ipca = activeSeries().filter((s) => s.code.startsWith("ipca"));
     expect(ipca.map((s) => s.aggregation).sort()).toEqual(["accum_12m", "none"]);

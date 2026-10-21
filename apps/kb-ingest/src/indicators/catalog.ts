@@ -280,7 +280,11 @@ export const CATALOG: CatalogSeries[] = [
   {
     code: "pib_variacao_trimestral",
     name: "PIB — variação em volume no trimestre contra o mesmo trimestre do ano anterior",
-    aliases: ["pib", "crescimento do pib", "crescimento da economia", "variação do pib", "pib trimestral"],
+    // Só falas explícitas sobre a comparação com o mesmo trimestre do ano anterior. A manchete
+    // trimestral do IBGE costuma ser contra o trimestre anterior (com ajuste sazonal): com
+    // apelidos genéricos ("pib", "crescimento da economia"), "o PIB cresceu 0,4% no trimestre"
+    // seria comparado com a série errada e viraria um falso "contradito".
+    aliases: ["pib contra o mesmo trimestre do ano anterior", "pib na comparação anual do trimestre", "pib trimestral interanual"],
     unit: "%",
     periodicity: "quarterly",
     aggregation: "none",
