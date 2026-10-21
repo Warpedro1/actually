@@ -421,6 +421,7 @@ describe("[RF03] retrieveAll: comparação L2 só entra com a camada L2 concluí
     text_original: "o desemprego em 2023 foi de 12%", text_normalized: "A taxa de desemprego no Brasil em 2023 foi de 12%.",
     topic: "economia", kind: "estatistica", measurable: null, numbers: [], time_reference: "2023",
     indicator: { query: "desemprego", period: "2023", claimed_value: 12, unit: "%", kind: "level" },
+    reference: null,
   };
   const anthropic = fakeAnthropic({ extract: () => ({ hang: true }), verify: () => ({ hang: true }) });
 

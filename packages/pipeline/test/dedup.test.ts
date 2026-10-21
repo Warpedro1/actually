@@ -15,7 +15,7 @@ const noLLM = fakeAnthropic({
 });
 
 const claim = (text: string): ExtractedClaim => ({
-  text_original: text, text_normalized: text, topic: "economia", kind: "fato", measurable: null, numbers: [], indicator: null, time_reference: null,
+  text_original: text, text_normalized: text, topic: "economia", kind: "fato", measurable: null, numbers: [], indicator: null, reference: null, time_reference: null,
 });
 
 const SEG = { id: 1, speaker_label: "SPEAKER_1", t_end: 18 };

@@ -6,7 +6,7 @@ import {
   type FactcheckMatch, type IndicatorMatch, type IndicatorRef, type IndicatorValue, type KbLayer,
   type Segment, type Verdict, type VerifiedClaimMatch, type serviceClient,
 } from "@actually/db";
-import type { ApiUsageRow, EvidenceType, SourceTier } from "@actually/db";
+import type { ApiUsageRow, EvidenceType, RefElection, RefMandate, SourceTier } from "@actually/db";
 import type { ClaimKind } from "./types";
 
 /** Erro do banco com o código SQLSTATE preservado (ex.: 23505, 23514). */
@@ -114,6 +114,10 @@ export interface PipelineStore {
   matchChunks(embedding: number[], text: string, count: number, person: string | null): Promise<ChunkMatch[]>;
   findIndicator(q: string, count: number): Promise<IndicatorMatch[]>;
   indicatorValues(seriesCode: string): Promise<IndicatorValue[]>;
+  /** Fatos de referência: mandatos presidenciais (tabela pequena, lida inteira). */
+  refMandates?(): Promise<RefMandate[]>;
+  /** Fatos de referência: resultado oficial de cada candidato no turno. */
+  refElections?(year: number, round: number): Promise<RefElection[]>;
   /** Soma o uso das APIs na hora corrente (opcional: os testes não gravam). */
   recordUsage?(rows: ApiUsageRow[], ratelimits: Record<string, Record<string, string>>): Promise<void>;
 }
@@ -278,6 +282,18 @@ export function supabaseStore(sb: Sb): PipelineStore {
         "indicatorValues",
       );
       return ((rows ?? []) as IndicatorValue[]).map((r) => ({ ...r, value: num(r.value) }));
+    },
+
+    async refMandates() {
+      const { data, error } = await sb.from("ref_mandatos").select("*").order("inicio");
+      if (error) throw new DbError(`refMandates: ${error.message}`, error.code);
+      return (data ?? []) as RefMandate[];
+    },
+
+    async refElections(year, round) {
+      const { data, error } = await sb.from("ref_eleicoes").select("*").eq("ano", year).eq("turno", round);
+      if (error) throw new DbError(`refElections: ${error.message}`, error.code);
+      return ((data ?? []) as RefElection[]).map((r) => ({ ...r, votos: Number(r.votos), pct_validos: Number(r.pct_validos) }));
     },
 
     async recordUsage(rows, ratelimits) {

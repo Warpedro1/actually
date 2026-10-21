@@ -63,6 +63,20 @@ export const KIND_RULES = {
   previsao: { max_level: "yellow", extra_threshold: 0.1, max_tier: 2, red_max_tier: 2, force_review: false },
 } as const;
 
+/**
+ * Fatos de referência (retrieve/reference.ts): até onde o dito ainda "bate".
+ * Anos no poder: ±1 ano é arredondamento de fala; até 20% é impreciso; além, contradito.
+ * Votos: ±2% bate, até 10% impreciso. Percentual de válidos: ±1 p.p. bate, até 3 p.p. impreciso.
+ */
+export const REFERENCE_TOLERANCE = {
+  years_match: 1,
+  years_minor_frac: 0.2,
+  votes_match_frac: 0.02,
+  votes_minor_frac: 0.1,
+  pct_match_pp: 1,
+  pct_minor_pp: 3,
+} as const;
+
 /** Quantos candidatos cada RPC devolve antes do rerank. */
 export const RETRIEVE_COUNT = { L1: 8, L3: 10, L4: 6 } as const;
 /** Quantos sobrevivem ao rerank por camada. */

@@ -111,6 +111,36 @@ export interface IndicatorRef {
   kind: "level" | "change_abs" | "change_pct" | "max" | "min";
 }
 
+/** Fatos de referência (migration 0012): mandatos presidenciais, com a conta feita em código. */
+export interface RefMandate {
+  id: string;
+  pessoa: string;
+  partido: string;
+  inicio: string;
+  /** null = em curso. */
+  fim: string | null;
+  papel: "titular" | "interino";
+  fonte_nome: string;
+  fonte_url: string;
+  trecho: string;
+  notas: string | null;
+}
+
+/** Resultado oficial (TSE) de um candidato numa eleição presidencial. */
+export interface RefElection {
+  id: string;
+  ano: number;
+  turno: number;
+  candidato: string;
+  partido: string;
+  votos: number;
+  pct_validos: number;
+  eleito: boolean;
+  fonte_nome: string;
+  fonte_url: string;
+  trecho: string;
+}
+
 export type ClaimKindDb = "fato" | "estatistica" | "acusacao" | "opiniao_mensuravel" | "previsao";
 
 export interface Claim {

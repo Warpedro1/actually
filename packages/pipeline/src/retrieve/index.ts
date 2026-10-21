@@ -9,6 +9,7 @@ import type { EvidenceCandidate, ExtractedClaim, IndicatorComparison, LayerOutco
 import { retrieveDocuments } from "./documents";
 import { retrieveFactchecks } from "./factchecks";
 import { retrieveIndicator } from "./indicators";
+import { retrieveReference } from "./reference";
 import { retrieveWeb } from "./web";
 
 /**
@@ -69,16 +70,25 @@ export async function retrieveAll(
   if (embedding) {
     tasks.push(runLayer("L1", deps, () => retrieveFactchecks(query, embedding, deps.store, deps.rerank, deps.logger)));
   }
-  // a comparação L2 só existe junto com a camada L2 concluída no prazo
+  // a comparação L2 só existe junto com a camada L2 concluída no prazo. Fato de
+  // referência (mandatos, eleições) e indicador são comparados em código; a
+  // referência tem prioridade (a fala sobre "anos no poder" não é série econômica)
   let l2: Promise<{ outcome: LayerOutcome; extra: IndicatorComparison | null }> | null = null;
-  if (claim.indicator) {
-    const ref = claim.indicator;
+  const reference = claim.reference;
+  const indicator = claim.indicator;
+  if (reference) {
+    const asOf = new Date(deps.now()).toISOString().slice(0, 10);
     l2 = runLayerWith("L2", deps, async () => {
-      const r = await retrieveIndicator(ref, deps.store);
+      const r = await retrieveReference(reference, deps.store, asOf);
       return { candidates: r.candidate ? [r.candidate] : [], extra: r.comparison };
     });
-    tasks.push(l2.then((r) => r.outcome));
+  } else if (indicator) {
+    l2 = runLayerWith("L2", deps, async () => {
+      const r = await retrieveIndicator(indicator, deps.store);
+      return { candidates: r.candidate ? [r.candidate] : [], extra: r.comparison };
+    });
   }
+  if (l2) tasks.push(l2.then((r) => r.outcome));
   if (embedding) {
     tasks.push(runLayer("L3", deps, () => retrieveDocuments(measureQuery, embedding, deps.store, deps.rerank, deps.logger)));
   }

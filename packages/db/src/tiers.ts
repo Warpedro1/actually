@@ -20,6 +20,12 @@ export const SOURCE_TIERS: SourceTierRow[] = [
   { domain: "inpe.br", name: "INPE", tier: 1, kind: "oficial" },
   { domain: "tse.jus.br", name: "TSE", tier: 1, kind: "oficial" },
   { domain: "stf.jus.br", name: "STF", tier: 1, kind: "oficial" },
+  { domain: "stj.jus.br", name: "STJ", tier: 1, kind: "oficial" },
+  // demais tribunais (TRFs, TJs, CNJ): decisão judicial é o registro primário de processo
+  { domain: "jus.br", name: "Poder Judiciário", tier: 1, kind: "oficial" },
+  // Ministério Público: registro primário de denúncia/arquivamento (não de culpa)
+  { domain: "mpf.mp.br", name: "Ministério Público Federal", tier: 1, kind: "oficial" },
+  { domain: "mp.br", name: "Ministério Público", tier: 1, kind: "oficial" },
   { domain: "senado.leg.br", name: "Senado Federal", tier: 1, kind: "oficial" },
   { domain: "camara.leg.br", name: "Câmara dos Deputados", tier: 1, kind: "oficial" },
   // só a legislação compilada; o resto do Planalto é comunicação do governo (cai em "gov.br")

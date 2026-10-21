@@ -2,7 +2,7 @@
 // cliente Anthropic falso, Voyage/Tavily falsos e relógio.
 import type {
   Alert, ChunkMatch, Debate, DebateSettings, FactcheckMatch, IndicatorMatch, IndicatorSeries, IndicatorValue,
-  Segment, VerifiedClaimMatch,
+  RefElection, RefMandate, Segment, VerifiedClaimMatch,
 } from "@actually/db";
 import { EMBEDDING_DIM } from "@actually/db";
 import type { PipelineDeps, AnthropicLike } from "../src/deps";
@@ -48,6 +48,8 @@ export interface KbFixture {
   chunks?: ChunkMatch[];
   series?: IndicatorSeries[];
   values?: IndicatorValue[];
+  mandates?: RefMandate[];
+  elections?: RefElection[];
 }
 
 export interface DelayFixture {
@@ -197,6 +199,15 @@ export class MemoryStore implements PipelineStore {
     await this.gate("indicatorValues");
     return (this.kb.values ?? []).filter((v) => v.series_code === code);
   }
+  async refMandates() {
+    await this.gate("refMandates");
+    return this.kb.mandates ?? [];
+  }
+  async refElections(year: number, round: number) {
+    await this.gate("refElections");
+    return (this.kb.elections ?? []).filter((e) => e.ano === year && e.turno === round);
+  }
+
 }
 
 // ---------------------------------------------------------------------------

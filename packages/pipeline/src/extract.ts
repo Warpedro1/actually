@@ -8,7 +8,7 @@ import type { AnthropicLike } from "./deps";
 import type { Logger } from "./log";
 import { normalizeClaimNumbers } from "./normalize";
 import { normalizeForQuote, quoteCheck } from "./quoteCheck";
-import { CLAIM_KINDS, DROPPED_KINDS, TOPICS, type ClaimKind, type ExtractedClaim, type Topic } from "./types";
+import { CLAIM_KINDS, DROPPED_KINDS, TOPICS, type ClaimKind, type ExtractedClaim, type ReferenceRef, type Topic } from "./types";
 import { anthropicUsageRow, type UsageMeter } from "./usage";
 
 // Schema leniente de propósito: enums viram texto e são validados em código,
@@ -38,6 +38,18 @@ export const ExtractionSchema = z.object({
           claimed_value: z.number().nullable(),
           unit: z.string().nullable(),
           kind: z.string().describe("level | change_abs | change_pct | max | min"),
+        })
+        .nullable(),
+      reference: z
+        .object({
+          type: z.string().describe("tempo_no_poder | eleicao"),
+          subject: z.string().describe("Pessoa ou partido (tempo_no_poder) ou candidato (eleicao), como dito."),
+          window_years: z.number().nullable().describe("tempo_no_poder: janela em anos (\"dos últimos 24 anos\" → 24); null = tempo total."),
+          year: z.number().nullable().describe("eleicao: ano da eleição."),
+          round: z.number().nullable().describe("eleicao: turno (1 ou 2)."),
+          claimed_value: z.number().describe("Número afirmado (anos, votos ou %)."),
+          unit: z.string().describe("anos | votos | %"),
+          qualifier: z.string().describe("exato | cerca_de | mais_de | menos_de | quase"),
         })
         .nullable(),
       time_reference: z.string().nullable().describe("Referência temporal resolvida, ex.: \"2023\", \"2019 a 2022\"."),
@@ -72,6 +84,7 @@ Para cada afirmação:
 - topic: economia, impostos, programas_sociais, seguranca, corrupcao_justica, saude, meio_ambiente, educacao, politica_externa ou outro.
 - numbers: todos os números da afirmação, com valor absoluto ("1,5 milhão" → 1500000; "R$ 600" → 600 com unidade "R$"; "6%" → 6 com unidade "%").
 - indicator: preencha só quando a afirmação é sobre o valor de um indicador oficial (desemprego/desocupação, inflação/IPCA, Selic, PIB, dívida pública, salário mínimo, desmatamento, homicídios, preço de combustível, beneficiários de programa social...). period: "AAAA", "AAAA-T4", "AAAA-MM" ou intervalo "INICIO..FIM" (ex.: "2019..2022"); null quando a fala diz "hoje"/"atualmente". kind: level (valor no período), change_abs (variação absoluta; em indicador percentual, pontos percentuais), change_pct (variação relativa %), max/min (recorde). claimed_value: o número afirmado; use negativo só se a fala disser queda explicitamente em uma variação.
+- reference: preencha só quando a afirmação é (a) sobre quanto tempo uma pessoa ou um partido ocupou a Presidência da República ("o PT governou 20 dos últimos 24 anos" → type "tempo_no_poder", subject "PT", window_years 24, claimed_value 20, unit "anos") ou (b) sobre votos ou percentual de votos válidos de um candidato num turno de eleição presidencial ("tive 58 milhões de votos no segundo turno de 2022" → type "eleicao", subject o candidato, year 2022, round 2, claimed_value 58000000, unit "votos"). qualifier: "mais_de", "menos_de", "quase", "cerca_de" ou "exato", conforme a fala. Sem candidato ou partido explícito (ex.: "50 milhões escolheram a mudança"), reference null.
 - time_reference: período resolvido em texto, ou null.
 
 Se não houver nada checável, devolva {"claims": []}.
@@ -83,7 +96,8 @@ Fala: "Hoje o brasileiro não consegue mais comprar carne." → tipo "opiniao_me
 Fala: "Ele foi condenado em três instâncias." (contexto: falando de Lula) → tipo "acusacao"; text_normalized "Lula foi condenado em três instâncias da Justiça."
 Fala: "No meu governo o desemprego caiu para 6,6%." (contexto indica o presidente Lula, falando de 2024) → text_normalized "A taxa de desemprego no Brasil foi de 6,6% em 2024, durante o governo Lula."; tipo "estatistica"; indicator {query "desemprego", period "2024", claimed_value 6.6, unit "%", kind "level"}.
 Fala: "O desmatamento na Amazônia caiu quase 50% de 2022 para 2023." → tipo "estatistica"; indicator {query "desmatamento Amazônia", period "2022..2023", claimed_value 50, unit "%", kind "change_pct"}; numbers [{value 50, unit "%", raw "quase 50%"}].
-Fala: "Ele votou contra a PEC da Transição." (contexto: o senador Flávio Bolsonaro) → text_normalized "O senador Flávio Bolsonaro votou contra a PEC da Transição."; tipo "fato"; indicator null.`;
+Fala: "Ele votou contra a PEC da Transição." (contexto: o senador Flávio Bolsonaro) → text_normalized "O senador Flávio Bolsonaro votou contra a PEC da Transição."; tipo "fato"; indicator null.
+Fala: "O PT governou o Brasil em 20 dos últimos 24 anos." → tipo "fato"; reference {type "tempo_no_poder", subject "PT", window_years 24, year null, round null, claimed_value 20, unit "anos", qualifier "exato"}.`;
 
 function toTopic(t: string): Topic {
   const n = t.trim().toLowerCase();
@@ -99,6 +113,31 @@ export function toKind(k: string | null | undefined): ClaimKind | null {
 
 /** Opinião e previsão só são julgáveis com o dado que as mede. */
 const NEEDS_MEASURE: readonly ClaimKind[] = ["opiniao_mensuravel", "previsao"];
+
+const REFERENCE_TYPES: ReferenceRef["type"][] = ["tempo_no_poder", "eleicao"];
+const REFERENCE_UNITS: ReferenceRef["unit"][] = ["anos", "votos", "%"];
+const QUALIFIERS: ReferenceRef["qualifier"][] = ["exato", "cerca_de", "mais_de", "menos_de", "quase"];
+
+/** Fato de referência só passa inteiro e coerente; qualquer campo fora do padrão ⇒ null. */
+export function toReference(raw: ExtractionOutput["claims"][number]["reference"]): ReferenceRef | null {
+  if (!raw || !raw.subject.trim() || !Number.isFinite(raw.claimed_value)) return null;
+  const type = raw.type.trim() as ReferenceRef["type"];
+  const unit = raw.unit.trim().toLowerCase() as ReferenceRef["unit"];
+  const q = raw.qualifier.trim().toLowerCase() as ReferenceRef["qualifier"];
+  if (!REFERENCE_TYPES.includes(type) || !REFERENCE_UNITS.includes(unit)) return null;
+  if (type === "tempo_no_poder" && unit !== "anos") return null;
+  if (type === "eleicao" && (unit === "anos" || !raw.year || !(raw.round === 1 || raw.round === 2))) return null;
+  return {
+    type,
+    subject: raw.subject.trim(),
+    window_years: type === "tempo_no_poder" && raw.window_years && raw.window_years > 0 ? raw.window_years : null,
+    year: type === "eleicao" ? raw.year : null,
+    round: type === "eleicao" ? raw.round : null,
+    claimed_value: raw.claimed_value,
+    unit,
+    qualifier: QUALIFIERS.includes(q) ? q : "exato",
+  };
+}
 
 function toIndicator(raw: ExtractionOutput["claims"][number]["indicator"]): IndicatorRef | null {
   if (!raw || !raw.query.trim()) return null;
@@ -145,6 +184,7 @@ export function postprocessExtraction(out: ExtractionOutput, segmentText: string
       measurable: NEEDS_MEASURE.includes(kind) ? measurable : null,
       numbers: normalizeClaimNumbers(c.numbers),
       indicator: toIndicator(c.indicator),
+      reference: toReference(c.reference),
       time_reference: c.time_reference?.trim() || null,
     });
   }

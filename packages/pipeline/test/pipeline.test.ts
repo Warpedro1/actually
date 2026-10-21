@@ -14,10 +14,10 @@ import {
 type ClaimOut = ExtractionOutput["claims"][number];
 const claimOut = (
   original: string, normalized: string, indicator: IndicatorRef | null = null,
-  over: Partial<Pick<ClaimOut, "tipo" | "measurable">> = {},
+  over: Partial<Pick<ClaimOut, "tipo" | "measurable" | "reference">> = {},
 ): ClaimOut => ({
   text_original: original, text_normalized: normalized, topic: "economia", tipo: "fato", measurable: null, numbers: [],
-  indicator: indicator ? { ...indicator } : null, time_reference: null, ...over,
+  indicator: indicator ? { ...indicator } : null, reference: null, time_reference: null, ...over,
 });
 const extracting = (...claims: ClaimOut[]) => (): FakeReply<ExtractionOutput> => ({ output: { claims } });
 const verdict = (o: Partial<VerifyOutput>): FakeReply<VerifyOutput> => ({

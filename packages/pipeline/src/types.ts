@@ -19,6 +19,25 @@ export type ClaimKind = (typeof CLAIM_KINDS)[number];
 /** Tipos que o extrator marca para o código descartar. */
 export const DROPPED_KINDS = ["promessa", "opiniao"] as const;
 
+/**
+ * Afirmação sobre fato de referência (conta feita em código):
+ * - tempo_no_poder: quanto tempo uma pessoa ou partido ocupou a Presidência
+ *   ("o PT governou 20 dos últimos 24 anos" → subject PT, window_years 24, claimed 20);
+ * - eleicao: votos ou % de votos válidos de um candidato num turno.
+ */
+export interface ReferenceRef {
+  type: "tempo_no_poder" | "eleicao";
+  /** Pessoa ou partido (tempo_no_poder) ou candidato (eleicao), como dito. */
+  subject: string;
+  /** tempo_no_poder: janela em anos ("dos últimos 24 anos"); null = tempo total. */
+  window_years: number | null;
+  year: number | null;
+  round: number | null;
+  claimed_value: number;
+  unit: "anos" | "votos" | "%";
+  qualifier: "exato" | "cerca_de" | "mais_de" | "menos_de" | "quase";
+}
+
 /** Afirmação atômica saída da extração (antes de virar linha em `claims`). */
 export interface ExtractedClaim {
   text_original: string;
@@ -29,6 +48,8 @@ export interface ExtractedClaim {
   measurable: string | null;
   numbers: ClaimNumber[];
   indicator: IndicatorRef | null;
+  /** Fato de referência (mandatos, eleições), quando a fala é sobre isso. */
+  reference: ReferenceRef | null;
   time_reference: string | null;
 }
 
