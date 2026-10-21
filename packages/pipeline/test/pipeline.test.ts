@@ -5,7 +5,7 @@ import type { ExtractionOutput } from "../src/extract";
 import { ORIGINAL_IN_PROGRESS_MS } from "../src/dedup";
 import { createPipeline } from "../src/index";
 import type { WebSearchFn } from "../src/retrieve/web";
-import type { VerifyOutput } from "../src/verify";
+import { VERIFY_SYSTEM, type VerifyOutput } from "../src/verify";
 import {
   DOC_CHUNK, DOC_TEXT, FACTCHECK, PNAD, PNAD_VALUES, fakeAnthropic, fakeEmbed, fakeRerank, fakeVector, fakeWeb, makeDeps,
   MemoryStore, type FakeAnthropicScript, type FakeReply,
@@ -758,5 +758,22 @@ describe("[RF02] [RF08] trava de tipo em código", () => {
     // estatística de segurança não é acusação
     expect(looksLikeAccusation("Os homicídios caíram 20% e o crime organizado perdeu espaço")).toBe(false);
     expect(looksLikeAccusation("A lei antifacção aumentou as penas")).toBe(false);
+  });
+});
+
+describe("[RF03] [RF05] regras do verificador contra citação de trecho que não é evidência", () => {
+  it("regra 12: boato reproduzido, fala de parte, voto vencido e manchete de outra matéria não sustentam veredito", () => {
+    const r12 = VERIFY_SYSTEM.slice(VERIFY_SYSTEM.indexOf("12. "));
+    expect(r12).toMatch(/boato ou post que uma checagem reproduz/);
+    expect(r12).toMatch(/fala, acusação ou alegação de candidato, defesa, partido ou parte/);
+    expect(r12).toMatch(/voto vencido/);
+    expect(r12).toMatch(/manchete de outra matéria/);
+    expect(r12).toMatch(/Nunca cite esses trechos em "quote"/);
+  });
+
+  it("regra 11: situação processual mais recente vale; texto antigo não contradiz a situação atual", () => {
+    const r11 = VERIFY_SYSTEM.slice(VERIFY_SYSTEM.indexOf("11. "), VERIFY_SYSTEM.indexOf("12. "));
+    expect(r11).toMatch(/vale a evidência mais recente/);
+    expect(r11).toMatch(/não contradiz uma afirmação sobre a situação atual/);
   });
 });

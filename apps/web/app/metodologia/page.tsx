@@ -85,7 +85,10 @@ export default function MetodologiaPage() {
           <li>
             <strong>Verificação.</strong> Um modelo de linguagem compara a afirmação com as evidências e propõe um
             veredito. O trecho citado da fonte é então conferido <em>por programa</em>: ele precisa existir, de fato,
-            no documento original. Números de indicadores oficiais são comparados em código.
+            no documento original. Números de indicadores oficiais são comparados em código. Não valem como
+            evidência o boato que uma checagem reproduz para desmentir, a fala ou alegação de candidato, defesa ou
+            partido relatada pela matéria, voto vencido e manchetes de outras matérias; em situação judicial, vale a
+            informação mais recente.
           </li>
           <li>
             <strong>Pontuação e decisão.</strong> A confiança final combina a confiança do modelo, a qualidade da

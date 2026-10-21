@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { chunkText } from "../src/lib/chunker";
-import { estimateTokens, normalizeForMatch, splitSentences } from "../src/lib/text";
+import { estimateTokens, normalizeForMatch, splitSentences, stripRelatedLinks } from "../src/lib/text";
 import { planBatches } from "../src/lib/embed";
 
 const sentences = (t: string) => splitSentences(t).map((s) => t.slice(s.start, s.end));
@@ -82,5 +82,64 @@ describe("normalizeForMatch / planBatches", () => {
     const b = planBatches(texts, 64, 60_000);
     expect(b.flat()).toEqual(texts.map((_, i) => i));
     for (const batch of b) expect(batch.length).toBeLessThanOrEqual(60);
+  });
+});
+
+// Estrutura das páginas reais (Poder360, STF, TSE, Agência Brasil); nomes e fatos fictícios.
+describe("[RF15] [RF05] stripRelatedLinks: manchetes de outras matérias não ficam no texto citável", () => {
+  it("lista datada depois de \"Leia mais:\" sai inteira; o parágrafo anterior fica", () => {
+    const t = [
+      "O ministro Fulano determinou o cumprimento da pena. Leia a íntegra da decisão.",
+      "",
+      "(Redação//CF)",
+      "",
+      "Leia mais:",
+      "",
+      "7/11/2030 – Turma rejeita recursos de ex-governador na AP 9999",
+      "",
+      "11/9/2030 – STF condena os oito réus do núcleo 1",
+    ].join("\n");
+    expect(stripRelatedLinks(t)).toBe(
+      "O ministro Fulano determinou o cumprimento da pena. Leia a íntegra da decisão.\n\n(Redação//CF)",
+    );
+  });
+
+  it("\"Leia mais sobre ...\" com manchetes sem data sai até o próximo parágrafo, que fica", () => {
+    const t = [
+      "O candidato Beltrano respondeu às críticas.",
+      "Leia mais sobre o debate da TV Exemplo",
+      "Beltrano diz que Sicrano mente sobre a ponte",
+      "4.dez.2030 – Sicrano cita áudio sobre R$ 30 milhões",
+      "Pesquisas mostram empate técnico entre os dois",
+      "O debate durou duas horas e teve quatro blocos.",
+    ].join("\n");
+    expect(stripRelatedLinks(t)).toBe("O candidato Beltrano respondeu às críticas.\nO debate durou duas horas e teve quatro blocos.");
+  });
+
+  it("\"Leia mais: <manchete>\" no meio do texto sai sozinho; o intertítulo seguinte fica", () => {
+    const t = [
+      "\u201cNão há prova\u201d, finalizou o relator.",
+      "",
+      "Leia mais: Com o placar de 3 a 1, tribunal suspende julgamento",
+      "",
+      "Ministra Fulana",
+      "",
+      "Ao votar com o relator, a ministra Fulana afirmou que a reunião foi um monólogo.",
+    ].join("\n");
+    expect(stripRelatedLinks(t)).toBe(
+      "\u201cNão há prova\u201d, finalizou o relator.\n\nMinistra Fulana\n\nAo votar com o relator, a ministra Fulana afirmou que a reunião foi um monólogo.",
+    );
+  });
+
+  it("ruído de página sai; frase longa que começa com \"Veja também\" fica", () => {
+    const longa = "Veja também que o orçamento da obra, segundo o relatório do tribunal de contas, passou de R$ 2 bilhões para R$ 3 bilhões entre 2028 e 2030, com aditivos assinados sem licitação e sem parecer da procuradoria do estado.";
+    const t = ["publicidade", "Primeiro parágrafo da matéria.", "PUBLICIDADE", ">> Siga o canal da Agência Exemplo no WhatsApp", longa].join("\n");
+    expect(stripRelatedLinks(t)).toBe(`Primeiro parágrafo da matéria.\n${longa}`);
+  });
+
+  it("\"Saiba mais no ...\" é linha única: não leva a linha seguinte junto", () => {
+    expect(stripRelatedLinks("Fim da matéria.\nSaiba mais no Jornal Exemplo, da TV Exemplo\nNota da redação")).toBe(
+      "Fim da matéria.\nNota da redação",
+    );
   });
 });

@@ -3,7 +3,7 @@
 // checagem publicam para o Google — é a fonte mais confiável do rating).
 import { Readability } from "@mozilla/readability";
 import { parseHTML } from "linkedom";
-import { cleanText } from "./text";
+import { cleanText, stripRelatedLinks } from "./text";
 
 export interface ClaimReviewLd {
   claimReviewed: string | null;
@@ -120,5 +120,5 @@ export function extractPage(html: string, url: string): ExtractedPage {
     if (main) text = blockText(main);
   }
   title ??= metaTitle ?? (document.querySelector("title")?.textContent?.trim() || null);
-  return { title, text, publishedAt, claimReviews };
+  return { title, text: stripRelatedLinks(text), publishedAt, claimReviews };
 }

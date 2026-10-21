@@ -24,6 +24,52 @@ export function cleanText(s: string): string {
     .trim();
 }
 
+// Chamada de "outras matérias" no meio ou no fim do texto ("Leia mais:", "Leia também",
+// "Leia mais sobre o debate"). O resto da linha, se houver, é uma manchete.
+const RELATED = /^(leia (mais|tamb[ée]m)|saiba mais|veja (mais|tamb[ée]m))\b\s*([:\-–—]?)\s*(.*)$/i;
+// "4.dez.2025 – ...", "7/11/2025 – ...", "28/08/07 - ..."
+const DATED_HEADLINE = /^\d{1,2}[./](\d{1,2}|[a-zç]{3,4})\.?[./]?\d{2,4}\s*[–—-]\s+\S/i;
+const NOISE = /^(publicidade|>+\s*siga\b.*|siga (o|a) .{1,60} no (whatsapp|telegram|instagram)\b.*)$/i;
+
+/** Linha com cara de manchete: curta e sem pontuação de fim de frase. */
+const looksLikeHeadline = (l: string) => l.length <= 160 && !/[.!?:;…"”)]$/.test(l);
+
+/**
+ * Tira do texto da matéria as listas de manchetes de outras matérias e o ruído de página
+ * ("publicidade", "Siga o canal"). O pipeline cita trechos literais do texto como evidência,
+ * e uma manchete de outra matéria (com outra data) não pode virar citação.
+ * - "Leia mais:" sozinho ou como título de lista: sai com as linhas seguintes que forem
+ *   manchetes (datadas ou curtas sem ponto final).
+ * - "Leia mais: <manchete>" numa linha: sai a linha e só as manchetes datadas logo abaixo
+ *   (um intertítulo curto depois dela é do texto).
+ */
+export function stripRelatedLinks(text: string): string {
+  const lines = text.split("\n");
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!.trim();
+    if (NOISE.test(line)) continue;
+    const m = line.length <= 200 ? RELATED.exec(line) : null;
+    if (!m) {
+      out.push(lines[i]!);
+      continue;
+    }
+    // título de lista: "Leia mais:" sozinho ou "Leia mais sobre o debate"; o resto é linha única
+    const inline = !(m[5] === "" || (m[4] === "" && /^sobre\b/i.test(m[5]!)));
+    const isItem = (l: string) => DATED_HEADLINE.test(l) || (!inline && looksLikeHeadline(l));
+    // pula as manchetes seguintes (com as linhas em branco entre elas)
+    let j = i + 1;
+    for (;;) {
+      let k = j;
+      while (k < lines.length && !lines[k]!.trim()) k++;
+      if (k >= lines.length || !isItem(lines[k]!.trim())) break;
+      j = k + 1;
+    }
+    i = j - 1;
+  }
+  return cleanText(out.join("\n"));
+}
+
 export interface Span {
   start: number;
   end: number;
