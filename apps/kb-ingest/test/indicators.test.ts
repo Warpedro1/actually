@@ -9,19 +9,36 @@
 // - *_formato.sample.json: FORMATO do SIDRA/Agregados v3 (cabeçalho NC/NN/MN/V/DnC/DnN,
 //   conforme o pacote ibge-br-mcp), com valores e anos (2030) FICTÍCIOS — servem só para
 //   testar o parser. Substitua por respostas reais quando houver acesso.
+// - sidra_6381_movel_2025-12_2026-06.json: VALORES REAIS da tabela 6381 (v4099), iguais nos
+//   CSVs que dois projetos atualizam direto do apisidra (github.com/guilhermekleinmartins-creator/
+//   indicador-made data/pnadc.csv e github.com/alexandrepsaldanha/monitor-mercado-trabalho
+//   data/indicadores.csv, com os rótulos "out-nov-dez 2025"...); 5,1 (dez), 5,8 (fev), 6,1 (mar)
+//   e 5,6 (mai) conferem com as divulgações do IBGE. O cabeçalho segue o formato flat acima, com
+//   o período em D3 como o fetch_sidra.py do indicador-made lê.
+// - sgs_24369_desocupacao_2025-12_2026-06.json: os MESMOS valores remontados no formato do SGS
+//   (não é resposta gravada da 24369): serve para provar que principal e reserva dão as mesmas linhas.
+// - sgs_7326_pib_anual_2003-2025.json: VALORES REAIS da série 7326 do SGS gravados por
+//   github.com/rlavourinha/monitor-cobertura (coletar.py → bcb.sgs(7326) → data/realizado.json),
+//   remontados no formato JSON do SGS.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
-import { aggregateMonthly, dateWindows, parseSgs, sgsUrl } from "../src/indicators/sgs";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { aggregateMonthly, dateWindows, parseSgs, SGS_NON_JSON_RETRIES, sgsUrl } from "../src/indicators/sgs";
 import { agregadosUrl, apisidraUrl, parseSidra, parseSidraFlat } from "../src/indicators/sidra";
 import { monthPeriod, movingQuarterPeriod, quarterPeriod, sgsPeriod, sidraPeriod, yearPeriod } from "../src/indicators/periods";
-import { INDICATOR_AGGREGATIONS } from "@actually/db";
-import { CATALOG, activeSeries, toSeriesRow } from "../src/indicators/catalog";
-import { crossCheckUnemployment, runIndicators, withMigrationHint } from "../src/commands/indicators";
+import { INDICATOR_AGGREGATIONS, lookupSource, type IndicatorValue } from "@actually/db";
+import { CATALOG, activeSeries, describeFetch, toSeriesRow, type CatalogSeries } from "../src/indicators/catalog";
+import { manualPeriod, parseManualSeries, manualSeriesRaw, sourceProblem } from "../src/indicators/manual";
+import {
+  compareSources, crossCheckUnemployment, loadFrom, loadSeries, loadSeriesValues, runIndicators, withMigrationHint, type Fetchers,
+} from "../src/commands/indicators";
 import { seriesState } from "../src/commands/status";
+import { MANUAL_SERIES_RAW } from "../src/generated/sources";
+import { fetchJson } from "../src/lib/http";
 import type { Ctx } from "../src/lib/ctx";
 
 const fx = (f: string) => JSON.parse(readFileSync(join(import.meta.dirname, "fixtures", f), "utf8")) as unknown;
+const serie = (code: string) => CATALOG.find((s) => s.code === code)!;
 
 describe("[RF15] SGS (Banco Central)", () => {
   it("interpreta a resposta real (IPCA 433)", () => {
@@ -140,17 +157,26 @@ describe("[RF15] catálogo de indicadores", () => {
     for (const s of CATALOG.filter((x) => x.fetch.kind === "none")) expect(s.pending).toBeTruthy();
     expect(activeSeries().some((s) => s.pending)).toBe(false);
   });
-  it("linha de indicator_series não vaza campos internos (e leva a agregação)", () => {
-    expect(Object.keys(toSeriesRow(CATALOG[0]!)).sort()).toEqual(
-      ["aggregation", "aliases", "code", "name", "notes", "periodicity", "source_name", "source_url", "tier", "unit"].sort(),
-    );
+  it("linha de indicator_series não vaza campos internos (fetch, reserva, conferência) e leva a agregação", () => {
+    // todas: a desocupação móvel tem `fallback`, e o teste de aceitação insere a linha inteira no banco
+    for (const s of CATALOG) {
+      expect(Object.keys(toSeriesRow(s)).sort()).toEqual(
+        ["aggregation", "aliases", "code", "name", "notes", "periodicity", "source_name", "source_url", "tier", "unit"].sort(),
+      );
+    }
   });
-  it("toda série declara como agrega: fluxo soma, acumulado 12m usa dezembro, variação mensal não agrega", () => {
+  it("toda série declara como agrega: fluxo soma, acumulado 12m usa dezembro, variação mensal não agrega, taxa anual tira média", () => {
     const by = new Map(CATALOG.map((s) => [s.code, s]));
     for (const s of CATALOG) {
       expect(INDICATOR_AGGREGATIONS).toContain(s.aggregation);
-      if (s.periodicity === "annual") expect(s.aggregation).toBe("none");
+      // série anual: só "none" (nível/contagem) ou "mean_or_last" (taxa: média de vários anos ou o último)
+      if (s.periodicity === "annual") expect(["none", "mean_or_last"]).toContain(s.aggregation);
     }
+    // "cresceu X% ao ano no governo Lula" = média das taxas anuais; soma de taxas não é nada
+    expect(by.get("pib_variacao_anual")!.aggregation).toBe("mean_or_last");
+    expect(by.get("carga_tributaria_pib")!.aggregation).toBe("mean_or_last");
+    expect(by.get("pib_per_capita")!.aggregation).toBe("none");
+    expect(by.get("populacao_estimada")!.aggregation).toBe("none");
     expect(by.get("caged_saldo")!.aggregation).toBe("sum");
     expect(by.get("pib_corrente_trimestral")!.aggregation).toBe("sum");
     expect(by.get("ipca_mensal")!.aggregation).toBe("none");
@@ -164,16 +190,27 @@ describe("[RF15] catálogo de indicadores", () => {
       for (const a of ["desempregados", "desocupados", "pessoas desocupadas", "número de desempregados"]) expect(s.aliases).not.toContain(a);
     }
   });
-  it("alias repetido entre séries ativas só nas duas do IPCA (empate que a afirmação desempata)", () => {
+  it("alias repetido entre séries ativas só nos pares do IPCA e do PIB (empate que a afirmação desempata)", () => {
     const norm = (a: string) => a.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().trim();
     const owners = new Map<string, string[]>();
     for (const s of activeSeries()) for (const a of new Set(s.aliases.map(norm))) owners.set(a, [...(owners.get(a) ?? []), s.code]);
-    const shared = [...owners].filter(([, codes]) => codes.length > 1);
-    expect(shared.map(([a]) => a).sort()).toEqual(["custo de vida", "indice de precos ao consumidor amplo", "inflacao", "ipca"]);
-    for (const [, codes] of shared) expect(codes.sort()).toEqual(["ipca_12m", "ipca_mensal"]);
+    const shared = new Map([...owners].filter(([, codes]) => codes.length > 1).map(([a, codes]) => [a, codes.sort()]));
+    const ipcaPair = ["ipca_12m", "ipca_mensal"];
+    const pibPair = ["pib_variacao_anual", "pib_variacao_trimestral"];
+    expect([...shared.keys()].sort()).toEqual([
+      "crescimento da economia", "crescimento do pib", "custo de vida", "indice de precos ao consumidor amplo", "inflacao", "ipca", "pib", "variacao do pib",
+    ]);
+    for (const a of ["custo de vida", "indice de precos ao consumidor amplo", "inflacao", "ipca"]) expect(shared.get(a)).toEqual(ipcaPair);
+    for (const a of ["crescimento da economia", "crescimento do pib", "pib", "variacao do pib"]) expect(shared.get(a)).toEqual(pibPair);
     // "inflação de 2023": a variação mensal não agrega em ano, só o acumulado 12m cabe
     const ipca = activeSeries().filter((s) => s.code.startsWith("ipca"));
     expect(ipca.map((s) => s.aggregation).sort()).toEqual(["accum_12m", "none"]);
+    // "o PIB cresceu 3,4% em 2024": a trimestral (none) não responde por ano; "no 2º trimestre": a anual
+    // não responde por trimestre nem mês. Sem período, as duas cabem ⇒ empate ⇒ silêncio.
+    const trim = serie("pib_variacao_trimestral");
+    const anual = serie("pib_variacao_anual");
+    expect([trim.periodicity, trim.aggregation]).toEqual(["quarterly", "none"]);
+    expect(anual.periodicity).toBe("annual");
   });
   it("acumulado 12m não usa nomes do acumulado NO ANO (jan até o mês, outra medida)", () => {
     const ipca12 = CATALOG.find((s) => s.code === "ipca_12m")!;
@@ -224,5 +261,218 @@ describe("[RF15] L2 no banco: agregação declarada (migration 20261019000007)",
     expect(seriesState(s, { code: s.code, aliases: s.aliases, aggregation: "accum_12m" })).toBe("DESATUALIZADA");
     expect(seriesState(s, { code: s.code, aliases: [...s.aliases].reverse(), aggregation: "none" })).toBe("carregada");
     expect(seriesState(CATALOG.find((x) => x.pending)!, undefined)).toBe("PENDENTE");
+  });
+});
+
+// Portas falsas a partir dos fixtures (sem rede).
+const sidraFrom = (file: string): Fetchers["sidra"] => async () => ({ url: "fixture", obs: parseSidra(fx(file)) });
+const sgsFrom = (file: string): Fetchers["sgs"] => async () => parseSgs(fx(file));
+const failing = (msg: string) => async (): Promise<never> => {
+  throw new Error(msg);
+};
+const SINCE = "2003-01-01";
+const UNTIL = "2026-10-21";
+
+describe("[RF15] desocupação móvel: SIDRA 6381 (principal) e SGS 24369 (reserva)", () => {
+  const movel = serie("desocupacao_pnadc_movel");
+  const SIDRA_6381 = "sidra_6381_movel_2025-12_2026-06.json";
+  const SGS_24369 = "sgs_24369_desocupacao_2025-12_2026-06.json";
+
+  it("catálogo: principal SIDRA 6381 v4099 (a tabela tem outras variáveis), reserva SGS 24369, evidência na tabela do IBGE", () => {
+    expect(movel.fetch).toEqual({ kind: "sidra", table: "6381", variable: "4099" });
+    expect(movel.fallback).toEqual({ kind: "sgs", code: 24369 });
+    expect(movel.source_url).toBe("https://sidra.ibge.gov.br/tabela/6381");
+    expect(describeFetch(movel.fetch)).toBe("SIDRA t6381 v4099");
+  });
+
+  it("período AAAAMM da 6381 = trimestre móvel terminado no mês (valores reais divulgados pelo IBGE)", async () => {
+    const v = await loadFrom(movel, movel.fetch, SINCE, UNTIL, { sidra: sidraFrom(SIDRA_6381) });
+    expect(v).toHaveLength(7);
+    // "no trimestre encerrado em março, desocupação sobe para 6,1%"
+    expect(v.find((x) => x.period_end === "2026-03-31")).toMatchObject({ period_start: "2026-01-01", value: 6.1 });
+    // "taxa de desocupação é de 5,6% ... no trimestre encerrado em maio"
+    expect(v.find((x) => x.period_end === "2026-05-31")).toMatchObject({ period_start: "2026-03-01", value: 5.6 });
+    // out-nov-dez 2025 atravessa o ano
+    expect(v[0]).toMatchObject({ period_start: "2025-10-01", period_end: "2025-12-31", value: 5.1 });
+  });
+
+  it("principal e reserva dão as MESMAS linhas (mesma chave do upsert, mesma leitura na L2)", async () => {
+    const a = await loadFrom(movel, movel.fetch, SINCE, UNTIL, { sidra: sidraFrom(SIDRA_6381) });
+    const b = await loadFrom(movel, movel.fallback!, SINCE, UNTIL, { sgs: sgsFrom(SGS_24369) });
+    expect(b).toEqual(a);
+    const logs: string[] = [];
+    expect(compareSources({ log: (m) => logs.push(String(m)), warn: (m) => logs.push(`W ${m}`) }, "teste", a, b)).toBe(0);
+    expect(logs.at(-1)).toMatch(/7 períodos comparados, 0 divergências/);
+  });
+
+  it("SIDRA fora (HTML, desafio, timeout): usa a reserva e avisa", async () => {
+    const warns: string[] = [];
+    const r = await loadSeries(movel, SINCE, UNTIL, {
+      warn: (m) => warns.push(m),
+      fetchers: { sidra: failing("SIDRA indisponível nas duas portas"), sgs: sgsFrom(SGS_24369) },
+    });
+    expect(r.source).toBe("reserva");
+    expect(r.values).toHaveLength(7);
+    expect(warns).toEqual([
+      "desocupacao_pnadc_movel: SIDRA t6381 v4099 falhou (SIDRA indisponível nas duas portas); usando a reserva SGS 24369",
+    ]);
+  });
+
+  it("SIDRA sem nenhum valor no período também passa para a reserva; principal ok não chama a reserva", async () => {
+    const empty: Fetchers["sidra"] = async () => ({ url: "x", obs: [] });
+    const r = await loadSeries(movel, SINCE, UNTIL, { fetchers: { sidra: empty, sgs: sgsFrom(SGS_24369) } });
+    expect(r.source).toBe("reserva");
+    let sgsCalls = 0;
+    const ok = await loadSeries(movel, SINCE, UNTIL, {
+      fetchers: { sidra: sidraFrom(SIDRA_6381), sgs: async () => (sgsCalls++, []) },
+    });
+    expect(ok.source).toBe("principal");
+    expect(sgsCalls).toBe(0);
+  });
+
+  it("as duas fora: erro com as duas causas (a carga marca falha; nada é gravado)", async () => {
+    await expect(
+      loadSeriesValues(movel, SINCE, UNTIL, { fetchers: { sidra: failing("HTTP 403"), sgs: failing("resposta não é JSON (3 tentativas): <?xml") } }),
+    ).rejects.toThrow("SIDRA t6381 v4099: HTTP 403 | reserva SGS 24369: resposta não é JSON (3 tentativas): <?xml");
+  });
+
+  it("série sem reserva: o erro da principal passa direto", async () => {
+    await expect(loadSeriesValues(serie("ipca_12m"), SINCE, UNTIL, { fetchers: { sgs: failing("timeout") } })).rejects.toThrow(/^timeout$/);
+  });
+
+  it("--check acusa reserva com rótulo deslocado (trimestre móvel datado pelo 1º mês)", async () => {
+    const a = await loadFrom(movel, movel.fetch, SINCE, UNTIL, { sidra: sidraFrom(SIDRA_6381) });
+    const shifted: IndicatorValue[] = a.map((v, i) => ({ ...v, value: a[i + 2]?.value ?? v.value }));
+    const warns: string[] = [];
+    expect(compareSources({ log: () => {}, warn: (m) => warns.push(String(m)) }, "6381 × 24369", a, shifted)).toBeGreaterThan(0);
+    expect(warns[0]).toMatch(/^6381 × 24369 2025-10-01\.\.2025-12-31: 5\.1 × /);
+  });
+});
+
+describe("[RF15] SGS devolvendo HTML no lugar do JSON: tenta de novo, pouco", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const XHTML = '<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN">';
+  const stub = (bodies: string[]) => {
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", async (url: string) => {
+      calls.push(url);
+      return new Response(bodies[Math.min(calls.length - 1, bodies.length - 1)]!, { status: 200 });
+    });
+    return calls;
+  };
+
+  it("HTML e depois JSON: devolve o JSON na 2ª tentativa", async () => {
+    const calls = stub([XHTML, '[{"data":"01/03/2026","valor":"6.1"}]']);
+    const json = await fetchJson("https://sgs-html-1.test/dados", { nonJsonRetries: SGS_NON_JSON_RETRIES, nonJsonDelayMs: 1 });
+    expect(parseSgs(json)).toEqual([{ date: "2026-03-01", value: 6.1 }]);
+    expect(calls).toHaveLength(2);
+  });
+
+  it("HTML sempre: desiste depois de 1 + 2 tentativas, com a página no erro", async () => {
+    const calls = stub([XHTML]);
+    await expect(fetchJson("https://sgs-html-2.test/dados", { nonJsonRetries: SGS_NON_JSON_RETRIES, nonJsonDelayMs: 1 })).rejects.toThrow(
+      /resposta não é JSON \(3 tentativas\): <\?xml/,
+    );
+    expect(calls).toHaveLength(3);
+  });
+
+  it("sem nonJsonRetries (SIDRA, demais APIs): uma tentativa só, como antes", async () => {
+    const calls = stub([XHTML]);
+    await expect(fetchJson("https://sgs-html-3.test/dados")).rejects.toThrow(/^HTTP 200 .*resposta não é JSON: <\?xml/);
+    expect(calls).toHaveLength(1);
+    expect(SGS_NON_JSON_RETRIES).toBe(2);
+  });
+});
+
+describe("[RF15] PIB — taxa de variação real no ano (SGS 7326)", () => {
+  const anual = serie("pib_variacao_anual");
+  const load = () => loadFrom(anual, anual.fetch, SINCE, UNTIL, { sgs: sgsFrom("sgs_7326_pib_anual_2003-2025.json") });
+
+  it("ativa, série 7326 do SGS, taxa em %", () => {
+    expect(anual.pending).toBeUndefined();
+    expect(anual.fetch).toEqual({ kind: "sgs", code: 7326 });
+    expect(anual.source_url).toBe("https://api.bcb.gov.br/dados/serie/bcdata.sgs.7326/dados?formato=json");
+    expect(anual.unit).toBe("%");
+    expect(activeSeries().map((s) => s.code)).toContain("pib_variacao_anual");
+  });
+
+  it("valores reais batem com as referências (2010 = 7,5; 2020 ≈ −3,3; 2023 ≈ 3,2) e cada ponto é o ano civil", async () => {
+    const v = await load();
+    const year = (y: number) => v.find((x) => x.period_start === `${y}-01-01`)!;
+    expect(year(2010)).toMatchObject({ period_end: "2010-12-31" });
+    expect(year(2010).value).toBeCloseTo(7.5, 1);
+    expect(year(2020).value).toBeCloseTo(-3.3, 1);
+    expect(year(2023).value).toBeCloseTo(3.2, 1);
+    expect(v).toHaveLength(23);
+  });
+
+  it("média no período: 2003–2010 ≈ 4,1% ao ano (média das taxas anuais, o que mean_or_last calcula)", async () => {
+    const v = (await load()).filter((x) => x.period_start >= "2003-01-01" && x.period_end <= "2010-12-31");
+    expect(v).toHaveLength(8);
+    const mean = v.reduce((s, x) => s + x.value, 0) / v.length;
+    expect(mean).toBeCloseTo(4.1, 1);
+    // a geométrica (crescimento composto) fica a 0,03 p.p. — bem dentro da tolerância de 0,3 p.p.
+    const geo = (v.reduce((p, x) => p * (1 + x.value / 100), 1) ** (1 / v.length) - 1) * 100;
+    expect(Math.abs(mean - geo)).toBeLessThan(0.05);
+  });
+});
+
+describe("[RF15] série manual: carga tributária bruta (Tesouro Nacional)", () => {
+  const carga = serie("carga_tributaria_pib");
+  type RawFile = Record<string, unknown> & { values: Record<string, unknown>[] };
+  const raw = () => structuredClone(MANUAL_SERIES_RAW.carga_tributaria) as RawFile;
+
+  it("catálogo: ativa, manual, % do PIB, anual, fonte do Tesouro (nível 1) e aliases do extrator", () => {
+    expect(carga.pending).toBeUndefined();
+    expect(carga.fetch).toEqual({ kind: "manual", file: "carga_tributaria" });
+    expect(carga.unit).toBe("% do PIB");
+    expect(carga.periodicity).toBe("annual");
+    expect(lookupSource(carga.source_url)).toMatchObject({ tier: 1, kind: "oficial" });
+    expect(carga.aliases).toEqual(expect.arrayContaining(["carga tributária", "impostos em relação ao pib", "peso dos impostos"]));
+  });
+
+  it("carrega só os valores conferidos (2024 e 2025 da edição de 10/04/2026), cada um com URL oficial", async () => {
+    const v = await loadSeriesValues(carga, SINCE, UNTIL);
+    expect(v).toEqual([
+      { series_code: "carga_tributaria_pib", period_start: "2024-01-01", period_end: "2024-12-31", value: 32.22, released_at: "2026-04-10" },
+      { series_code: "carga_tributaria_pib", period_start: "2025-01-01", period_end: "2025-12-31", value: 32.4, released_at: "2026-04-10" },
+    ]);
+    for (const x of raw().values) {
+      expect(lookupSource(String(x.url))?.tier).toBe(1);
+      expect(String(x.verified_by).length).toBeGreaterThan(20);
+    }
+  });
+
+  it("recusa o arquivo se um valor fugir das regras (nunca carrega metade)", () => {
+    const bad = (mut: (r: RawFile) => void) => {
+      const r = raw();
+      mut(r);
+      return () => parseManualSeries(r, carga);
+    };
+    expect(bad((r) => (r.values[0]!.url = "https://www.infomoney.com.br/economia/x"))).toThrow(/não é fonte de nível 1 ou 2/);
+    expect(bad((r) => (r.values[0]!.url = "https://valor.globo.com/brasil/x"))).toThrow(/falta confirmed_by/);
+    expect(bad((r) => r.values.push({ ...r.values[0]! }))).toThrow(/2025 repetido/);
+    expect(bad((r) => (r.values[0]!.period = "2025-T1"))).toThrow(/inválido para série annual/);
+    expect(bad((r) => (r.unit = "%"))).toThrow(/unidade/);
+    expect(bad((r) => (r.series = "outra"))).toThrow(/esperado carga_tributaria_pib/);
+    expect(bad((r) => delete r.values[0]!.verified_by)).toThrow(/inválida/);
+  });
+
+  it("nível 2 só vale com segunda fonte de nível 2 de outro veículo", () => {
+    expect(sourceProblem({ url: "https://valor.globo.com/a", confirmed_by: "https://www1.folha.uol.com.br/b" })).toBeNull();
+    expect(sourceProblem({ url: "https://valor.globo.com/a", confirmed_by: "https://valor.globo.com/b" })).toMatch(/mesmo veículo/);
+    expect(sourceProblem({ url: "https://valor.globo.com/a", confirmed_by: "https://www.cnnbrasil.com.br/b" })).toMatch(/não é fonte de nível 1 ou 2/);
+    expect(sourceProblem({ url: "https://www.tesourotransparente.gov.br/publicacoes/x" })).toBeNull();
+  });
+
+  it("períodos por periodicidade e arquivo não embutido com instrução", async () => {
+    expect(manualPeriod("2025", "annual")).toEqual(yearPeriod(2025));
+    expect(manualPeriod("2026-03", "monthly")).toEqual(monthPeriod(2026, 3));
+    expect(manualPeriod("2026-03", "moving_quarter")).toEqual(movingQuarterPeriod(2026, 3));
+    expect(manualPeriod("2026-T2", "quarterly")).toEqual(quarterPeriod(2026, 2));
+    expect(() => manualPeriod("2026", "monthly")).toThrow();
+    expect(() => manualSeriesRaw("nao_existe")).toThrow(/gen:sources/);
+    const s: CatalogSeries = { ...carga, fetch: { kind: "manual", file: "nao_existe" } };
+    await expect(loadSeriesValues(s, SINCE, UNTIL)).rejects.toThrow(/sources\/manual\/nao_existe\.yaml/);
   });
 });

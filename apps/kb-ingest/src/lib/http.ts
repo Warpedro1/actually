@@ -155,18 +155,44 @@ export async function fetchText(url: string, opts: FetchOptions = {}): Promise<s
   return res.text();
 }
 
-export async function fetchJson<T = unknown>(url: string, opts: FetchOptions = {}): Promise<T> {
-  const res = await fetchWithRetry(url, {
-    ...opts,
-    headers: { Accept: "application/json", ...(opts.headers ?? {}) },
-  });
-  const text = await res.text();
-  try {
-    return JSON.parse(text) as T;
-  } catch {
-    // Algumas origens (SGS, SIDRA) devolvem HTML com 200 em erro ou desafio anti-robô.
-    throw new HttpError(res.status, url, `resposta não é JSON: ${text.slice(0, 160)}`);
+export interface JsonFetchOptions extends FetchOptions {
+  /**
+   * Repetições extras quando a origem responde 200 com HTML/XML em vez de JSON. O SGS do BCB
+   * faz isso de vez em quando (página de erro XHTML) e na tentativa seguinte responde certo.
+   * Padrão 0: no SIDRA o HTML é desafio anti-robô e repetir não adianta.
+   */
+  nonJsonRetries?: number;
+  /** Espera antes da n-ésima repetição: n × isto (+ até 500 ms). Padrão 2 s. */
+  nonJsonDelayMs?: number;
+}
+
+/**
+ * Teto de cada repetição por resposta não-JSON. Ela também vai sem as repetições de rede
+ * (`retries: 0`): o HTML chega rápido, e o pior caso não pode multiplicar o da chamada
+ * original — com 2 repetições, no máximo ~2 × 20 s + as esperas a mais.
+ */
+export const NON_JSON_RETRY_TIMEOUT_MS = 20_000;
+
+export async function fetchJson<T = unknown>(url: string, opts: JsonFetchOptions = {}): Promise<T> {
+  const { nonJsonRetries = 0, nonJsonDelayMs = 2_000, ...fetchOpts } = opts;
+  const headers = { Accept: "application/json", ...(fetchOpts.headers ?? {}) };
+  let lastErr: HttpError | undefined;
+  for (let attempt = 0; attempt <= nonJsonRetries; attempt++) {
+    if (attempt > 0) await sleep(nonJsonDelayMs * attempt + Math.floor(Math.random() * 500));
+    const retry = attempt > 0
+      ? { retries: 0, timeoutMs: Math.min(fetchOpts.timeoutMs ?? 30_000, NON_JSON_RETRY_TIMEOUT_MS) }
+      : {};
+    const res = await fetchWithRetry(url, { ...fetchOpts, ...retry, headers });
+    const text = await res.text();
+    try {
+      return JSON.parse(text) as T;
+    } catch {
+      // Algumas origens (SGS, SIDRA) devolvem HTML com 200 em erro ou desafio anti-robô.
+      const tries = attempt + 1;
+      lastErr = new HttpError(res.status, url, `resposta não é JSON${tries > 1 ? ` (${tries} tentativas)` : ""}: ${text.slice(0, 160)}`);
+    }
   }
+  throw lastErr!;
 }
 
 /**

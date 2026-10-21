@@ -36,7 +36,7 @@ As mesmas cargas rodam na Vercel pela seção *Base de conhecimento* do /admin (
 - cada etapa respeita um prazo (`src/jobs/steps.ts`) e o que não couber volta para o início da fila;
   `src/jobs/runner.ts` grava o progresso depois de cada etapa e segura um lease para rodar uma tarefa por vez;
 - se a função cair no meio, a etapa em andamento é repetida na próxima rodada (na 3ª queda é dada como falha);
-- os manifestos `sources/apify.yaml` e `sources/feeds.yaml` vão embutidos em `src/generated/sources.ts`
+- os manifestos `sources/apify.yaml`, `sources/feeds.yaml` e as séries manuais `sources/manual/*.yaml` vão embutidos em `src/generated/sources.ts`
   (a função não lê o disco): depois de editar os YAML, rode `pnpm --filter @actually/kb-ingest gen:sources`
   (`test/jobs.test.ts` falha se esquecer);
 - vídeo do YouTube sem `youtube.input` no manifesto: o input do Actor sai do schema publicado por ele
@@ -46,7 +46,8 @@ As mesmas cargas rodam na Vercel pela seção *Base de conhecimento* do /admin (
 
 1. `tiers` — sincroniza `SOURCE_TIERS` → `source_tiers` (segundos).
 2. `indicators --check` — **sem gravar**: imprime os 6 últimos valores de cada série e confere a desocupação
-   móvel × trimestral. Compare 2–3 valores com a página pública da série antes de seguir.
+   móvel × trimestral e, nas séries com reserva, principal × reserva (SIDRA 6381 × SGS 24369). Compare 2–3 valores
+   com a página pública da série antes de seguir.
 3. `indicators` — grava séries e valores desde 2003 (alguns minutos; séries diárias vão em janelas de 3 anos).
 4. `factchecks --since 2025-01-01` — Google Fact Check Tools + feeds das agências. Antes, uma vez:
    `factchecks --verify-feeds` para ver quais feeds as agências anunciam.
@@ -93,8 +94,26 @@ tier, notes e a origem de cada código). `--list` mostra ativas e pendentes; `--
 
 `aggregation` diz ao comparador L2 como ler um período mais longo que a série: `sum` (fluxo: Caged, PIB nominal —
 ano = soma), `mean_or_last` (taxa: média ou último ponto), `last` (estoque: fim do período), `accum_12m` (ano civil =
-dezembro) ou `none` (só o período exato). Alias genérico repetido em duas séries só se uma delas não couber na
-afirmação (ver o cabeçalho do catálogo); na dúvida o pipeline cala a L2.
+dezembro) ou `none` (só o período exato). Série anual de taxa (PIB anual, carga tributária) é `mean_or_last`: "cresceu
+X% ao ano entre 2003 e 2010" é a média das taxas anuais (2003–2010 ≈ 4,1%). **Hoje a L2 ainda não compara nível com
+intervalo** (`2003..2010` ⇒ `nivel_com_intervalo`, silêncio), então para série anual `none` e `mean_or_last` se
+comportam igual; a declaração deixa a série pronta para quando o pipeline aceitar intervalos. Alias genérico repetido
+em duas séries só se uma delas não couber na afirmação (ver o cabeçalho do catálogo: pares do IPCA e do PIB); na
+dúvida o pipeline cala a L2.
+
+**Reserva (`fallback`)**: o mesmo dado por outra porta, usada só se a principal falhar ou vier vazia (o log da carga
+avisa). Precisa gerar os mesmos `period_start/period_end`. Hoje só a desocupação móvel tem: SIDRA 6381 (IBGE, quem
+produz; a evidência abre a tabela) e, de reserva, SGS 24369 (o BCB espelha).
+
+**SGS devolvendo HTML**: às vezes a API do BCB responde 200 com uma página XHTML no lugar do JSON e acerta na tentativa
+seguinte. `fetchSgs` repete até 2 vezes (esperas de ~2 s e ~4 s), cada repetição sem as repetições de rede e com teto
+de 20 s, para não multiplicar o tempo de uma etapa do /admin.
+
+**Séries manuais** (`fetch: { kind: "manual" }`): fonte sem API nem arquivo estável. Os valores ficam em
+`sources/manual/<arquivo>.yaml`, um por período, cada um com `url` da publicação, `source`, `verified_by` e
+`released_at`. O carregador (`src/indicators/manual.ts`) recusa o arquivo inteiro se um valor não tiver URL de nível 1
+— ou de nível 2 com `confirmed_by` de outro veículo de nível 2 —, repetir período ou trocar série/unidade. Depois de
+editar, `pnpm --filter @actually/kb-ingest gen:sources` (a Vercel lê a cópia embutida).
 
 **Ordem obrigatória:** aplicar `supabase/migrations/20261019000007_indicator_aggregation.sql` (cria a coluna
 `indicator_series.aggregation` e o `find_indicator` que a devolve) e **depois** rodar `indicators`. Sem a migration a
@@ -113,13 +132,14 @@ anual → ano. Séries diárias do SGS (Selic meta, dólar) viram o **último va
 | dlsp_pib / dlgg_pib | SGS 4513 / 4536 | ativa |
 | primario_12m_pib | SGS 5793 (NFSP: positivo = déficit) | ativa |
 | desocupacao_pnadc_trimestral | SIDRA 4099 v4099 | ativa |
-| desocupacao_pnadc_movel | SGS 24369 | ativa (conferida contra a trimestral no `--check`) |
+| desocupacao_pnadc_movel | SIDRA 6381 v4099 (reserva: SGS 24369) | ativa (conferida contra a trimestral e a reserva no `--check`) |
 | pib_variacao_trimestral / pib_corrente_trimestral | SIDRA 5932 v6561 / 1846 v585 (c11255/90707) | ativa |
 | pib_per_capita / populacao_estimada | SIDRA 6784 v9812 / 6579 v9324 | ativa |
 | rendimento_medio_real | SIDRA 6387 v5935 (trimestre móvel) | ativa |
 | caged_saldo | SGS 28561 | ativa (nome herdado; conferir) |
 | dbgg_pib (dívida bruta) | — | **pendente**: código não confirmado |
-| pib_variacao_anual | — | **pendente**: variável não confirmada |
+| pib_variacao_anual | SGS 7326 (taxa de variação real no ano) | ativa (`mean_or_last`) |
+| carga_tributaria_pib | manual: `sources/manual/carga_tributaria.yaml` (Tesouro Nacional) | ativa só com 2024–2025 (edição de 10/04/2026); 2010–2023 pendentes |
 | desmatamento PRODES, salário mínimo, homicídios, Bolsa Família | — | **pendentes** (ver `--list`) |
 
 O SIDRA é consultado primeiro pela API de Agregados v3 (`servicodados.ibge.gov.br`, `view=flat`) e, se falhar,
@@ -193,6 +213,8 @@ pnpm --filter @actually/kb-ingest test
 ```
 
 Sem rede. Cobrem: tabela de rating, chunker (trechos literais, limite e sobreposição), divisão em sentenças,
-HTML → texto + JSON-LD + escolha do `quote`, parsers SGS (valores reais) e SIDRA/Agregados (formato), resolução de
-períodos, catálogo, feeds, Google, Senado, Deepgram, robots.txt, pessoa/tópico e mapeamentos da Apify.
+HTML → texto + JSON-LD + escolha do `quote`, parsers SGS (valores reais) e SIDRA/Agregados (formato; 6381 com valores
+reais), repetição quando o SGS devolve HTML, principal × reserva da desocupação móvel, PIB anual (7326, valores reais),
+série manual da carga tributária e suas regras, resolução de períodos, catálogo, feeds, Google, Senado, Deepgram,
+robots.txt, pessoa/tópico e mapeamentos da Apify.
 A proveniência dos fixtures está no topo de `test/indicators.test.ts`.

@@ -1,0 +1,44 @@
+# Carga tributária bruta do governo geral (% do PIB) — Tesouro Nacional, boletim anual
+# "Estimativa da Carga Tributária Bruta do Governo Geral". Série `carga_tributaria_pib` do
+# catálogo (src/indicators/catalog.ts), lida por src/indicators/manual.ts.
+#
+# Por que manual: não há API. O Tesouro publica o boletim (PDF) e a planilha "Base CTB GG.xlsx"
+# na página da edição no Tesouro Transparente; em 21/10/2026 nem a página nem o arquivo abriram
+# deste ambiente (tesourotransparente.gov.br, tesouro.gov.br e gov.br bloqueados pelo proxy).
+#
+# REGRAS (o carregador confere as duas primeiras e recusa o arquivo se falharem):
+#   - cada valor traz a URL da publicação; URL de nível 1 (oficial, source_tiers) basta;
+#     de nível 2 (imprensa de referência) só com `confirmed_by` de OUTRO domínio de nível 2;
+#   - período único por valor; `unit` e `series` iguais aos do catálogo;
+#   - UMA edição só: o Tesouro revisa a série inteira a cada boletim (PIB revisto; na revisão
+#     metodológica da edição de 2024, FGTS e Sistema S deixaram de contar como tributo e 2023
+#     passou de 32,1% para 30,3%). Misturar edições compararia a fala com número que o próprio
+#     Tesouro já trocou — e os números antigos ainda circulam.
+#   - nunca invente: o que não foi conferido fica fora (ver PENDÊNCIAS).
+# Depois de editar: pnpm --filter @actually/kb-ingest gen:sources (a Vercel lê a cópia embutida).
+#
+# PENDÊNCIAS: 2010–2023 da edição de 2025 (planilha "Base CTB GG.xlsx" na mesma página). Numa
+# máquina com acesso, abra a planilha, confira e acrescente aqui com a mesma URL e released_at.
+series: carga_tributaria_pib
+unit: "% do PIB"
+values:
+  - period: "2025"
+    value: 32.40
+    url: https://www.tesourotransparente.gov.br/publicacoes/carga-tributaria-do-governo-geral/2025/114
+    released_at: "2026-04-10"
+    source: Tesouro Nacional, boletim "Estimativa da Carga Tributária Bruta do Governo Geral" de 2025 (divulgado em 10/04/2026)
+    verified_by: >-
+      Texto oficial do Tesouro (gov.br/tesouronacional, notícia "Carga tributária bruta do Governo Geral atinge
+      32,40% do PIB em 2025"): "Em 2025, a carga tributária bruta (CTB) do governo geral (governo central,
+      governos estaduais e municipais) foi de 32,40% do PIB, o que representa um aumento de 0,18 p.p. do PIB
+      em relação a 2024". Lido pela ferramenta de busca em 21/10/2026 (o domínio não abre deste ambiente);
+      mesmo número na notícia do Ministério da Fazenda e no título da publicação no Tesouro Transparente.
+  - period: "2024"
+    value: 32.22
+    url: https://www.tesourotransparente.gov.br/publicacoes/carga-tributaria-do-governo-geral/2025/114
+    released_at: "2026-04-10"
+    source: Tesouro Nacional, boletim de 2025 (divulgado em 10/04/2026) — valor de 2024 revisto
+    verified_by: >-
+      Mesma edição e mesmo texto oficial: 32,40% em 2025 com "aumento de 0,18 p.p. do PIB em relação a 2024"
+      ⇒ 32,22%; a cobertura da divulgação (Estadão Conteúdo, Istoé Dinheiro) diz "de 32,22% para 32,40%".
+      A edição anterior (03/2025) dava 32,32% para 2024: o Tesouro revisou, vale o da edição atual.
