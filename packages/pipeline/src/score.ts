@@ -83,8 +83,14 @@ export function layerAgreement(
 
 export function scoreDecision(input: ScoreInput): ScoreResult {
   const verified = input.evidence.filter((e) => e.quote_verified);
-  const best = bestEvidence(verified);
-  const { agreement, conflict, l2_divergent } = layerAgreement(input.verdict, verified, input.comparison);
+  // evidência fraca da base (entrou junto com a web) não sustenta sozinha: não conta
+  // como camada independente, não vira a "melhor fonte" e não tira o acréscimo da web
+  const strong = verified.filter((e) => !e.weak);
+  const best = bestEvidence(strong.length ? strong : verified);
+  // conflito olha tudo (uma checagem fraca que discorda ainda silencia); concordância, só o forte
+  const all = layerAgreement(input.verdict, verified, input.comparison);
+  const { conflict, l2_divergent } = all;
+  const agreement = conflict ? 0 : layerAgreement(input.verdict, strong, input.comparison).agreement;
   const quoteFraction = input.citations_total > 0 ? input.citations_verified / input.citations_total : 0;
   const tierComponent = best ? TIER_WEIGHT[best.source_tier] : 0;
   const conf = Math.min(1, Math.max(0, input.model_confidence));
@@ -97,7 +103,7 @@ export function scoreDecision(input: ScoreInput): ScoreResult {
   const final_score = Math.round(Math.min(1, Math.max(0, raw)) * 1e4) / 1e4;
 
   // web: toda a evidência verificada veio da L4
-  const usedWeb = verified.length > 0 && verified.every((e) => e.layer === "L4");
+  const usedWeb = verified.length > 0 && verified.every((e) => e.layer === "L4" || e.weak);
   const kind: ClaimKind = input.kind ?? "fato";
   const rules = KIND_RULES[kind];
   const verdictLevel: AlertLevel | null = input.verdict === "contradito" ? "red" : input.verdict === "impreciso" ? "yellow" : null;

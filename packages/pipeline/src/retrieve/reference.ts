@@ -4,7 +4,7 @@
 // porque nenhuma fonte escreve "17,4 dos últimos 24 anos" e a regra de números
 // da correção (só números presentes na evidência) barraria um valor calculado.
 // O texto da evidência é gerado aqui e contém o número calculado.
-import type { RefElection, RefMandate, Verdict } from "@actually/db";
+import { tierForUrl, type RefElection, type RefMandate, type Verdict } from "@actually/db";
 import { REFERENCE_TOLERANCE } from "../config";
 import { normalizeText } from "../normalize";
 import type { PipelineStore } from "../store";
@@ -103,6 +103,12 @@ export function timeInPower(
   }
   const actual = Math.round((days / YEAR_DAYS) * 10) / 10;
   const tol = { match: REFERENCE_TOLERANCE.years_match, minor: Math.max(REFERENCE_TOLERANCE.years_match, actual * REFERENCE_TOLERANCE.years_minor_frac) };
+  // Sem janela ("Lula governou 8 anos", "os 13 anos do PT"), a fala pode ser sobre só parte
+  // do tempo total (os dois primeiros mandatos, um período citado no contexto): valor abaixo
+  // do total não é acusável — silêncio. Só o exagero acima do máximo possível é.
+  if (!ref.window_years && ref.claimed_value < actual - tol.match) {
+    return { comparison: noData("parte_do_total", ref.claimed_value), rows };
+  }
   const status = compareValue(ref.claimed_value, actual, ref.qualifier, tol);
   const who = party ? `do ${party}` : `de ${rows[0]!.pessoa}`;
   const listed = used.length ? used : rows;
@@ -137,6 +143,10 @@ export function electionResult(
   const r = found[0]!;
   const isPct = ref.unit === "%";
   const actual = isPct ? r.pct_validos : r.votos;
+  // escala trocada ("58" dito como 58 milhões) não é erro do falante: silêncio
+  if (isPct ? ref.claimed_value > 100 : actual > 0 && (ref.claimed_value / actual < 0.05 || ref.claimed_value / actual > 20)) {
+    return { comparison: noData("escala_incompativel", ref.claimed_value), row: null };
+  }
   const tol = isPct
     ? { match: REFERENCE_TOLERANCE.pct_match_pp, minor: REFERENCE_TOLERANCE.pct_minor_pp }
     : { match: actual * REFERENCE_TOLERANCE.votes_match_frac, minor: actual * REFERENCE_TOLERANCE.votes_minor_frac };
@@ -182,7 +192,8 @@ export async function retrieveReference(
       evidence_type: "indicator",
       url: source.url,
       source_name: source.name,
-      source_tier: 1,
+      // o nível vem do endereço da fonte, como nas outras camadas (nível 4 nunca sustenta alerta)
+      source_tier: tierForUrl(source.url),
       published_at: null,
       title: source.title,
       text: comparison.evidence_text,

@@ -156,3 +156,26 @@ describe("[RF02] [RF04] regras por tipo de fala", () => {
     expect(scoreDecision(base({ kind: "acusacao", verdict: "confirmado" }))).toMatchObject({ alert: null, review: false });
   });
 });
+
+describe("[RF07] base fraca + web: a evidência fraca não infla o score", () => {
+  const web = ev({ layer: "L4", evidence_type: "web", source_tier: 2, url: "https://g1.globo.com/x" });
+  const weakDoc = ev({ layer: "L3", source_tier: 1, weak: true });
+  it("documento fraco + web não conta como 2 camadas nem tira o acréscimo da web", () => {
+    const input = { model_confidence: 0.8, citations_total: 2, citations_verified: 2 };
+    const onlyWeb = scoreDecision(base({ ...input, evidence: [web], citations_total: 1, citations_verified: 1 }));
+    const both = scoreDecision(base({ ...input, evidence: [weakDoc, web] }));
+    expect(onlyWeb.alert).toBeNull();
+    expect(both.alert).toBeNull();
+    expect(both.components).toMatchObject({ agreement: 0.5, used_web: true, best_layer: "L4" });
+  });
+  it("documento forte + web continua contando como 2 camadas", () => {
+    const strongDoc = ev({ layer: "L3", source_tier: 1 });
+    const r = scoreDecision(base({ model_confidence: 0.8, evidence: [strongDoc, web], citations_total: 2, citations_verified: 2 }));
+    expect(r.components).toMatchObject({ agreement: 1, used_web: false });
+  });
+  it("checagem fraca que discorda ainda silencia (conflito olha tudo)", () => {
+    const weakFc = ev({ layer: "L1", source_tier: 1, weak: true, factcheck_verdict: "confirmado" });
+    expect(scoreDecision(base({ evidence: [weakFc, web], citations_total: 2, citations_verified: 2 })))
+      .toMatchObject({ alert: null, silence_reason: "camadas_em_conflito" });
+  });
+});

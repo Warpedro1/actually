@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { TIMEOUTS_MS } from "../src/config";
 import { retrieveAll } from "../src/retrieve";
 import {
+  claimMismatch,
   classify, compareIndicator, parsePeriod, retrieveIndicator, toAggregation, toleranceFor, unitScale, valuesForPeriod,
 } from "../src/retrieve/indicators";
 import type { PipelineStore } from "../src/store";
@@ -443,5 +444,20 @@ describe("[RF03] retrieveAll: comparação L2 só entra com a camada L2 concluí
     const r = await retrieveAll(makeDeps({ store, anthropic }), claim, [0.1, 0.2]);
     expect(r.comparison).toMatchObject({ status: "mismatch", series_code: PNAD.code });
     expect(r.candidates.find((c) => c.layer === "L2")?.comparison).toBe(r.comparison);
+  });
+});
+
+describe("[RF03] séries que já são taxa de variação (PIB)", () => {
+  const pib = { ...PNAD, code: "pib_variacao_anual", name: "PIB — variação real anual", periodicity: "annual" as const, aggregation: "mean_or_last" as const };
+  const ref = (over: Partial<IndicatorRef>): IndicatorRef => ({ query: "pib", period: "2023", claimed_value: 3, unit: "%", kind: "level", ...over });
+  it("variação entre duas taxas (\"cresceu 50% de 2022 para 2023\") não é comparada", () => {
+    expect(claimMismatch(ref({ kind: "change_pct", period: "2022..2023", claimed_value: 50 }), pib)).toBe("serie_so_nivel");
+    expect(claimMismatch(ref({ kind: "change_abs", period: "2022..2023", claimed_value: 1 }), pib)).toBe("serie_so_nivel");
+  });
+  it("sem período (\"o PIB está crescendo 3%\") não é comparada com o último ano", () => {
+    expect(claimMismatch(ref({ period: null }), pib)).toBe("periodo_obrigatorio");
+  });
+  it("com o ano, compara", () => {
+    expect(claimMismatch(ref({}), pib)).toBeNull();
   });
 });

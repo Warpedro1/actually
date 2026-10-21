@@ -100,8 +100,10 @@ export async function retrieveAll(
   if (web && !baseIsStrong(candidates, comparison)) {
     const w = await web;
     layers.push(w);
-    candidates = [...candidates, ...w.candidates];
     usedWeb = w.candidates.length > 0;
+    // a base veio fraca: o que ela trouxe pode ser citado, mas não soma como camada
+    // independente nem tira o acréscimo da web (score.ts)
+    candidates = [...(usedWeb ? candidates.map((c) => ({ ...c, weak: true })) : candidates), ...w.candidates];
   }
 
   // ordem para o verificador: indicador determinístico, checagens, documentos, web;

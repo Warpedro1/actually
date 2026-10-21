@@ -95,6 +95,17 @@ export const RERANK_MIN_RELEVANCE = { L1: 0.6, L3: 0.5, L4: 0.5 } as const;
 export const WEB_SKIP_MIN_RELEVANCE = { L1: 0.75, L3: 0.75 } as const;
 /** Sem rerank (falhou/estourou): só aceita candidato com similaridade vetorial alta. */
 export const FALLBACK_MIN_SIMILARITY = 0.8;
+/**
+ * Séries que já são taxa de variação (crescimento do PIB): só comparam o valor de
+ * um período. "Variação" entre duas taxas ("cresceu 50% de 2022 para 2023") não
+ * tem leitura segura e viraria falso "contradito".
+ */
+export const LEVEL_ONLY_SERIES: readonly string[] = ["pib_variacao_anual", "pib_variacao_trimestral"];
+/**
+ * Séries em que a fala sem período ("o PIB está crescendo 3%") é ambígua — ano
+ * passado, este ano, projeção? — e não pode ser comparada com o último valor.
+ */
+export const PERIOD_REQUIRED_SERIES: readonly string[] = ["pib_variacao_anual", "pib_variacao_trimestral"];
 /** Similaridade (pg_trgm) mínima para aceitar a série encontrada por find_indicator. */
 export const INDICATOR_MIN_SCORE = 0.45;
 

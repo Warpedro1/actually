@@ -63,10 +63,21 @@ describe("[RF03] fatos de referência — conta em código", () => {
       .toMatchObject({ status: "mismatch", expected_verdict: "contradito" });
   });
 
-  it("interino conta para quem exerceu: o afastamento de Dilma não entra no tempo do PT", () => {
-    const pt2016 = timeInPower(ref({ window_years: 0.5, claimed_value: 0 }), MANDATES, "2016-11-12").comparison.actual;
-    expect(pt2016).toBeCloseTo(0, 0);
-    expect(timeInPower(ref({ subject: "MDB", window_years: 0.5, claimed_value: 0 }), MANDATES, "2016-11-12").comparison.actual).toBeCloseTo(0.5, 1);
+  it("sem janela, valor abaixo do total pode ser parte dele (\"Lula governou 8 anos\", \"os 13 anos do PT\") ⇒ silêncio", () => {
+    expect(timeInPower(ref({ subject: "Lula", claimed_value: 8 }), MANDATES, AS_OF).comparison)
+      .toMatchObject({ status: "no_data", reason: "parte_do_total" });
+    expect(timeInPower(ref({ subject: "PT", claimed_value: 13 }), MANDATES, AS_OF).comparison.status).toBe("no_data");
+    // com janela explícita, o valor abaixo é acusável
+    expect(timeInPower(ref({ subject: "PT", window_years: 24, claimed_value: 10 }), MANDATES, AS_OF).comparison.status).toBe("mismatch");
+  });
+
+  it("interino conta para quem exerceu: o afastamento de Dilma (12/05 a 31/08/2016) não entra no tempo do PT", () => {
+    // janela de 0,4 ano até 31/08/2016 = de 07/04/2016 a 31/08/2016 (146 dias)
+    const pt = timeInPower(ref({ window_years: 0.4, claimed_value: 0.4 }), MANDATES, "2016-08-31").comparison;
+    const mdb = timeInPower(ref({ subject: "MDB", window_years: 0.4, claimed_value: 0.3 }), MANDATES, "2016-08-31").comparison;
+    expect(pt.actual).toBe(0.1); // 35 dias de Dilma até o afastamento
+    expect(mdb.actual).toBe(0.3); // 111 dias de Temer interino
+    expect(mdb.evidence_text).toContain("Michel Temer (MDB, interino), de 12/05/2016 a 31/08/2016");
   });
 
   it("pessoa ou partido sem mandato ⇒ sem dado (silêncio), nunca contradito", () => {
@@ -89,6 +100,8 @@ describe("[RF03] fatos de referência — conta em código", () => {
     expect(e({ subject: "Lula", claimed_value: 70_000_000 })).toMatchObject({ status: "mismatch", expected_verdict: "contradito" });
     expect(e({ subject: "Lula", claimed_value: 51, unit: "%" }).status).toBe("match");
     expect(e({ subject: "Lula", claimed_value: 51, unit: "%" }).evidence_text).toContain("60.345.999 votos, 50,90%");
+    // escala trocada: "58" dito como 58 milhões ⇒ silêncio, não contradito
+    expect(e({ subject: "Bolsonaro", claimed_value: 58 })).toMatchObject({ status: "no_data", reason: "escala_incompativel" });
     const twoSilvas = [...ELECTIONS, { ...ELECTIONS[0]!, id: "x", candidato: "Marina Silva" }];
     expect(electionResult(ref({ type: "eleicao", subject: "Silva", year: 2022, round: 2, unit: "votos", claimed_value: 1 }), twoSilvas).comparison.reason).toBe("candidato_ambiguo");
   });
@@ -154,5 +167,19 @@ describe("[RF03] [RF05] fato de referência no pipeline", () => {
     });
     const res = await createPipeline(deps).runPipeline(store.addSegment(SEG).id);
     expect(res.alerts).toBe(0);
+    // silêncio de verdade: nada de erro nem de camada quebrada
+    expect(deps.logs.filter((l) => l.level === "error" || l.event === "layer_failed")).toEqual([]);
+  });
+
+  it("referência lançando exceção (tabela fora) ⇒ silêncio, nunca alerta", async () => {
+    const store = new MemoryStore({ mandates: MANDATES }, { require_yellow_approval: false });
+    store.failing.add("refMandates");
+    const deps = makeDeps({
+      store, now: () => Date.parse("2026-10-23T22:00:00Z"),
+      anthropic: fakeAnthropic({ extract: extractPT, verify: () => ({ output: { rationale: "r", verdict: "inconclusivo", confidence: 0.1, correction: "", summary: "", citations: [] } }) }),
+    });
+    const res = await createPipeline(deps).runPipeline(store.addSegment(SEG).id);
+    expect(res.alerts).toBe(0);
+    expect(deps.logs.some((l) => l.event === "layer_failed" && l.fields?.layer === "L2")).toBe(true);
   });
 });

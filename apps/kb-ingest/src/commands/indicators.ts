@@ -11,7 +11,7 @@ import { activeSeries, CATALOG, describeFetch, toSeriesRow, type CatalogSeries, 
 import { manualSeriesRaw, parseManualSeries } from "../indicators/manual";
 import { sgsPeriod, sidraPeriod } from "../indicators/periods";
 import { aggregateMonthly, fetchSgs } from "../indicators/sgs";
-import { fetchSidra } from "../indicators/sidra";
+import { fetchSidra, SIDRA_WITH_FALLBACK } from "../indicators/sidra";
 
 export interface IndicatorsOpts {
   list?: boolean;
@@ -55,7 +55,9 @@ export async function loadFrom(
     });
   }
   if (f.kind === "sidra") {
-    const { obs } = await fx.sidra({ table: f.table, variable: f.variable, classification: f.classification });
+    // principal com reserva: desiste cedo para a reserva caber no prazo da etapa
+    const quick = f === s.fetch && s.fallback ? SIDRA_WITH_FALLBACK : undefined;
+    const { obs } = await fx.sidra({ table: f.table, variable: f.variable, classification: f.classification }, quick);
     return obs
       .map((o) => ({ series_code: s.code, ...sidraPeriod(o.periodCode, s.periodicity), value: o.value, released_at: null }))
       .filter((v) => v.period_end >= since);

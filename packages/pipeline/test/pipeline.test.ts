@@ -7,7 +7,7 @@ import { createPipeline } from "../src/index";
 import type { WebSearchFn } from "../src/retrieve/web";
 import type { VerifyOutput } from "../src/verify";
 import {
-  DOC_CHUNK, DOC_TEXT, FACTCHECK, PNAD, PNAD_VALUES, fakeAnthropic, fakeEmbed, fakeRerank, fakeWeb, makeDeps,
+  DOC_CHUNK, DOC_TEXT, FACTCHECK, PNAD, PNAD_VALUES, fakeAnthropic, fakeEmbed, fakeRerank, fakeVector, fakeWeb, makeDeps,
   MemoryStore, type FakeAnthropicScript, type FakeReply,
 } from "./helpers";
 
@@ -342,7 +342,7 @@ describe("[RF02] [RF04] tipos de fala", () => {
 
   it("[RF08] acusação vai para a fila do editor mesmo com aprovação desligada", async () => {
     const seg = "No meu governo o desemprego em 2023 foi de 12%, uma vergonha.";
-    const acc = { ...L2_CLAIM, tipo: "acusacao" };
+    const acc = { ...L2_CLAIM, tipo: "acusacao" as const };
     const { store, pipeline } = setup(
       { extract: extracting(acc), verify: () => L2_VERDICT },
       { series: [PNAD], values: PNAD_VALUES },
@@ -465,6 +465,20 @@ describe("[RNF03] falhas e timeouts ⇒ silêncio, sem exceção", () => {
     expect(verifyMsg).toContain(DOC_CHUNK.url);
     expect(verifyMsg).toContain(WEB_RESULT.url);
     expect(store.verifications[0]?.latency_ms).toHaveProperty("retrieve_L4");
+  });
+
+  it("[RF03] base fraca + web: candidatos da base marcados como fracos; sem resultado da web, nada muda", async () => {
+    const { retrieveAll } = await import("../src/retrieve/index");
+    const claim = { text_original: "x", text_normalized: DOC_CLAIM.text_normalized, topic: "saude" as const, kind: "fato" as const,
+      measurable: null, numbers: [], indicator: null, reference: null, time_reference: null };
+    const store = new MemoryStore({ chunks: [DOC_CHUNK] });
+    const withWeb = await retrieveAll(makeDeps({ store, anthropic: fakeAnthropic({ extract: extracting(), verify: () => L2_VERDICT }),
+      webSearch: fakeWeb([WEB_RESULT]), rerank: fakeRerank({ score: 0.6 }) }), claim, fakeVector(claim.text_normalized));
+    expect(withWeb.candidates.find((c) => c.layer === "L3")).toMatchObject({ weak: true });
+    expect(withWeb.candidates.find((c) => c.layer === "L4")?.weak).toBeUndefined();
+    const noWeb = await retrieveAll(makeDeps({ store, anthropic: fakeAnthropic({ extract: extracting(), verify: () => L2_VERDICT }),
+      webSearch: fakeWeb([]), rerank: fakeRerank({ score: 0.6 }) }), claim, fakeVector(claim.text_normalized));
+    expect(noWeb.candidates.find((c) => c.layer === "L3")?.weak).toBeUndefined();
   });
 
   it("[RF03] [RNF01] base forte não espera a web: a busca começa junto, mas não atrasa", async () => {
@@ -723,5 +737,26 @@ describe("[RNF04] neutralidade", () => {
       return { verdict: v.verdict, score: v.final_score, status: store.alerts[0]?.status ?? null };
     };
     expect(await run("SPEAKER_0")).toEqual(await run("SPEAKER_1"));
+  });
+});
+
+describe("[RF02] [RF08] trava de tipo em código", () => {
+  it("[RF02] tipo com acento ou fora da lista não vira \"fato\": a fala é descartada", async () => {
+    const { toKind } = await import("../src/extract");
+    expect(toKind("acusação")).toBe("acusacao");
+    expect(toKind("Previsão")).toBe("previsao");
+    expect(toKind("opinião mensurável")).toBe("opiniao_mensuravel");
+    expect(toKind("promessa")).toBeNull();
+    expect(toKind("comentario")).toBeNull();
+  });
+
+  it("[RF08] fala sobre situação judicial rotulada como fato vira acusação (revisão obrigatória)", async () => {
+    const { looksLikeAccusation } = await import("../src/extract");
+    expect(looksLikeAccusation("Ele foi condenado em três instâncias")).toBe(true);
+    expect(looksLikeAccusation("O ex-presidente está inelegível até 2030")).toBe(true);
+    expect(looksLikeAccusation("Ela é ré no processo")).toBe(true);
+    // estatística de segurança não é acusação
+    expect(looksLikeAccusation("Os homicídios caíram 20% e o crime organizado perdeu espaço")).toBe(false);
+    expect(looksLikeAccusation("A lei antifacção aumentou as penas")).toBe(false);
   });
 });

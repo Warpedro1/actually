@@ -87,6 +87,11 @@ export interface EvidenceCandidate {
   factcheck_verdict?: Verdict;
   /** L2: comparação determinística. A citação é o próprio evidence_text (quote_verified=true). */
   comparison?: IndicatorComparison;
+  /**
+   * Evidência da base com relevância baixa, que entrou junto com a web (base fraca):
+   * pode ser citada, mas não conta como camada independente nem tira o acréscimo da web.
+   */
+  weak?: boolean;
 }
 
 export interface LayerOutcome {
@@ -128,4 +133,6 @@ export interface EvidenceRecord {
   /** Similaridade da checagem da citação. */
   quote_similarity: number;
   factcheck_verdict?: Verdict;
+  /** Ver EvidenceCandidate.weak. */
+  weak?: boolean;
 }

@@ -19,7 +19,9 @@ export const ExtractionSchema = z.object({
       text_original: z.string().describe("Trecho literal da fala atual que contém a afirmação."),
       text_normalized: z.string().describe("Afirmação autossuficiente em PT-BR, com sujeito e tempo resolvidos."),
       topic: z.string().describe(`Um de: ${TOPICS.join(", ")}`),
-      tipo: z.string().describe(`Tipo da fala, um de: ${[...CLAIM_KINDS, ...DROPPED_KINDS].join(", ")}`),
+      // lista fechada (a saída estruturada garante o valor): um tipo livre como "acusação",
+      // com acento, cairia em "fato" e escaparia das regras da acusação/opinião/previsão
+      tipo: z.enum([...CLAIM_KINDS, ...DROPPED_KINDS]).describe("Tipo da fala."),
       measurable: z
         .string()
         .nullable()
@@ -93,7 +95,7 @@ Exemplos (resumidos):
 Fala: "Boa noite a todos, é uma honra estar aqui." → {"claims": []}
 Fala: "Eu vou acabar com a fome em dois anos." → tipo "promessa".
 Fala: "Hoje o brasileiro não consegue mais comprar carne." → tipo "opiniao_mensuravel"; measurable "consumo de carne bovina por pessoa no Brasil em 2025 e 2026".
-Fala: "Ele foi condenado em três instâncias." (contexto: falando de Lula) → tipo "acusacao"; text_normalized "Lula foi condenado em três instâncias da Justiça."
+Fala: "Ele foi condenado em segunda instância." (contexto: falando de um ex-governador nomeado antes) → tipo "acusacao"; text_normalized com o nome dele, ex.: "O ex-governador Fulano foi condenado em segunda instância."
 Fala: "No meu governo o desemprego caiu para 6,6%." (contexto indica o presidente Lula, falando de 2024) → text_normalized "A taxa de desemprego no Brasil foi de 6,6% em 2024, durante o governo Lula."; tipo "estatistica"; indicator {query "desemprego", period "2024", claimed_value 6.6, unit "%", kind "level"}.
 Fala: "O desmatamento na Amazônia caiu quase 50% de 2022 para 2023." → tipo "estatistica"; indicator {query "desmatamento Amazônia", period "2022..2023", claimed_value 50, unit "%", kind "change_pct"}; numbers [{value 50, unit "%", raw "quase 50%"}].
 Fala: "Ele votou contra a PEC da Transição." (contexto: o senador Flávio Bolsonaro) → text_normalized "O senador Flávio Bolsonaro votou contra a PEC da Transição."; tipo "fato"; indicator null.
@@ -104,11 +106,26 @@ function toTopic(t: string): Topic {
   return (TOPICS as readonly string[]).includes(n) ? (n as Topic) : "outro";
 }
 
-/** Tipo da fala; desconhecido vira "fato" (o schema é leniente). null = descartar. */
+/**
+ * Tipo da fala (sem acento e sem caixa). Promessa, opinião ou tipo desconhecido ⇒ null
+ * (descartar): na dúvida, silêncio — nunca "fato", que escaparia das regras por tipo.
+ */
 export function toKind(k: string | null | undefined): ClaimKind | null {
-  const n = (k ?? "").trim().toLowerCase();
-  if ((DROPPED_KINDS as readonly string[]).includes(n)) return null;
-  return (CLAIM_KINDS as readonly string[]).includes(n) ? (n as ClaimKind) : "fato";
+  const n = (k ?? "").normalize("NFD").replace(/\p{M}/gu, "").trim().toLowerCase().replace(/\s+/g, "_");
+  return (CLAIM_KINDS as readonly string[]).includes(n) ? (n as ClaimKind) : null;
+}
+
+/**
+ * Trava em código para acusação: fala sobre situação judicial ou policial vira
+ * "acusacao" mesmo que o modelo a rotule como fato/estatística — a revisão humana
+ * obrigatória e o vermelho só com nível 1 não podem depender só do rótulo.
+ */
+// Situação judicial/policial de uma pessoa. Sem "crime", "facção" ou "fraude" soltos:
+// aparecem em estatística de segurança e mandariam essas falas para o editor à toa.
+const ACCUSATION_RE =
+  /\b(conden\w*|pres[oa]|prisao|reu|re|denunciad\w*|investigad\w*|inquerito|indiciad\w*|inelegiv\w*|absolvid\w*|inocentad\w*|anulad\w*|arquivad\w*|prescri\w*|corrupt\w*|lavagem de dinheiro|propina\w*|peculato|rachadinha\w*|milicia\w*|miliciano\w*|golpista\w*|tentativa de golpe|ladr\w*)\b/;
+export function looksLikeAccusation(...texts: string[]): boolean {
+  return texts.some((t) => ACCUSATION_RE.test(t.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase()));
 }
 
 /** Opinião e previsão só são julgáveis com o dado que as mede. */
@@ -166,11 +183,15 @@ export function postprocessExtraction(out: ExtractionOutput, segmentText: string
       logger("warn", "extract_claim_not_in_segment", { text_original: original });
       continue;
     }
-    const kind = toKind(c.tipo);
+    let kind = toKind(c.tipo);
     const measurable = c.measurable?.trim() || null;
     if (!kind) {
       logger("info", "extract_dropped", { reason: c.tipo.trim().toLowerCase(), text_original: original });
       continue;
+    }
+    if ((kind === "fato" || kind === "estatistica") && looksLikeAccusation(original, normalized)) {
+      logger("info", "extract_kind_upgraded", { from: kind, to: "acusacao", text_original: original });
+      kind = "acusacao";
     }
     if (NEEDS_MEASURE.includes(kind) && !measurable) {
       logger("info", "extract_dropped", { reason: "sem_medida", kind, text_original: original });

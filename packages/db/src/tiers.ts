@@ -19,13 +19,16 @@ export const SOURCE_TIERS: SourceTierRow[] = [
   { domain: "ipeadata.gov.br", name: "Ipeadata", tier: 1, kind: "oficial" },
   { domain: "inpe.br", name: "INPE", tier: 1, kind: "oficial" },
   { domain: "tse.jus.br", name: "TSE", tier: 1, kind: "oficial" },
+  // acervo histórico (datas dos mandatos), não comunicação de governo
+  { domain: "biblioteca.presidencia.gov.br", name: "Biblioteca da Presidência da República", tier: 1, kind: "oficial" },
   { domain: "stf.jus.br", name: "STF", tier: 1, kind: "oficial" },
   { domain: "stj.jus.br", name: "STJ", tier: 1, kind: "oficial" },
   // demais tribunais (TRFs, TJs, CNJ): decisão judicial é o registro primário de processo
   { domain: "jus.br", name: "Poder Judiciário", tier: 1, kind: "oficial" },
-  // Ministério Público: registro primário de denúncia/arquivamento (não de culpa)
-  { domain: "mpf.mp.br", name: "Ministério Público Federal", tier: 1, kind: "oficial" },
-  { domain: "mp.br", name: "Ministério Público", tier: 1, kind: "oficial" },
+  // Ministério Público: é a parte que acusa. Registra que houve denúncia ou pedido de
+  // arquivamento, mas é a versão de um lado: nível 2 (não sustenta vermelho de acusação)
+  { domain: "mpf.mp.br", name: "Ministério Público Federal", tier: 2, kind: "oficial" },
+  { domain: "mp.br", name: "Ministério Público", tier: 2, kind: "oficial" },
   { domain: "senado.leg.br", name: "Senado Federal", tier: 1, kind: "oficial" },
   { domain: "camara.leg.br", name: "Câmara dos Deputados", tier: 1, kind: "oficial" },
   // só a legislação compilada; o resto do Planalto é comunicação do governo (cai em "gov.br")

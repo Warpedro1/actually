@@ -7,7 +7,7 @@ import {
   type IndicatorAggregation, type IndicatorMatch, type IndicatorRef, type IndicatorSeries, type IndicatorValue, type SourceTier,
   type Verdict,
 } from "@actually/db";
-import { INDICATOR_MIN_SCORE } from "../config";
+import { INDICATOR_MIN_SCORE, LEVEL_ONLY_SERIES, PERIOD_REQUIRED_SERIES } from "../config";
 import { canonicalUnit, normalizeText } from "../normalize";
 import type { PipelineStore } from "../store";
 import type { ComparisonStatus, EvidenceCandidate, IndicatorComparison } from "../types";
@@ -305,6 +305,8 @@ export function claimMismatch(ref: IndicatorRef, series: IndicatorSeries): strin
 
   const period = parsePeriod(ref.period);
   if (ref.period && !period) return "periodo_invalido";
+  if (LEVEL_ONLY_SERIES.includes(series.code) && ref.kind !== "level") return "serie_so_nivel";
+  if (PERIOD_REQUIRED_SERIES.includes(series.code) && !period) return "periodo_obrigatorio";
   if (ref.kind === "level") {
     if (period?.kind === "range") return "nivel_com_intervalo";
     if (!periodSupported(period, series.periodicity, aggregation)) return "periodo_incompativel";

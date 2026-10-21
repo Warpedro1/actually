@@ -126,6 +126,7 @@ function toRecord(c: EvidenceCandidate, quote: string, verified: boolean, simila
     layer: c.layer, evidence_type: c.evidence_type, url: c.url, source_name: c.source_name,
     source_tier: c.source_tier, quote, quote_verified: verified, published_at: c.published_at,
     quote_similarity: similarity, ...(c.factcheck_verdict ? { factcheck_verdict: c.factcheck_verdict } : {}),
+    ...(c.weak ? { weak: true } : {}),
   };
 }
 

@@ -53,6 +53,7 @@ Sites de governo só são nível 1 nos endereços listados abaixo, de órgãos q
 | 1 | ANP | `anp.gov.br` | oficial |
 | 1 | Aos Fatos | `aosfatos.org` | checagem |
 | 1 | Banco Central | `bcb.gov.br` | oficial |
+| 1 | Biblioteca da Presidência da República | `biblioteca.presidencia.gov.br` | oficial |
 | 1 | Câmara dos Deputados | `camara.leg.br` | oficial |
 | 1 | DataSUS | `datasus.gov.br` | oficial |
 | 1 | DataSUS | `datasus.saude.gov.br` | oficial |
@@ -63,8 +64,6 @@ Sites de governo só são nível 1 nos endereços listados abaixo, de órgãos q
 | 1 | INPE | `inpe.br` | oficial |
 | 1 | Ipea | `ipea.gov.br` | oficial |
 | 1 | Ipeadata | `ipeadata.gov.br` | oficial |
-| 1 | Ministério Público | `mp.br` | oficial |
-| 1 | Ministério Público Federal | `mpf.mp.br` | oficial |
 | 1 | Planalto (legislação) | `planalto.gov.br/ccivil_03` | oficial |
 | 1 | Poder Judiciário | `jus.br` | oficial |
 | 1 | Portal da Transparência | `portaldatransparencia.gov.br` | oficial |
@@ -82,6 +81,8 @@ Sites de governo só são nível 1 nos endereços listados abaixo, de órgãos q
 | 2 | FGV | `fgv.br` | acadêmico |
 | 2 | Folha de S.Paulo | `folha.uol.com.br` | imprensa |
 | 2 | g1 | `g1.globo.com` | imprensa |
+| 2 | Ministério Público | `mp.br` | oficial |
+| 2 | Ministério Público Federal | `mpf.mp.br` | oficial |
 | 2 | O Globo | `oglobo.globo.com` | imprensa |
 | 2 | piauí | `piaui.folha.uol.com.br` | imprensa |
 | 2 | Poder360 | `poder360.com.br` | imprensa |
@@ -95,7 +96,7 @@ Sites de governo só são nível 1 nos endereços listados abaixo, de órgãos q
 | 3 | UOL | `uol.com.br` | imprensa |
 | 4 | Governo (gov.br) | `gov.br` | oficial |
 
-Total: 46 domínios — tier 1 (Dado oficial primário ou checagem profissional): 28; tier 2 (Imprensa de referência ou academia): 12; tier 3 (Imprensa geral): 5; tier 4 (Qualquer outra fonte): 1. Domínio fora da lista = tier 4.
+Total: 47 domínios — tier 1 (Dado oficial primário ou checagem profissional): 27; tier 2 (Imprensa de referência ou academia): 14; tier 3 (Imprensa geral): 5; tier 4 (Qualquer outra fonte): 1. Domínio fora da lista = tier 4.
 
 <!-- tiers:end -->
 

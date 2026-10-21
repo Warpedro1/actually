@@ -112,11 +112,25 @@ export function parseSidra(json: unknown): SidraObservation[] {
   return parseSidraFlat(json);
 }
 
-export async function fetchSidra(q: SidraQuery): Promise<{ url: string; obs: SidraObservation[] }> {
+export interface SidraFetchOptions {
+  /** Tempo por tentativa (padrão 60 s). */
+  timeoutMs?: number;
+  /** Novas tentativas por porta (padrão 2). */
+  retries?: number;
+}
+
+/**
+ * Para série com reserva: a principal desiste cedo. No pior caso (as duas portas
+ * travadas) gasta ~85 s em vez de ~366 s, e a reserva ainda cabe na etapa de 300 s
+ * do painel da base.
+ */
+export const SIDRA_WITH_FALLBACK: SidraFetchOptions = { timeoutMs: 20_000, retries: 1 };
+
+export async function fetchSidra(q: SidraQuery, opts: SidraFetchOptions = {}): Promise<{ url: string; obs: SidraObservation[] }> {
   const errors: string[] = [];
   for (const url of [agregadosUrl(q), apisidraUrl(q)]) {
     try {
-      const obs = parseSidra(await fetchJson(url, { timeoutMs: 60_000, retries: 2 }));
+      const obs = parseSidra(await fetchJson(url, { timeoutMs: opts.timeoutMs ?? 60_000, retries: opts.retries ?? 2 }));
       return { url, obs };
     } catch (e) {
       errors.push(`${url}: ${(e as Error).message}`);

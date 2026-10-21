@@ -24,7 +24,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { aggregateMonthly, dateWindows, parseSgs, SGS_NON_JSON_RETRIES, sgsUrl } from "../src/indicators/sgs";
-import { agregadosUrl, apisidraUrl, parseSidra, parseSidraFlat } from "../src/indicators/sidra";
+import { agregadosUrl, apisidraUrl, parseSidra, parseSidraFlat, SIDRA_WITH_FALLBACK, type SidraFetchOptions } from "../src/indicators/sidra";
 import { monthPeriod, movingQuarterPeriod, quarterPeriod, sgsPeriod, sidraPeriod, yearPeriod } from "../src/indicators/periods";
 import { INDICATOR_AGGREGATIONS, lookupSource, type IndicatorValue } from "@actually/db";
 import { CATALOG, activeSeries, describeFetch, toSeriesRow, type CatalogSeries } from "../src/indicators/catalog";
@@ -338,6 +338,21 @@ describe("[RF15] desocupação móvel: SIDRA 6381 (principal) e SGS 24369 (reser
     await expect(
       loadSeriesValues(movel, SINCE, UNTIL, { fetchers: { sidra: failing("HTTP 403"), sgs: failing("resposta não é JSON (3 tentativas): <?xml") } }),
     ).rejects.toThrow("SIDRA t6381 v4099: HTTP 403 | reserva SGS 24369: resposta não é JSON (3 tentativas): <?xml");
+  });
+
+  it("principal SIDRA com reserva desiste cedo: o pior caso (duas portas travadas) deixa tempo para a reserva na etapa de 300 s", async () => {
+    const seen: (SidraFetchOptions | undefined)[] = [];
+    const spy: Fetchers["sidra"] = async (_q, o) => (seen.push(o), { url: "fixture", obs: parseSidra(fx(SIDRA_6381)) });
+    await loadSeries(movel, SINCE, UNTIL, { fetchers: { sidra: spy } });
+    expect(seen).toEqual([SIDRA_WITH_FALLBACK]);
+    // 2 portas × (tentativas × tempo + espera entre tentativas, até 1,5 s)
+    const worstMs = 2 * ((SIDRA_WITH_FALLBACK.retries! + 1) * SIDRA_WITH_FALLBACK.timeoutMs! + SIDRA_WITH_FALLBACK.retries! * 1_500);
+    expect(worstMs).toBeLessThanOrEqual(100_000);
+    // série SIDRA sem reserva mantém a paciência padrão
+    const alone = CATALOG.find((x) => x.fetch.kind === "sidra" && !x.fallback)!;
+    seen.length = 0;
+    await loadFrom(alone, alone.fetch, SINCE, UNTIL, { sidra: spy }).catch(() => undefined);
+    expect(seen).toEqual([undefined]);
   });
 
   it("série sem reserva: o erro da principal passa direto", async () => {
