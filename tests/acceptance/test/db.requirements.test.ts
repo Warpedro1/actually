@@ -153,6 +153,62 @@ describe("[RF12] plano B: failover", () => {
   });
 });
 
+describe("[RF13] [RNF05] remover agente de captura parado e sem falas", () => {
+  async function setup() {
+    await makeEditor();
+    const debate = (await one<{ id: string }>(db, `insert into debates (slug, title) values ('r', 'R') returning id`)).id;
+    const add = async (name: string, beat: string | null) =>
+      (await one<{ id: string }>(db,
+        `insert into capture_agents (debate_id, name, source, last_heartbeat) values ($1, $2, 'file', ${beat ?? "null"}) returning id`,
+        [debate, name])).id;
+    return { debate, add };
+  }
+  const del = (id: string) => db.query(`select capture_agent_delete($1) as name`, [id]);
+  const asEditor = <T>(fn: () => Promise<T>) => asRole(db, "authenticated", EDITOR, fn);
+  const count = async (id: string) => (await one<{ n: number }>(db, `select count(*)::int as n from capture_agents where id = $1`, [id])).n;
+
+  it("[RF13] editor remove agente parado que nunca gravou fala (tentativa que falhou)", async () => {
+    const { add } = await setup();
+    const dead = await add("casa", "now() - interval '2 hours'");
+    const never = await add("casa", null);
+    const r = await asEditor(() => del(dead));
+    expect((r.rows[0] as { name: string }).name).toBe("casa");
+    await asEditor(() => del(never));
+    expect(await count(dead)).toBe(0);
+    expect(await count(never)).toBe(0);
+  });
+
+  it("[RF13] agente com falas gravadas fica (trilha de auditoria), com mensagem clara", async () => {
+    const s = await seedVerification(db);
+    await db.query(`update capture_agents set last_heartbeat = now() - interval '2 hours' where id = $1`, [s.agent]);
+    await expect(del(s.agent)).rejects.toThrow(/gravou 1 trecho\(s\) de fala: fica no registro de auditoria/);
+    expect(await count(s.agent)).toBe(1);
+  });
+
+  it("[RF12] agente que deu sinal no último minuto não sai (derrubaria a captura), mesmo standby", async () => {
+    const { add } = await setup();
+    const alive = await add("reserva", "now() - interval '30 seconds'");
+    await expect(del(alive)).rejects.toThrow(/está em uso/);
+    expect(await count(alive)).toBe(1);
+  });
+
+  it("[RF12] janela de failover maior que 1 minuto também protege", async () => {
+    const { debate, add } = await setup();
+    await db.query(`update debates set settings = settings || '{"failover_after_s": 120}' where id = $1`, [debate]);
+    const recent = await add("casa", "now() - interval '90 seconds'");
+    await expect(del(recent)).rejects.toThrow(/está em uso/);
+  });
+
+  it("[RNF05] público e usuário que não é editor não removem; agente inexistente dá erro", async () => {
+    const { add } = await setup();
+    const dead = await add("casa", "now() - interval '2 hours'");
+    await expect(asRole(db, "anon", null, () => del(dead))).rejects.toThrow();
+    await expect(asRole(db, "authenticated", STRANGER, () => del(dead))).rejects.toThrow(/sem permissão/);
+    expect(await count(dead)).toBe(1);
+    await expect(del("00000000-0000-4000-8000-0000000000ff")).rejects.toThrow(/não existe/);
+  });
+});
+
 describe("[RF13] controle remoto da captura", () => {
   it("[RF13] máquina nasce parada; desired editado pelo editor registra quem e quando", async () => {
     await makeEditor();

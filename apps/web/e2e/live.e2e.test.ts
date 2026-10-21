@@ -183,6 +183,30 @@ describe("[RF15] painel da base no /admin: confirmação antes de criar tarefa",
   });
 });
 
+describe("[RF13] agentes de captura no /admin: remover tentativa parada e sem falas", () => {
+  it("[RF13] só o agente parado e sem falas tem \"Remover\"; confirmação no lugar; depois some da lista", async () => {
+    const { ctx, page } = await open("/admin/demo", { mobile: true });
+    await page.getByRole("tab", { name: "Ao vivo" }).click();
+    const list = page.locator("h3", { hasText: "Agentes do debate" }).locator("xpath=..").locator("ul > li");
+    await list.nth(2).waitFor();
+    expect(await list.count()).toBe(3);
+    const removeButtons = page.getByRole("button", { name: /^Remover o agente/ });
+    expect(await removeButtons.count()).toBe(1);
+    expect(await page.getByText("0 falas gravadas").count()).toBe(1);
+    await removeButtons.first().click();
+    const box = page.getByRole("group", { name: "Confirmar tarefa" });
+    expect(await box.textContent()).toMatch(/parado e não gravou nenhuma fala/);
+    await box.getByRole("button", { name: "Cancelar" }).click();
+    expect(await list.count()).toBe(3);
+    await removeButtons.first().click();
+    await page.getByRole("group", { name: "Confirmar tarefa" }).getByRole("button", { name: "Confirmar" }).click();
+    await page.getByText("0 falas gravadas").waitFor({ state: "detached" });
+    expect(await list.count()).toBe(2);
+    expect(await page.getByRole("button", { name: /^Remover o agente/ }).count()).toBe(0);
+    await ctx.close();
+  });
+});
+
 describe("[RNF05] painel de uso das APIs no /admin", () => {
   it("[RNF05] um cartão por provedor, com situação, barra de limite acessível e link do provedor", async () => {
     const { ctx, page } = await open("/admin/demo", { mobile: true });

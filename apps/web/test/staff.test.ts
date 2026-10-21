@@ -1,7 +1,7 @@
 import type { CaptureAgent, CaptureMachine } from "@actually/db";
 import { describe, expect, it } from "vitest";
 import { isoToLocalInput, localInputToIso } from "@/lib/format";
-import { audioPercent, formDebateSlug, machineOnline, machineWarnings, pendingStopAt, silenceSeconds, suggestStartAt } from "@/lib/staff/machines";
+import { audioPercent, canRemoveAgent, formDebateSlug, machineOnline, machineWarnings, pendingStopAt, silenceSeconds, suggestStartAt, type AgentRow } from "@/lib/staff/machines";
 import { countByPerson, latencyStats, percentile } from "@/lib/staff/stats";
 import { countedText, ratelimitEntries, usageFraction } from "@/lib/staff/usage";
 
@@ -77,6 +77,22 @@ describe("[RF13] máquinas de captura", () => {
   it("datetime-local ↔ ISO no fuso de Brasília", () => {
     expect(localInputToIso("2026-10-23T21:45")).toBe("2026-10-24T00:45:00.000Z");
     expect(isoToLocalInput("2026-10-24T00:45:00.000Z")).toBe("2026-10-23T21:45");
+  });
+});
+
+describe("[RF13] remover agente pelo /admin: botão só para parado e sem falas", () => {
+  const row = (beat: string | null, segment_count: number | null): AgentRow => ({ ...agent(false), last_heartbeat: beat, segment_count });
+  it("parado há mais de 1 min e sem falas: pode remover", () => {
+    expect(canRemoveAgent(row(ago(61), 0), NOW, 10)).toBe(true);
+    expect(canRemoveAgent(row(null, 0), NOW, 10)).toBe(true);
+  });
+  it("deu sinal no último minuto (ou na janela de failover, se maior): não", () => {
+    expect(canRemoveAgent(row(ago(59), 0), NOW, 10)).toBe(false);
+    expect(canRemoveAgent(row(ago(90), 0), NOW, 120)).toBe(false);
+  });
+  it("gravou fala, ou contagem indisponível: não", () => {
+    expect(canRemoveAgent(row(ago(3600), 52), NOW, 10)).toBe(false);
+    expect(canRemoveAgent(row(ago(3600), null), NOW, 10)).toBe(false);
   });
 });
 

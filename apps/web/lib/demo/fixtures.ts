@@ -2,7 +2,8 @@
 // Participantes genéricos ("Candidato A/B") e fontes em example.org: nada aqui
 // atribui frases a pessoas reais nem cita documentos reais.
 
-import type { CaptureAgent, CaptureMachine, Debate } from "@actually/db";
+import type { CaptureMachine, Debate } from "@actually/db";
+import type { AgentRow } from "../staff/machines";
 import type { Attribution, FeedAlert, FeedEvidence } from "../feed";
 
 export const DEMO_DEBATE = {
@@ -188,7 +189,7 @@ export function demoAdminData(now: number) {
     scheduled_at: ago(1800),
     is_test: false,
   };
-  const agents: CaptureAgent[] = [
+  const agents: AgentRow[] = [
     {
       id: "00000000-0000-4000-8000-0000000000a1",
       debate_id: debate.id,
@@ -198,6 +199,7 @@ export function demoAdminData(now: number) {
       active: false,
       last_heartbeat: ago(42),
       created_at: ago(2000),
+      segment_count: 118,
     },
     {
       id: "00000000-0000-4000-8000-0000000000a2",
@@ -208,6 +210,19 @@ export function demoAdminData(now: number) {
       active: true,
       last_heartbeat: ago(1),
       created_at: ago(1900),
+      segment_count: 64,
+    },
+    // tentativa que falhou (arquivo com nome errado): parada e sem falas, pode ser removida
+    {
+      id: "00000000-0000-4000-8000-0000000000a3",
+      debate_id: debate.id,
+      name: "notebook-casa",
+      source: "file",
+      role: "primary",
+      active: false,
+      last_heartbeat: ago(7200),
+      created_at: ago(7300),
+      segment_count: 0,
     },
   ];
   const machines: CaptureMachine[] = [

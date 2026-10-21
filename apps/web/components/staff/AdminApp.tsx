@@ -15,6 +15,7 @@ import { MachinesPanel } from "./MachinesPanel";
 import { SettingsForm } from "./SettingsForm";
 import { Card, ErrorText, Pill, errMsg } from "./ui";
 import { useDebates, useNow, useTableChanges } from "./useStaffData";
+import type { AgentRow } from "@/lib/staff/machines";
 
 const TABS = [
   { id: "ao-vivo", label: "Ao vivo" },
@@ -77,7 +78,7 @@ export function AdminApp({ client }: { client: SupabaseClient }) {
 /** Painel de máquinas ligado ao Supabase (Realtime em capture_machines + polling dos agentes). */
 function LiveMachines({ client, debates, selected }: { client: SupabaseClient; debates: Debate[]; selected: Debate | null }) {
   const [machines, setMachines] = useState<CaptureMachine[]>([]);
-  const [agents, setAgents] = useState<CaptureAgent[]>([]);
+  const [agents, setAgents] = useState<AgentRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const now = useNow(1000);
 
@@ -90,13 +91,19 @@ function LiveMachines({ client, debates, selected }: { client: SupabaseClient; d
 
   const loadAgents = useCallback(async () => {
     if (!selected) return setAgents([]);
+    // segments(count): total de falas gravadas por agente (decide se o agente pode ser removido)
     const { data, error: err } = await client
       .from("capture_agents")
-      .select("*")
+      .select("*, segments(count)")
       .eq("debate_id", selected.id)
       .order("created_at", { ascending: false });
     if (err) return setError(`Agentes: ${errMsg(err)}`);
-    setAgents((data ?? []) as CaptureAgent[]);
+    setAgents(
+      ((data ?? []) as (CaptureAgent & { segments?: { count: number }[] })[]).map(({ segments, ...a }) => ({
+        ...a,
+        segment_count: typeof segments?.[0]?.count === "number" ? segments[0].count : null,
+      })),
+    );
   }, [client, selected]);
 
   const rt = useTableChanges(client, "capture_machines", undefined, loadMachines);
@@ -122,6 +129,16 @@ function LiveMachines({ client, debates, selected }: { client: SupabaseClient; d
     [client, loadMachines],
   );
 
+  const onRemoveAgent = useCallback(
+    async (agentId: string) => {
+      const { error: err } = await client.rpc("capture_agent_delete", { p_agent_id: agentId });
+      if (err) return errMsg(err);
+      await loadAgents();
+      return null;
+    },
+    [client, loadAgents],
+  );
+
   const onSetActive = useCallback(
     async (agentId: string) => {
       const { error: err } = await client.rpc("capture_set_active", { p_agent_id: agentId });
@@ -145,6 +162,7 @@ function LiveMachines({ client, debates, selected }: { client: SupabaseClient; d
         realtime={rt}
         onSaveDesired={onSaveDesired}
         onSetActive={onSetActive}
+        onRemoveAgent={onRemoveAgent}
       />
     </>
   );

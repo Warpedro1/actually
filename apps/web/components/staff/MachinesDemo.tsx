@@ -41,6 +41,11 @@ export function MachinesDemo() {
     return null;
   }
 
+  async function onRemoveAgent(agentId: string) {
+    setData((d) => d && { ...d, agents: d.agents.filter((a) => a.id !== agentId) });
+    return null;
+  }
+
   if (!data) return <p className="mx-auto max-w-6xl px-4 py-4 text-sm text-muted">Carregando…</p>;
 
   return (
@@ -61,6 +66,7 @@ export function MachinesDemo() {
             realtime="demo"
             onSaveDesired={onSaveDesired}
             onSetActive={onSetActive}
+            onRemoveAgent={onRemoveAgent}
           />
         ) : tab === "base" ? (
           <KbDemo />

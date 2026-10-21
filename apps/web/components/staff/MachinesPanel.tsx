@@ -6,6 +6,7 @@ import { desiredSourceError } from "@/lib/captureSource";
 import { formatDuration, formatTimeSec, isoToLocalInput, localInputToIso, secondsSince } from "@/lib/format";
 import {
   audioPercent,
+  canRemoveAgent,
   describeDesired,
   formDebateSlug,
   isActiveMachine,
@@ -17,15 +18,17 @@ import {
   SOURCE_TEXT,
   suggestStartAt,
   START_LEAD_MIN,
+  type AgentRow,
 } from "@/lib/staff/machines";
+import { ConfirmBox } from "./ConfirmBox";
 import { Button, Card, ErrorText, Field, inputCls, OkText, Pill } from "./ui";
 
 export type PanelDebate = Pick<Debate, "id" | "slug" | "title" | "scheduled_at" | "youtube_url">;
 
 export interface MachinesPanelProps {
   machines: CaptureMachine[];
-  /** capture_agents do debate selecionado. */
-  agents: CaptureAgent[];
+  /** capture_agents do debate selecionado, com o total de falas gravadas. */
+  agents: AgentRow[];
   debates: PanelDebate[];
   defaultDebateSlug: string | null;
   /** Janela de failover (s) do debate selecionado — idade máxima do heartbeat "vivo". */
@@ -35,6 +38,8 @@ export interface MachinesPanelProps {
   /** Retornam mensagem de erro ou null. */
   onSaveDesired: (machineId: string, desired: MachineDesired) => Promise<string | null>;
   onSetActive: (agentId: string) => Promise<string | null>;
+  /** Remove agente parado e sem falas (capture_agent_delete). */
+  onRemoveAgent: (agentId: string) => Promise<string | null>;
 }
 
 /**
@@ -407,9 +412,12 @@ function DesiredForm({
   );
 }
 
-function AgentsTable({ agents, now, failoverAfterS, onSetActive }: MachinesPanelProps) {
+function AgentsTable({ agents, now, failoverAfterS, onSetActive, onRemoveAgent }: MachinesPanelProps) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  // id do agente (ou "todos") com a confirmação de remoção aberta
+  const [confirm, setConfirm] = useState<string | null>(null);
+  const removable = agents.filter((a) => canRemoveAgent(a, now, failoverAfterS));
 
   async function makeActive(a: CaptureAgent) {
     if (!window.confirm(`Tornar "${a.name}" o agente ativo? Os segmentos do agente atual passam a ser descartados.`)) return;
@@ -420,13 +428,44 @@ function AgentsTable({ agents, now, failoverAfterS, onSetActive }: MachinesPanel
     if (err) setError(err);
   }
 
+  async function remove(ids: string[]) {
+    setConfirm(null);
+    setError(null);
+    for (const id of ids) {
+      setBusy(id);
+      const err = await onRemoveAgent(id);
+      if (err) {
+        setError(err);
+        break;
+      }
+    }
+    setBusy(null);
+  }
+
   return (
     <div className="mt-5">
       <h3 className="text-sm font-semibold">Agentes do debate</h3>
       <p className="mb-2 text-xs text-muted">
         Só o agente ativo grava segmentos. Sem heartbeat por {failoverAfterS} s, o banco promove outro automaticamente.
+        Agente parado que não gravou nenhuma fala (ex.: tentativa que falhou) pode ser removido; quem gravou fica no
+        registro.
       </p>
       <ErrorText>{error}</ErrorText>
+      {removable.length > 1 ? (
+        <div className="mb-2">
+          {confirm === "todos" ? (
+            <ConfirmBox
+              text={`Remover os ${removable.length} agentes parados que não gravaram nenhuma fala? Os que gravaram ficam.`}
+              onConfirm={() => void remove(removable.map((a) => a.id))}
+              onCancel={() => setConfirm(null)}
+            />
+          ) : (
+            <Button onClick={() => setConfirm("todos")} disabled={busy !== null}>
+              Remover os {removable.length} parados sem falas
+            </Button>
+          )}
+        </div>
+      ) : null}
       {agents.length === 0 ? (
         <p className="text-sm text-muted">Nenhum agente registrado neste debate.</p>
       ) : (
@@ -434,19 +473,41 @@ function AgentsTable({ agents, now, failoverAfterS, onSetActive }: MachinesPanel
           {agents.map((a) => {
             const age = secondsSince(a.last_heartbeat, now);
             const alive = age !== null && age < failoverAfterS;
+            const canRemove = canRemoveAgent(a, now, failoverAfterS);
             return (
-              <li key={a.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-border p-2.5 text-sm">
-                <span className="font-medium">{a.name}</span>
-                <Pill>{SOURCE_TEXT[a.source]}</Pill>
-                <Pill>{a.role === "primary" ? "principal" : "standby"}</Pill>
-                {a.active ? <Pill tone={alive ? "ok" : "bad"}>ativo</Pill> : null}
-                <span className={`text-xs tabular-nums ${alive ? "text-muted" : "text-red-fg"}`}>
-                  heartbeat {age === null ? "nunca" : `há ${formatDuration(age)}`}
-                </span>
-                {!a.active ? (
-                  <Button className="ml-auto" onClick={() => void makeActive(a)} disabled={busy !== null}>
-                    Tornar ativo
-                  </Button>
+              <li key={a.id} className="flex flex-col gap-2 rounded-lg border border-border p-2.5 text-sm">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium">{a.name}</span>
+                  <Pill>{SOURCE_TEXT[a.source]}</Pill>
+                  <Pill>{a.role === "primary" ? "principal" : "standby"}</Pill>
+                  {a.active ? <Pill tone={alive ? "ok" : "bad"}>ativo</Pill> : null}
+                  {a.segment_count !== null ? (
+                    <span className="text-xs tabular-nums text-muted">
+                      {a.segment_count === 1 ? "1 fala gravada" : `${a.segment_count} falas gravadas`}
+                    </span>
+                  ) : null}
+                  <span className={`text-xs tabular-nums ${alive ? "text-muted" : "text-red-fg"}`}>
+                    heartbeat {age === null ? "nunca" : `há ${formatDuration(age)}`}
+                  </span>
+                  <span className="ml-auto flex gap-2">
+                    {!a.active ? (
+                      <Button onClick={() => void makeActive(a)} disabled={busy !== null}>
+                        Tornar ativo
+                      </Button>
+                    ) : null}
+                    {canRemove && confirm !== a.id ? (
+                      <Button onClick={() => setConfirm(a.id)} disabled={busy !== null} aria-label={`Remover o agente ${a.name}`}>
+                        Remover
+                      </Button>
+                    ) : null}
+                  </span>
+                </div>
+                {canRemove && confirm === a.id ? (
+                  <ConfirmBox
+                    text={`Remover o agente "${a.name}"? Ele está parado e não gravou nenhuma fala.`}
+                    onConfirm={() => void remove([a.id])}
+                    onCancel={() => setConfirm(null)}
+                  />
                 ) : null}
               </li>
             );

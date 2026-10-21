@@ -23,6 +23,22 @@ export const REPORTED_TEXT: Record<MachineReported["state"], string> = {
 
 export const SOURCE_TEXT = { youtube: "YouTube", device: "Dispositivo de áudio", file: "Arquivo" } as const;
 
+/** Agente com o total de falas (segmentos) que gravou; null = contagem indisponível. */
+export type AgentRow = CaptureAgent & { segment_count: number | null };
+
+/** Sem sinal há pelo menos isso (ou a janela de failover, se maior) = parado. Igual a capture_agent_delete(). */
+export const AGENT_STOPPED_S = 60;
+
+/**
+ * Pode sair da lista pelo /admin: parado e sem nenhuma fala gravada. A regra vale no banco
+ * (capture_agent_delete); aqui só decide se o botão aparece.
+ */
+export function canRemoveAgent(a: AgentRow, now: number, failoverAfterS: number): boolean {
+  const age = secondsSince(a.last_heartbeat, now);
+  const stopped = age === null || age >= Math.max(AGENT_STOPPED_S, failoverAfterS);
+  return stopped && a.segment_count === 0;
+}
+
 export function machineOnline(m: Pick<CaptureMachine, "last_seen">, now: number): boolean {
   const s = secondsSince(m.last_seen, now);
   return s !== null && s < ONLINE_WINDOW_S;
