@@ -190,6 +190,8 @@ describe("[RNF05] painel de uso das APIs no /admin", () => {
     const uso = page.locator("#uso");
     await uso.waitFor();
     const cards = uso.locator("article");
+    // os cartões chegam depois do painel (dados carregados no efeito): count() não espera
+    await cards.nth(7).waitFor();
     expect(await cards.count()).toBe(8);
     const tavily = uso.getByRole("article", { name: "Tavily (busca web)" });
     const bar = tavily.getByRole("progressbar", { name: /Créditos do plano/ });
