@@ -6,6 +6,7 @@ import { generatedSources } from "../scripts/gen-sources";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { inputFromSchema } from "../src/apify/client";
+import { AGENCY_QUERIES, checkingAgencies } from "../src/factchecks/agencySearch";
 import { GOOGLE_QUERIES } from "../src/factchecks/google";
 import { activeSeries } from "../src/indicators/catalog";
 import type { Ctx } from "../src/lib/ctx";
@@ -16,7 +17,7 @@ import { MAX_ATTEMPTS, runJobs, type JobPatch, type JobRow, type JobStore } from
 import { defaultApifyManifest, describeStep, type KbStep } from "../src/jobs/steps";
 
 const TODAY = "2026-10-20";
-const ALL_KEYS = { GOOGLE_FACTCHECK_API_KEY: "g", VOYAGE_API_KEY: "v", APIFY_TOKEN: "a" };
+const ALL_KEYS = { GOOGLE_FACTCHECK_API_KEY: "g", VOYAGE_API_KEY: "v", APIFY_TOKEN: "a", TAVILY_API_KEY: "t" };
 const plan = (req: KbJobCreate, env: Record<string, string> = ALL_KEYS) => planJob(req, { today: TODAY, env });
 const kinds = (steps: KbStep[]) => steps.map((s) => s.kind);
 
@@ -77,12 +78,46 @@ describe("[RF15] presets do painel → fila de etapas", () => {
     expect(kinds(plan({ preset: "apify-agencias" }).steps).filter((k) => k === "apify-start").length).toBeGreaterThan(3);
   });
 
-  it("[RF15] atualização diária: checagens dos últimos 3 dias + indicadores", () => {
+  it("[RF15] atualização diária: checagens dos últimos 3 dias + indicadores + o que sobrou na fila da web", () => {
     const p = plan({ preset: "atualizacao-diaria" });
     const g = p.steps.find((s) => s.kind === "factchecks-google") as Extract<KbStep, { kind: "factchecks-google" }>;
     expect(g.maxAgeDays).toBe(3);
     expect(p.steps.find((s) => s.kind === "factchecks-feeds")).toEqual({ kind: "factchecks-feeds", since: "2026-10-17" });
-    expect(kinds(p.steps)).toContain("indicator-values");
+    const ks = kinds(p.steps);
+    expect(ks).toContain("indicator-values");
+    expect(ks.indexOf("web-finds")).toBeGreaterThan(ks.lastIndexOf("indicator-values"));
+    expect(ks.slice(-3)).toEqual(["embed-missing", "embed-missing", "status"]);
+  });
+
+  it("[RF15] sem chave da Tavily: checagens seguem com aviso de que os sites que recusam o download ficam de fora", () => {
+    const { TAVILY_API_KEY: _, ...semTavily } = ALL_KEYS;
+    expect(plan({ preset: "atualizacao-diaria" }, semTavily).notes.join(" ")).toMatch(/TAVILY_API_KEY.*UOL Confere/);
+  });
+
+  it("[RF15] capturas da web: fila kb_web_finds em lotes de 10 e resumo", () => {
+    const p = plan({ preset: "capturas-web" });
+    expect(p.steps).toEqual([{ kind: "web-finds", limit: 10 }, { kind: "status" }]);
+    expect(p.notes).toEqual([]);
+    expect(plan({ preset: "capturas-web" }, {}).notes.join(" ")).toMatch(/VOYAGE_API_KEY/);
+  });
+
+  it("[RF15] checagens das agências: uma busca por agência × consulta desde hoje − 45 dias; sem Tavily é recusado", () => {
+    expect(() => plan({ preset: "checagens-agencias" }, { VOYAGE_API_KEY: "v" })).toThrow(PlanError);
+    expect(() => plan({ preset: "checagens-agencias" }, { VOYAGE_API_KEY: "v" })).toThrow(/TAVILY_API_KEY/);
+
+    const p = plan({ preset: "checagens-agencias" });
+    const searches = p.steps.filter((s): s is Extract<KbStep, { kind: "factchecks-tavily" }> => s.kind === "factchecks-tavily");
+    const agencies = checkingAgencies().map((a) => a.domain);
+    expect(agencies).toEqual(expect.arrayContaining(["g1.globo.com/fato-ou-fake", "noticias.uol.com.br/confere", "checamos.afp.com", "aosfatos.org"]));
+    expect(searches).toHaveLength(agencies.length * AGENCY_QUERIES.length);
+    expect(new Set(searches.map((s) => s.domain))).toEqual(new Set(agencies));
+    expect(searches.filter((s) => s.domain === "aosfatos.org").map((s) => s.query)).toEqual(AGENCY_QUERIES);
+    expect(searches.every((s) => s.since === "2026-09-05")).toBe(true);
+    expect(kinds(p.steps).slice(-3)).toEqual(["embed-missing", "embed-missing", "status"]);
+    expect(p.title).toMatch(/desde 2026-09-05/);
+
+    const since = plan({ preset: "checagens-agencias", since: "2026-10-01" }).steps[0] as Extract<KbStep, { kind: "factchecks-tavily" }>;
+    expect(since.since).toBe("2026-10-01");
   });
 
   it("[RF15] todo tipo de etapa tem rótulo em português", () => {
@@ -93,6 +128,8 @@ describe("[RF15] presets do painel → fila de etapas", () => {
       { kind: "senado-speeches", codigo: 1, from: "2024-01-01", to: "2024-12-31", offset: 0 },
       { kind: "apify-wait", target: { type: "search" }, runId: "r", datasetId: "d", startedAt: TODAY },
       { kind: "apify-items", target: { type: "crawl", job: "lupa" }, datasetId: "d", offset: 50 },
+      ...plan({ preset: "checagens-agencias" }).steps,
+      ...plan({ preset: "capturas-web" }).steps,
     ];
     for (const s of all) expect(describeStep(s)).toMatch(/\S/);
   });

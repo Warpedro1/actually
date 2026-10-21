@@ -12,8 +12,8 @@ interface LabelInfo {
 }
 
 /**
- * Mapeamento speaker_label (diarização) → pessoa. Só tem efeito público com
- * settings.show_attribution ligado.
+ * Mapeamento speaker_label (diarização) → pessoa. O nome só aparece para o público com
+ * settings.show_attribution ligado; "Mediação" vale sempre: tira aquela voz da checagem.
  */
 export function SpeakerMapPanel({ client, user, debateId }: { client: SupabaseClient; user: User; debateId: string }) {
   const [labels, setLabels] = useState<LabelInfo[]>([]);
@@ -77,8 +77,9 @@ export function SpeakerMapPanel({ client, user, debateId }: { client: SupabaseCl
   return (
     <Card title="Quem está falando">
       <p className="mb-3 text-xs text-muted">
-        Vozes detectadas pela transcrição. O nome só aparece para o público se a atribuição estiver ligada nas
-        configurações do debate.
+        Vozes detectadas pela transcrição. Marque a voz da mediação e dos jornalistas como “Mediação” logo nas
+        primeiras falas (e de novo se aparecer voz nova depois de uma reconexão): ela deixa de ser checada. Na dúvida,
+        deixe sem mapa. O nome dos candidatos só aparece para o público se a atribuição estiver ligada.
       </p>
       <ErrorText>{error}</ErrorText>
       {labels.length === 0 ? (

@@ -134,16 +134,25 @@ export function looksLikeAccusation(...texts: string[]): boolean {
 
 const fold = (t: string) => t.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
 
+/**
+ * Tem número de verdade? O smart_format do Deepgram escreve o artigo "um/uma" como "1"
+ * ("fazer 1 emendinha"): "1" antes de palavra minúscula que não é ordem de grandeza
+ * nem "por cento" não conta.
+ */
+function hasNumber(text: string): boolean {
+  return /\d/.test(text.replace(/\b1º?\s+(?!(?:mil|milh|bilh|trilh|por\b))(?=\p{Ll})/gu, ""));
+}
+
 /** Pergunta sem núcleo afirmativo: termina em "?", tem pronome interrogativo e nenhum número. */
 const INTERROGATIVE = /\b(qual|quais|quem|quanto|quantos|quantas|por que|porque|pra que|onde|quando|como)\b/;
 export function isOpenQuestion(original: string): boolean {
-  return /\?\s*$/.test(original) && INTERROGATIVE.test(fold(original)) && !/\d/.test(original);
+  return /\?\s*$/.test(original) && INTERROGATIVE.test(fold(original)) && !hasNumber(original);
 }
 
 /** Hipótese/insinuação ("pode ser", "talvez") sem número: não é afirmação de fato. */
 const HEDGE = /\b(pode ser|pode estar|podem ser|podem estar|deve estar|talvez|quem sabe|sera que)\b/;
 export function isHedged(original: string): boolean {
-  return HEDGE.test(fold(original)) && !/\d/.test(original);
+  return HEDGE.test(fold(original)) && !hasNumber(original);
 }
 
 // "ano passado", "este ano", "hoje", "últimos N anos"... autorizam anos perto de hoje
@@ -151,28 +160,71 @@ const RELATIVE_TIME = /\b(ano passado|este ano|esse ano|neste ano|nesse ano|ano 
 const YEAR_RE = /\b(19[5-9]\d|20[0-4]\d)\b/g;
 
 /**
+ * Períodos que a fala nomeia sem dizer o ano ("no governo do seu pai", "quando eu cheguei",
+ * "na pandemia"): o prompt manda resolvê-los pelo contexto, então os anos do período valem
+ * (com 1 ano de folga nas pontas: "quando eu deixei" = 2010/2011). Mandatos oficiais.
+ */
+const NAMED_PERIODS: readonly [RegExp, readonly (readonly [number, number])[]][] = [
+  [/\b(governo|gestao|mandato) (do seu pai|do pai dele|bolsonaro|do bolsonaro|jair bolsonaro|do jair|anterior|passado)\b/, [[2019, 2022]]],
+  [
+    /\b(meu governo|meus governos|meu mandato|meus mandatos|nosso governo|nossos governos|governo lula|governos lula|governo do lula|governos do pt|governos petistas)\b|\b(quando|depois que|antes de|desde que) eu (cheguei|assumi|tomei posse|deixei|sai|voltei)\b/,
+    [[2003, 2010], [2023, 2026]],
+  ],
+  [/\b(atual governo|governo atual|esse governo|este governo|terceiro mandato)\b/, [[2023, 2026]]],
+  [/\bgoverno (dilma|da dilma)\b/, [[2011, 2016]]],
+  [/\bgoverno (temer|do temer)\b/, [[2016, 2018]]],
+  [/\bgoverno (fhc|fernando henrique|do fernando henrique)\b/, [[1995, 2002]]],
+  [/\b(pandemia|covid)\b/, [[2020, 2022]]],
+  [/\b8 de janeiro\b/, [[2023, 2023]]],
+];
+
+/**
  * Anos que a normalização (ou o período/indicador/referência) trouxe e que a fala, o
  * segmento e o contexto não dizem. Ano dito por extenso de 2 dígitos ("de 88") vale;
- * "ano passado"/"hoje" autorizam o ano da data e os vizinhos; "últimos N anos", a janela.
+ * período nomeado ("no governo do seu pai") autoriza os anos do período; "ano passado"/
+ * "hoje" — só na fala e no trecho atual (`near`), não no contexto de outro falante —
+ * autorizam o ano da data e os vizinhos; "últimos N anos", a janela. Nos campos de
+ * período (`periodFields`: indicador, referência temporal, eleição) vale também 1 ano
+ * de folga em volta de um ano dito ("depois de 2010" → 2011).
  */
-export function unlicensedYears(added: string[], sources: string, today: string): number[] {
+export function unlicensedYears(
+  added: string[],
+  sources: string,
+  today: string,
+  opts: { near?: string; periodFields?: string[] } = {},
+): number[] {
   const src = fold(sources);
   const y0 = Number(today.slice(0, 4));
-  const relative = RELATIVE_TIME.test(src);
+  const relative = RELATIVE_TIME.test(fold(opts.near ?? sources));
   const windows = [...src.matchAll(/\bultimos (\d{1,2}) anos\b/g)].map((m) => Number(m[1]));
+  const named = NAMED_PERIODS.filter(([re]) => re.test(src)).flatMap(([, w]) => w);
+  const said = [...src.matchAll(YEAR_RE)].map((m) => Number(m[1]));
   const out = new Set<number>();
-  for (const text of added) {
+  const check = (text: string, period: boolean) => {
     for (const m of text.matchAll(YEAR_RE)) {
       const y = Number(m[1]);
-      if (new RegExp(`\\b${y}\\b`).test(src)) continue;
+      if (said.includes(y)) continue;
       const yy = String(y % 100).padStart(2, "0");
       if (new RegExp(`\\b(de|em|anos|ano)\\s+${yy}\\b`).test(src)) continue;
       if (relative && Math.abs(y - y0) <= 1) continue;
       if (windows.some((n) => y >= y0 - n && y <= y0)) continue;
+      if (named.some(([a, b]) => y >= a - 1 && y <= b + 1)) continue;
+      if (period && said.some((s) => Math.abs(s - y) <= 1)) continue;
       out.add(y);
     }
-  }
+  };
+  for (const text of added) check(text, false);
+  for (const text of opts.periodFields ?? []) check(text, true);
   return [...out];
+}
+
+// Taxa por período ("ao ano", "em média") muda a afirmação: "cresceu 7,5%" (num ano) não é
+// "cresceu 7,5% ao ano" (média de um governo inteiro). Só vale se a fala disser.
+const RATE_ADDED = /\b(ao ano|por ano|anualmente|em media|media anual|ao mes|por mes)\b/;
+const RATE_SAID = /\b(ao ano|por ano|anual|anualmente|media|medio|ao mes|por mes|mensal)\b/;
+/** A normalização acrescentou taxa anual/média que a fala (e o trecho) não diz. */
+export function addsRate(normalized: string, said: string): boolean {
+  return RATE_ADDED.test(fold(normalized)) && !RATE_SAID.test(fold(said));
 }
 
 /** Eleição citada precisa ter ano e turno ditos (fala, segmento ou contexto). */
@@ -197,6 +249,9 @@ const KNOWN_NAME_WORDS = new Set(
     "trabalhadores liberal comando vermelho primeiro capital auxilio plano real reforma tributaria mundial monetario " +
     "internacional fundo nacoes unidas forum seguranca anuario estatistica geografia tesouro conselho comissao parlamentar " +
     "inquerito mista assembleia legislativa distrito defensoria advocacia geral controladoria " +
+    // expansões de sigla que o extrator escreve por extenso
+    "sistema unico saude contas procuradoria rodoviaria microempreendedor individual agencia inteligencia " +
+    "desenvolvimento economico fundo garantia tempo servico consolidacao leis trabalho " +
     // siglas que o extrator escreve como estão ou expande
     "inss pf stf stj tse tcu cgu agu mpf pgr sus ibge ipea pt pl psdb mdb psol pdt psb pp pcc cv cpi cpmi pec mp bc onu fmi " +
     "ocde bndes fgts clt"
@@ -210,21 +265,26 @@ const CONNECTORS = new Set(["da", "de", "do", "das", "dos", "e"]);
  */
 export function inventedNames(normalized: string, sources: string): string[] {
   const src = new Set(fold(sources).split(/[^\p{L}\p{N}]+/u).filter(Boolean));
-  const words = normalized.split(/\s+/).map((w) => w.replace(/^[^\p{L}]+|[^\p{L}]+$/gu, ""));
+  // palavra com hífen ("Advocacia-Geral", "Pé-de-Meia") confere parte a parte; sigla
+  // ("PIB", "IPCA", "Caged" escrito "CAGED") não é nome de gente
+  const known = (w: string) =>
+    /^\p{Lu}{2,6}$/u.test(w) ||
+    w.split("-").every((p) => p.length < 3 || src.has(fold(p)) || KNOWN_NAME_WORDS.has(fold(p)));
   const out: string[] = [];
   let run: string[] = [];
   const flush = () => {
     const caps = run.filter((w) => !CONNECTORS.has(w.toLowerCase()));
-    if (caps.length >= 2) {
-      const bad = caps.filter((w) => w.length >= 3 && !src.has(fold(w)) && !KNOWN_NAME_WORDS.has(fold(w)));
-      if (bad.length) out.push(run.join(" "));
-    }
+    if (caps.length >= 2 && caps.some((w) => !known(w))) out.push(run.join(" "));
     run = [];
   };
-  for (const w of words) {
+  for (const raw of normalized.split(/\s+/)) {
+    // pontuação separa ("ministro da Fazenda, Fernando Haddad": não é um nome só)
+    if (raw.startsWith("(")) flush();
+    const w = raw.replace(/^[^\p{L}]+|[^\p{L}]+$/gu, "");
     if (w && /^\p{Lu}/u.test(w)) run.push(w);
     else if (run.length && CONNECTORS.has(w.toLowerCase())) run.push(w);
     else flush();
+    if (/[,;:.!?)]$/.test(raw)) flush();
   }
   flush();
   return out;
@@ -311,13 +371,16 @@ export function postprocessExtraction(
     const sources = `${original}\n${segmentText}\n${opts.context ?? ""}`;
     const reference = toReference(c.reference);
     const indicator = toIndicator(c.indicator);
-    const years = unlicensedYears(
-      [normalized, indicator?.period ?? "", c.time_reference ?? "", reference?.year ? String(reference.year) : ""],
-      sources,
-      today,
-    );
+    const years = unlicensedYears([normalized], sources, today, {
+      near: `${original}\n${segmentText}`,
+      periodFields: [indicator?.period ?? "", c.time_reference ?? "", reference?.year ? String(reference.year) : ""],
+    });
     if (years.length) {
       drop("normalizacao_acrescenta_ano", { years });
+      continue;
+    }
+    if (addsRate(normalized, `${original}\n${segmentText}`)) {
+      drop("escopo_acrescentado");
       continue;
     }
     // eleição sem ano ou turno vira referência nula em toReference: a fala continua ambígua

@@ -110,6 +110,12 @@ export interface RetrievalResult {
   comparison: IndicatorComparison | null;
   layers: LayerOutcome[];
   used_web: boolean;
+  /**
+   * Candidatos que a L4 trouxe (já filtrados: nível ≤ 2, acentos, rerank ≥ mínimo),
+   * MESMO quando a base foi forte e a web não entrou na verificação — é o que a base
+   * aprende (fila kb_web_finds). Nunca rejeita (a camada tem timeout); null = sem L4.
+   */
+  web_found: Promise<EvidenceCandidate[]> | null;
 }
 
 /** Saída validada do verificador. */

@@ -3,7 +3,7 @@
 import type { DebateSettings } from "@actually/db";
 import { describe, expect, it } from "vitest";
 import {
-  electionUnderspecified, inventedNames, isHedged, isOpenQuestion, postprocessExtraction, unlicensedYears,
+  addsRate, electionUnderspecified, inventedNames, isHedged, isOpenQuestion, postprocessExtraction, unlicensedYears,
   type ExtractionOutput,
 } from "../src/extract";
 import { createPipeline } from "../src/index";
@@ -39,11 +39,44 @@ describe("[RF02] fidelidade: ano que a fala não diz derruba a afirmação", () 
   });
 
   it("período no indicador ou no time_reference também conta", () => {
-    const c = claim("o PIB cresceu muito no meu governo", "O PIB cresceu muito no governo Lula.", {
+    const c = claim("o PIB cresceu muito", "O PIB cresceu muito no governo Lula.", {
       indicator: { query: "PIB", period: "2003..2010", claimed_value: null, unit: "%", kind: "level" },
     });
     expect(run(c).dropped).toBe("normalizacao_acrescenta_ano");
     expect(run(claim("o desemprego caiu", "O desemprego caiu.", { time_reference: "2023" })).dropped).toBe("normalizacao_acrescenta_ano");
+  });
+
+  it("período nomeado na fala (\"no governo do seu pai\", \"quando eu cheguei\", \"pandemia\") autoriza os anos dele", () => {
+    const ind = (period: string) => ({ query: "desmatamento", period, claimed_value: 60, unit: "%", kind: "change_pct" });
+    expect(run(claim("no governo do seu pai o desmatamento aumentou 60%", "O desmatamento na Amazônia aumentou 60% de 2019 a 2022.", {
+      indicator: ind("2019..2022"),
+    })).out).toHaveLength(1);
+    expect(run(claim("no meu governo o PIB cresceu", "O PIB cresceu no governo Lula (2003 a 2010).")).out).toHaveLength(1);
+    expect(run(claim("quando eu cheguei devia 30 bilhões ao FMI", "Em 2003, o Brasil devia US$ 30 bilhões ao FMI.")).out).toHaveLength(1);
+    expect(run(claim("na pandemia morreram 700 mil", "Na pandemia de covid-19, entre 2020 e 2022, morreram 700 mil pessoas.")).out).toHaveLength(1);
+    // ensaio 2: "depois que eu deixei" + 2010 dito no trecho ⇒ período 2011..2026 vale
+    const seg = "Em 2010 a economia cresceu 7,5%. Depois que eu deixei a presidente ele só voltou a crescer acima de 3 por 100.";
+    const c = claim("Depois que eu deixei a presidente ele só voltou a crescer acima de 3 por 100.", "O PIB do Brasil só voltou a crescer acima de 3% depois que Lula voltou.", {
+      tipo: "estatistica", indicator: { query: "PIB", period: "2011..2026", claimed_value: 3, unit: "%", kind: "level" },
+    });
+    expect(run(c, seg).out).toHaveLength(1);
+    // folga de 1 ano em volta de ano dito só vale nos campos de período, não no texto
+    expect(unlicensedYears(["em 2011"], "em 2010", TODAY)).toEqual([2011]);
+    expect(unlicensedYears([], "em 2010", TODAY, { periodFields: ["2011"] })).toEqual([]);
+  });
+
+  it("\"hoje\" no contexto de outro falante não autoriza o ano atual; na fala ou no trecho, sim", () => {
+    const c = claim("começaram a debater a maioridade penal", "Governo e oposição começaram a debater a redução da maioridade penal em 2026.");
+    expect(run(c, c.text_original, "[S0] hoje vamos falar de segurança").dropped).toBe("normalizacao_acrescenta_ano");
+    expect(run(c, `Hoje, ${c.text_original}`).out).toHaveLength(1);
+  });
+
+  it("\"ao ano\"/\"em média\" que a fala não diz cai (ensaio 1: \"cresceu 7 e meio\" virou \"7,5% ao ano no governo Lula\")", () => {
+    expect(run(claim("a economia cresceu 7 e meio por 100", "Durante o governo Lula, a economia brasileira cresceu 7,5% ao ano.")).dropped)
+      .toBe("escopo_acrescentado");
+    expect(run(claim("a economia cresceu 4% ao ano no meu governo", "A economia brasileira cresceu 4% ao ano durante o governo Lula.")).out)
+      .toHaveLength(1);
+    expect(addsRate("O salário médio é de R$ 3 mil.", "o salário médio é 3 mil")).toBe(false);
   });
 
   it("\"em 2026\" inventado (maioridade penal) cai; \"ano passado\"/\"hoje\" autorizam o ano da data e vizinhos", () => {
@@ -74,6 +107,11 @@ describe("[RF02] fidelidade: pergunta, hipótese, eleição sem ano/turno e nome
   it("insinuação (\"pode ser\", \"talvez\") sem número cai", () => {
     expect(isHedged("o dinheiro pode ser do aposentado")).toBe(true);
     expect(isHedged("a pena pode ser de até 40 anos")).toBe(false);
+    // "1" do Deepgram como artigo não é número
+    expect(isHedged("talvez ele tenha 1 conta lá fora")).toBe(true);
+    expect(isHedged("pode ser 1 milhão de reais")).toBe(false);
+    expect(isOpenQuestion("Vocês sabem qual foi a bancada que insistiu para fazer 1 emendinha?")).toBe(true);
+    expect(isOpenQuestion("Quem cortou 1 por cento do orçamento?")).toBe(false);
     expect(run(claim("o dinheiro pode ser do aposentado", "O dinheiro de Lulinha vem de aposentados.")).dropped).toBe("hipotese");
   });
 
@@ -100,6 +138,12 @@ describe("[RF02] fidelidade: pergunta, hipótese, eleição sem ano/turno e nome
     // "a pec" virando "PEC da Transição" é detalhe que a fala não diz
     expect(inventedNames("Flávio Bolsonaro votou contra a PEC da Transição.", "ele votou contra a pec")).toEqual(["PEC da Transição"]);
     expect(inventedNames("A Polícia Federal investiga Roberta Luchsinger.", "a PF investiga ela [contexto: Roberta Luchsinger]")).toEqual([]);
+    // hífen confere parte a parte; vírgula e parêntese separam; expansão de sigla vale
+    expect(inventedNames("A Advocacia-Geral da União recorreu.", "a advocacia-geral da união recorreu")).toEqual([]);
+    expect(inventedNames("O Pé-de-Meia paga R$ 200.", "o pé-de-meia paga 200 reais")).toEqual([]);
+    expect(inventedNames("Segundo o ministro da Fazenda, Fernando Haddad, a arrecadação subiu.", "o haddad disse que a arrecadação subiu")).toEqual([]);
+    expect(inventedNames("O Sistema Único de Saúde (SUS) foi criado em 1988.", "o SUS foi criado em 88")).toEqual([]);
+    expect(inventedNames("Segundo o deputado, Marcos Pereira votou contra.", "ele votou contra")).toEqual(["Marcos Pereira"]);
     expect(run(claim("o careca foi do seu governo", "Roberto Careca fez parte do governo Lula.", { tipo: "acusacao" })).dropped)
       .toBe("nome_inventado");
   });
@@ -132,6 +176,42 @@ describe("[RF05] números: correção só com número da fonte; negado só se o 
     // número dito pelo falante continua valendo negado ("não 80")
     expect(numbersSupported("A pena máxima é de 60 anos, não 80.", ["até 60 anos de prisão"], { refuted: ["vão ficar até 80 anos presos"] }).ok)
       .toBe(true);
+    // sem unidade e sem cara de ano, a reformulação vale ("uma década" → "10 anos" → "não 10")
+    expect(numbersSupported("O PT governou 13 anos seguidos, não 10.", ["governou por 13 anos seguidos"], {
+      refuted: ["o PT governou por uma década"], refutedWithUnit: ["O PT governou o Brasil por 10 anos."],
+    }).ok).toBe(true);
+  });
+
+  it("número que a mediação ou o adversário disse não vale negado na correção do candidato", async () => {
+    const store = new MemoryStore({ series: [], values: [] });
+    store.addSegment("Candidatos, o desemprego já chegou a 12 por cento neste país.", { speaker_label: "s1-4f9a12:S0" });
+    const seg = store.addSegment("No meu governo o desemprego em 2023 foi de 9%.", { speaker_label: "s1-4f9a12:S1" });
+    const anthropic = fakeAnthropic({
+      extract: () => ({ output: { claims: [claim("No meu governo o desemprego em 2023 foi de 9%.", "A taxa de desemprego no Brasil em 2023 foi de 9%.", { tipo: "estatistica" })] } }),
+      verify: () => ({
+        output: {
+          rationale: "r", verdict: "contradito", confidence: 0.95,
+          correction: "Segundo o IBGE, a taxa de desocupação em 2023 foi de 7,8%, não 12%.",
+          summary: "Taxa foi 7,8%", citations: [{ evidence_index: 1, quote: "a taxa de desocupação foi de 7,8% em 2023" }],
+        },
+      }),
+    });
+    const deps = makeDeps({
+      store, anthropic,
+      webSearch: async () => [{
+        url: "https://agenciadenoticias.ibge.gov.br/x", title: "PNAD", content: "a taxa de desocupação foi de 7,8% em 2023",
+        raw_content: "Segundo o IBGE, a taxa de desocupação foi de 7,8% em 2023, a menor da série.", published_date: null, score: 1,
+      }],
+    });
+    await createPipeline(deps).runPipeline(seg.id);
+    expect(store.verifications.at(-1)!.score_components).toMatchObject({ silence_reason: "numero_sem_fonte", unsupported_numbers: "12%" });
+    expect(store.alerts).toHaveLength(0);
+    // o mesmo 12% dito antes pelo PRÓPRIO candidato vale negado
+    const store2 = new MemoryStore({ series: [], values: [] });
+    store2.addSegment("Teve época em que o desemprego chegou a 12 por cento.", { speaker_label: "s1-4f9a12:S1" });
+    const seg2 = store2.addSegment("No meu governo o desemprego em 2023 foi de 9%.", { speaker_label: "s1-4f9a12:S1" });
+    await createPipeline({ ...deps, store: store2 }).runPipeline(seg2.id);
+    expect(store2.verifications.at(-1)!.score_components).not.toMatchObject({ silence_reason: "numero_sem_fonte" });
   });
 });
 

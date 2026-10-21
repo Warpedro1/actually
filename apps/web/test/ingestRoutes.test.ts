@@ -123,6 +123,39 @@ describe("[RNF05] [RNF07] [RNF08] [RF12] POST /api/ingest/segment", () => {
     expect(state.pipeline).toHaveBeenCalledWith(991);
   });
 
+  it("[RF15] páginas da web na fila: cria a carga \"capturas-web\" e pede executor; sem páginas, nada", async () => {
+    vi.stubEnv("CRON_SECRET", "segredo");
+    const fetchMock = vi.fn(async () => new Response(null, { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    const mock = createMockDb({
+      capture_agents: () => ok({ id: AGENT, debate_id: DEBATE, active: true }),
+      segments: () => ok({ id: 77 }),
+      kb_jobs: (q) => (q.ops.some((o) => o.op === "insert") ? ok({ id: "job-web" }) : ok([])),
+    });
+    state.db = mock.db;
+    state.pipeline.mockResolvedValue({ segment_id: 77, claims: 1, alerts: 0, latency_ms: {}, web_finds: 3 });
+    await segment(post(validSegment));
+    await state.afterTasks[0]!();
+    const job = argOf(mock.calls.find((c) => c.table === "kb_jobs" && c.ops.some((o) => o.op === "insert")), "insert");
+    expect(job).toMatchObject({ preset: "capturas-web", created_by: null });
+    expect(fetchMock).toHaveBeenCalledWith("http://x/api/kb/run", expect.objectContaining({ method: "POST" }));
+
+    const quiet = createMockDb({
+      capture_agents: () => ok({ id: AGENT, debate_id: DEBATE, active: true }),
+      segments: () => ok({ id: 78 }),
+    });
+    state.db = quiet.db;
+    state.afterTasks = [];
+    fetchMock.mockClear();
+    state.pipeline.mockResolvedValue({ segment_id: 78, claims: 1, alerts: 0, latency_ms: {}, web_finds: 0 });
+    await segment(post(validSegment));
+    await state.afterTasks[0]!();
+    expect(quiet.calls.some((c) => c.table === "kb_jobs")).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
   it("erro no pipeline é logado e não propaga", async () => {
     state.db = createMockDb({
       capture_agents: () => ok({ id: AGENT, debate_id: DEBATE, active: true }),

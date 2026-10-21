@@ -24,6 +24,11 @@ export interface PipelineDeps {
   now: () => number;
   /** Contagem de uso das APIs (painel do /admin); ausente nos testes = não conta. */
   usage?: UsageMeter;
+  /**
+   * A base aprende com a web: as páginas da L4 vão para a fila kb_web_finds depois dos
+   * alertas do trecho (só runPipeline; evaluateText nunca grava). Ausente/false = não grava.
+   */
+  learnFromWeb?: boolean;
 }
 
 function required(name: string): string {
@@ -34,7 +39,10 @@ function required(name: string): string {
 
 let cached: PipelineDeps | null = null;
 
-/** Dependências reais a partir do env (ANTHROPIC_API_KEY, VOYAGE_API_KEY, TAVILY_API_KEY, Supabase). */
+/**
+ * Dependências reais a partir do env (ANTHROPIC_API_KEY, VOYAGE_API_KEY, TAVILY_API_KEY, Supabase).
+ * KB_LEARN_FROM_WEB=0 desliga a gravação das páginas da web na base (ligada por padrão).
+ */
 export function defaultDeps(): PipelineDeps {
   if (cached) return cached;
   const voyageKey = required("VOYAGE_API_KEY");
@@ -59,6 +67,7 @@ export function defaultDeps(): PipelineDeps {
     logger: consoleLogger,
     now: Date.now,
     usage,
+    learnFromWeb: process.env.KB_LEARN_FROM_WEB !== "0",
   };
   return cached;
 }

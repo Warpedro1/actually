@@ -19,6 +19,7 @@ export const KB_ENV_KEYS = [
   "VOYAGE_API_KEY",
   "GOOGLE_FACTCHECK_API_KEY",
   "APIFY_TOKEN",
+  "TAVILY_API_KEY",
   "CRON_SECRET",
 ] as const;
 
@@ -112,11 +113,12 @@ export async function createJob(
   req: KbJobCreate,
   createdBy: string | null,
   now = new Date(),
+  via = createdBy ? "no /admin" : "pelo cron diário",
 ): Promise<{ id: string; title: string; notes: string[] }> {
   const plan = planJob(req, { today: now.toISOString().slice(0, 10), env: process.env });
   const t = now.toISOString();
   const log = [
-    { t, level: "info", msg: `pedida ${createdBy ? "no /admin" : "pelo cron diário"}: ${plan.steps.length} etapas` },
+    { t, level: "info", msg: `pedida ${via}: ${plan.steps.length} etapas` },
     ...plan.notes.map((msg) => ({ t, level: "warn", msg })),
   ];
   const { data, error } = await db
@@ -126,4 +128,28 @@ export async function createJob(
     .single<{ id: string }>();
   if (error || !data) throw new Error(`kb_jobs: ${error?.message ?? "sem id"}`);
   return { id: data.id, title: plan.title, notes: plan.notes };
+}
+
+/**
+ * Depois de um trecho que gravou páginas na fila da web (kb_web_finds): garante uma
+ * tarefa "capturas-web" e pede um executor se ninguém estiver rodando. Duas chamadas
+ * ao mesmo tempo podem criar duas tarefas — inofensivo: a RPC da fila nunca entrega a
+ * mesma página duas vezes. Nunca lança: a base aprender com a web é complemento.
+ */
+export async function kickWebFinds(db: SupabaseClient, origin: string): Promise<void> {
+  try {
+    const { data, error } = await db
+      .from("kb_jobs")
+      .select("status, lease_until")
+      .eq("preset", "capturas-web")
+      .in("status", ["queued", "running"])
+      .limit(5);
+    if (error) throw new Error(`kb_jobs: ${error.message}`);
+    const jobs = (data ?? []) as Pick<KbJob, "status" | "lease_until">[];
+    if (!jobs.length) await createJob(db, { preset: "capturas-web" }, null, new Date(), "pela checagem ao vivo");
+    else if (!needsRunner(jobs)) return;
+    await chainRun(origin);
+  } catch (e) {
+    console.error("[kb] fila da web:", e);
+  }
 }

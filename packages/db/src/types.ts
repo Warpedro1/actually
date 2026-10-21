@@ -256,6 +256,8 @@ export interface KbFactcheck {
   quote: string;
   body: string | null;
   published_at: string | null;
+  /** 'web' = veio da busca web durante uma checagem (migration 0014); null = carga. */
+  origin?: string | null;
 }
 
 /**
@@ -307,7 +309,33 @@ export interface KbDocument {
   published_at: string | null;
   topics: string[];
   body: string;
+  /** 'web' = veio da busca web durante uma checagem (migration 0014); null = carga. */
+  origin?: string | null;
 }
+
+/**
+ * Fila "a base aprende com a web" (migration 0014): página que a L4 trouxe durante uma
+ * checagem. A carga (etapa web-finds) a transforma em checagem (L1) ou documento (L3).
+ */
+export interface KbWebFind {
+  id: string;
+  url: string;
+  title: string;
+  text: string;
+  source_name: string;
+  tier: 1 | 2;
+  published_at: string | null;
+  query: string | null;
+  debate_id: string | null;
+  found_at: string;
+  status: "pending" | "processing" | "done" | "skipped" | "failed";
+  claimed_at: string | null;
+  processed_at: string | null;
+  note: string | null;
+}
+
+/** O que o pipeline grava na fila (o resto tem padrão no banco). */
+export type KbWebFindInsert = Pick<KbWebFind, "url" | "title" | "text" | "source_name" | "tier" | "published_at" | "query" | "debate_id">;
 
 export interface KbChunk {
   id: number;

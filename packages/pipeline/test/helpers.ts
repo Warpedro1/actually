@@ -2,7 +2,7 @@
 // cliente Anthropic falso, Voyage/Tavily falsos e relógio.
 import type {
   Alert, ChunkMatch, Debate, DebateSettings, FactcheckMatch, IndicatorMatch, IndicatorSeries, IndicatorValue,
-  RefElection, RefMandate, Segment, VerifiedClaimMatch,
+  KbWebFindInsert, RefElection, RefMandate, Segment, VerifiedClaimMatch,
 } from "@actually/db";
 import { EMBEDDING_DIM } from "@actually/db";
 import type { PipelineDeps, AnthropicLike } from "../src/deps";
@@ -64,6 +64,10 @@ export class MemoryStore implements PipelineStore {
   verifications: Row<NewVerification>[] = [];
   evidence: Row<NewEvidence>[] = [];
   alerts: Row<NewAlert & { published_at: string | null }>[] = [];
+  /** Fila kb_web_finds (url única: repetida é ignorada). */
+  webFinds: KbWebFindInsert[] = [];
+  /** Métodos chamados, em ordem (para conferir o que foi gravado antes de quê). */
+  calls: string[] = [];
   private seq = 0;
   /** Métodos que devem falhar (simula banco/RPC fora). */
   failing = new Set<string>();
@@ -84,6 +88,7 @@ export class MemoryStore implements PipelineStore {
     return `${prefix}-${String(this.seq).padStart(4, "0")}`;
   }
   private async gate(method: string) {
+    this.calls.push(method);
     const d = this.delays[method];
     if (d) await sleep(d);
     if (this.failing.has(method)) throw new DbError(`${method}: falha simulada`, "XX000");
@@ -212,6 +217,13 @@ export class MemoryStore implements PipelineStore {
   async refElections(year: number, round: number) {
     await this.gate("refElections");
     return (this.kb.elections ?? []).filter((e) => e.ano === year && e.turno === round);
+  }
+  async saveWebFinds(rows: KbWebFindInsert[]) {
+    await this.gate("saveWebFinds");
+    // upsert on conflict (url) do nothing: conta só as inseridas
+    const fresh = rows.filter((r) => !this.webFinds.some((w) => w.url === r.url));
+    this.webFinds.push(...fresh);
+    return fresh.length;
   }
 
 }

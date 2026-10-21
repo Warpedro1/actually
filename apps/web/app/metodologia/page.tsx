@@ -127,7 +127,8 @@ export default function MetodologiaPage() {
           </li>
           <li>
             <strong>Busca na web</strong>, restrita a domínios de tier 1 e 2, usada só quando as camadas anteriores não
-            bastam — e com exigência de confiança maior.
+            bastam — e com exigência de confiança maior. As páginas que ela encontra passam a fazer parte da base, para
+            as próximas checagens.
           </li>
         </ol>
       </Section>

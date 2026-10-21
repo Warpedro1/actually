@@ -58,11 +58,11 @@ export async function runDocuments(ctx: Ctx, opts: DocumentsOpts): Promise<void>
   const result: Record<string, number> = {};
   for (const e of entries) {
     try {
-      const fetched = await fetchDocument(e.url, e.format);
+      const fetched = await fetchDocument(e.url, e.format, { warn: ctx.warn });
       const doc = toDocumentInput({ ...e, published_at: e.published_at ?? fetched.publishedAt }, fetched.text);
       const r = await ingestDocument(ctx, doc, opts);
       result[r] = (result[r] ?? 0) + 1;
-      ctx.log(`${r.padEnd(8)} ${e.url} (${fetched.format}, ${fetched.text.length} chars)`);
+      ctx.log(`${r.padEnd(8)} ${e.url} (${fetched.format}${fetched.via ? " via Tavily" : ""}, ${fetched.text.length} chars)`);
     } catch (err) {
       result.erro = (result.erro ?? 0) + 1;
       ctx.warn(`${e.url}: ${(err as Error).message}`);

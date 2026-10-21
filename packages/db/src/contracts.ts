@@ -143,6 +143,10 @@ export const KbJobCreate = z.discriminatedUnion("preset", [
   z.object({ preset: z.literal("embeddings") }),
   /** Checagens dos últimos dias + indicadores + embeddings (também roda no cron diário). */
   z.object({ preset: z.literal("atualizacao-diaria") }),
+  /** Processa a fila kb_web_finds (páginas que a busca web trouxe durante as checagens). */
+  z.object({ preset: z.literal("capturas-web") }),
+  /** Checagens recentes das agências buscadas pela Tavily (sites que recusam a Vercel). */
+  z.object({ preset: z.literal("checagens-agencias"), since: isoDate.optional() }),
 ]);
 export type KbJobCreate = z.infer<typeof KbJobCreate>;
 export type KbJobPreset = KbJobCreate["preset"];

@@ -2,8 +2,9 @@
 // recebe o que se sabe da checagem + o texto da página e produz a linha de
 // kb_factchecks — ou o motivo de descartá-la. Função pura (testada).
 import { lookupSource, type Verdict } from "@actually/db";
-import { detectPerson, detectTopic } from "../lib/classify";
-import { normalizeForMatch } from "../lib/text";
+import type { DocumentInput } from "../documents/ingest";
+import { detectPerson, detectTopic, detectTopics } from "../lib/classify";
+import { cleanText, normalizeForMatch, stripRelatedLinks } from "../lib/text";
 import { mapRating, ratingFromLabel, ratingFromTitle } from "./rating";
 import { selectQuote } from "./quote";
 import type { ClaimReviewLd } from "../lib/html";
@@ -17,6 +18,8 @@ export interface FactcheckCandidate {
   claimant?: string | null;
   ratingOriginal?: string | null;
   publishedAt?: string | null;
+  /** Página já obtida (texto da busca da Tavily): processCandidates não baixa de novo. */
+  page?: PageContent | null;
 }
 
 export interface PageContent {
@@ -37,6 +40,8 @@ export interface FactcheckRow {
   quote: string;
   body: string;
   published_at: string | null;
+  /** 'web' = veio da fila kb_web_finds (busca web durante uma checagem); ausente = carga. */
+  origin?: string | null;
 }
 
 export type BuildResult = { ok: true; row: FactcheckRow } | { ok: false; reason: string };
@@ -117,4 +122,85 @@ export function canonicalUrl(url: string): string {
 
 export function sameText(a: string, b: string): boolean {
   return normalizeForMatch(a) === normalizeForMatch(b);
+}
+
+/** Data no caminho da URL (".../2026/10/20/...") → "2026-10-20"; sem data válida ⇒ null. */
+export function dateFromUrl(url: string): string | null {
+  let path: string;
+  try {
+    path = new URL(url).pathname;
+  } catch {
+    return null;
+  }
+  const m = /\/((?:19|20)\d{2})\/(\d{2})\/(\d{2})\//.exec(path);
+  if (!m) return null;
+  const iso = `${m[1]}-${m[2]}-${m[3]}`;
+  const t = Date.parse(`${iso}T00:00:00Z`);
+  // 2026/02/31 não é data
+  return Number.isFinite(t) && new Date(t).toISOString().slice(0, 10) === iso ? iso : null;
+}
+
+/** O sufixo do título é o nome do site da URL ("Aos Fatos", "g1", "Estadão")? */
+function isSiteName(suffix: string, url: string): boolean {
+  const n = normalizeForMatch(suffix);
+  const name = lookupSource(url)?.name;
+  if (!name || n.length < 2) return false;
+  const site = normalizeForMatch(name);
+  return site.includes(n) || n.includes(site);
+}
+
+/**
+ * Título do buscador/da Tavily sem o sufixo do site ("Manchete | Fato ou Fake | g1" e
+ * "Manchete - Aos Fatos" → "Manchete"): o título vira a afirmação quando a página não
+ * traz ClaimReview. Vazio ⇒ null.
+ */
+export function cleanPageTitle(title: string | null | undefined, url: string): string | null {
+  let t = (title ?? "").replace(/\s+/g, " ").trim();
+  if (!t) return null;
+  const parts = t.split(/\s+\|\s+/);
+  if (parts.length > 1 && parts[0]!.length >= 15) t = parts[0]!;
+  const dash = /^(.{15,}?)\s+[-–—]\s+([^-–—]{2,40})$/.exec(t);
+  if (dash && isSiteName(dash[2]!, url)) t = dash[1]!;
+  return t;
+}
+
+/**
+ * Texto já extraído por outro meio (Tavily) → PageContent, com a mesma limpeza do HTML
+ * (cleanText + stripRelatedLinks). Sem HTML não há ClaimReview; a data vem de quem
+ * chama ou do caminho da URL.
+ */
+export function pageFromText(p: { url: string; title?: string | null; text: string; publishedAt?: string | null }): PageContent {
+  return {
+    title: cleanPageTitle(p.title, p.url),
+    text: stripRelatedLinks(cleanText(p.text)),
+    publishedAt: p.publishedAt || dateFromUrl(p.url),
+    claimReviews: [],
+  };
+}
+
+/**
+ * Matéria de agência de checagem com VÁRIAS falas checadas ("Checamos o debate da Band",
+ * cada fala com seu selo, sem selo único): não vira uma checagem L1, mas é conteúdo de
+ * agência — entra como documento L3 (tier e nome da agência). Só para página de agência
+ * (kind "checagem") com pessoa ou tópico-guia no título + começo do corpo; senão null.
+ */
+export function agencyStoryDocument(c: FactcheckCandidate, page: PageContent): DocumentInput | null {
+  const src = lookupSource(c.url);
+  if (src?.kind !== "checagem") return null;
+  const title = (c.title ?? page.title ?? "").trim();
+  const head = page.text.slice(0, 5000);
+  const person = detectPerson(c.claimant, title, head);
+  const topics = detectTopics(title, head);
+  if (!person && !topics.length) return null;
+  return {
+    url: c.url,
+    title: title || src.name,
+    doc_type: "noticia",
+    person,
+    source_name: c.sourceName?.trim() || src.name,
+    tier: src.tier,
+    published_at: isoOrNull(c.publishedAt) ?? isoOrNull(page.publishedAt),
+    topics: topics.slice(0, 3),
+    body: page.text,
+  };
 }

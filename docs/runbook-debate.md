@@ -71,8 +71,9 @@ Todos na mesma chamada de voz durante o debate. Preencher os nomes:
 
 ### Durante
 
-- [ ] **Mapear speakers** nas primeiras falas (`/editor`) — só se `show_attribution` for ligado; **remapear** após qualquer failover ou reconexão ao Deepgram: o rótulo leva a sessão do STT (`s<n>-<agente>:S<k>`) e a sessão nova chega sem mapa ([atribuicao.md](atribuicao.md)).
+- [ ] **Mapear a Mediação SEMPRE** nas primeiras falas (`/editor` → “Quem está falando”), com `show_attribution` ligado ou não: a voz marcada como “Mediação” (mediador e jornalistas) deixa de ser checada — sem isso, pergunta de jornalista com número vira afirmação checada. Mapear os candidatos é opcional (só aparece ao público com `show_attribution`). **Remapear** após qualquer failover ou reconexão ao Deepgram: o rótulo leva a sessão do STT (`s<n>-<agente>:S<k>`) e a sessão nova chega sem mapa ([atribuicao.md](atribuicao.md)). Na dúvida sobre uma voz, deixe sem mapa.
 - [ ] A cada ~10 min, o operador confere: máquina ativa, último segmento < 30 s (em fala), latência p50/p95 no `/admin`, erros; e, no **Uso das APIs**, a coluna “Esta hora” e os limites por minuto da Anthropic (restante perto de zero = alertas vão atrasar ou sumir).
+- [ ] A base aprende com a web durante o debate: em `/admin` → **Base de conhecimento** → Tarefas, a carga “capturas da web” aparece sozinha e roda em segundo plano. Se ficar parada com páginas na fila, “Processar capturas da web”. Para desligar (ex.: Voyage no limite): `KB_LEARN_FROM_WEB=0` na Vercel e redeploy — a checagem ao vivo não depende disso.
 - [ ] Editor segue o SLA (decisão p50 ≤ 15 s); fila > 3 → avisar o responsável.
 - [ ] Registrar incidentes (horário, o que houve, o que foi feito).
 

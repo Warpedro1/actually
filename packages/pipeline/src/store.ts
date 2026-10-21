@@ -6,7 +6,7 @@ import {
   type FactcheckMatch, type IndicatorMatch, type IndicatorRef, type IndicatorValue, type KbLayer,
   type Segment, type Verdict, type VerifiedClaimMatch, type serviceClient,
 } from "@actually/db";
-import type { ApiUsageRow, EvidenceType, RefElection, RefMandate, SourceTier } from "@actually/db";
+import type { ApiUsageRow, EvidenceType, KbWebFindInsert, RefElection, RefMandate, SourceTier } from "@actually/db";
 import type { ClaimKind } from "./types";
 
 /** Erro do banco com o código SQLSTATE preservado (ex.: 23505, 23514). */
@@ -122,6 +122,11 @@ export interface PipelineStore {
   refElections?(year: number, round: number): Promise<RefElection[]>;
   /** Soma o uso das APIs na hora corrente (opcional: os testes não gravam). */
   recordUsage?(rows: ApiUsageRow[], ratelimits: Record<string, Record<string, string>>): Promise<void>;
+  /**
+   * A base aprende com a web: põe na fila kb_web_finds as páginas que a L4 trouxe.
+   * URL já na fila é ignorada; devolve quantas linhas entraram (opcional: sem ele, nada é gravado).
+   */
+  saveWebFinds?(rows: KbWebFindInsert[]): Promise<number>;
 }
 
 // ---------------------------------------------------------------------------
@@ -309,6 +314,16 @@ export function supabaseStore(sb: Sb): PipelineStore {
     async recordUsage(rows, ratelimits) {
       const { error } = await sb.rpc("api_usage_add", { p_rows: rows, p_ratelimits: ratelimits });
       if (error) throw new DbError(`recordUsage: ${error.message}`, error.code);
+    },
+
+    async saveWebFinds(rows) {
+      if (!rows.length) return 0;
+      // on conflict (url) do nothing: só as linhas inseridas voltam no select
+      const data = check(
+        await sb.from("kb_web_finds").upsert(rows, { onConflict: "url", ignoreDuplicates: true }).select("id"),
+        "saveWebFinds",
+      );
+      return (data ?? []).length;
     },
   };
 }

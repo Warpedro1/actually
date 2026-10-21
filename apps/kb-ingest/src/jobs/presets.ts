@@ -2,6 +2,7 @@
 // ambiente antes: o que não pode rodar sai da fila com um aviso (ou recusa o
 // pedido inteiro, quando nada dele rodaria).
 import type { KbJobCreate } from "@actually/db";
+import { AGENCY_QUERIES, checkingAgencies } from "../factchecks/agencySearch";
 import { GOOGLE_QUERIES } from "../factchecks/google";
 import { activeSeries } from "../indicators/catalog";
 import { SENADO_SINCE } from "../commands/senado";
@@ -13,6 +14,10 @@ export const DEFAULT_FACTCHECKS_SINCE = "2025-01-01";
 export const INDICATORS_SINCE = "2003-01-01";
 /** Janela da atualização diária (com folga para checagens publicadas com atraso). */
 export const DAILY_DAYS = 3;
+/** Janela padrão da busca das agências pela Tavily. */
+export const AGENCY_DAYS = 45;
+/** Páginas da fila kb_web_finds por etapa web-finds (a etapa se repete até a fila esvaziar). */
+export const WEB_FINDS_LIMIT = 10;
 const GOOGLE_MAX_PAGES = 3;
 
 export class PlanError extends Error {}
@@ -55,6 +60,9 @@ function factcheckSteps(since: string | undefined, source: "google" | "feeds" | 
     }
   }
   if (source !== "google") out.push({ kind: "factchecks-feeds", since });
+  if (!env.TAVILY_API_KEY) {
+    notes.push("TAVILY_API_KEY não está na Vercel: páginas que recusam o download direto (UOL Confere, AFP Checamos) ficam de fora.");
+  }
   return out;
 }
 
@@ -71,6 +79,11 @@ function embedSteps(env: Env, notes: string[]): KbStep[] {
 
 function requireApify(env: Env): void {
   if (!env.APIFY_TOKEN) throw new PlanError("APIFY_TOKEN não está configurado na Vercel");
+}
+
+/** Uma etapa factchecks-tavily por agência de checagem × consulta. */
+function agencySteps(since: string): KbStep[] {
+  return checkingAgencies().flatMap((a) => AGENCY_QUERIES.map((query): KbStep => ({ kind: "factchecks-tavily", domain: a.domain, query, since })));
 }
 
 export function planJob(req: KbJobCreate, opts: { today: string; env: Env }): Plan {
@@ -173,7 +186,33 @@ export function planJob(req: KbJobCreate, opts: { today: string; env: Env }): Pl
       const since = addDays(today, -DAILY_DAYS);
       return {
         title: `Atualização diária (checagens desde ${since} + indicadores)`,
-        steps: [...factcheckSteps(since, "all", today, env, notes), ...indicatorSteps(), ...embedSteps(env, notes), status],
+        steps: [
+          ...factcheckSteps(since, "all", today, env, notes),
+          ...indicatorSteps(),
+          // o que sobrou na fila das capturas da web
+          { kind: "web-finds", limit: WEB_FINDS_LIMIT },
+          ...embedSteps(env, notes),
+          status,
+        ],
+        notes,
+      };
+    }
+    case "capturas-web":
+      // documentos e checagens desta fila ganham embedding na hora (se houver VOYAGE_API_KEY)
+      if (!env.VOYAGE_API_KEY) notes.push("VOYAGE_API_KEY não está na Vercel: o que entrar fica sem embedding (a busca por sentido não acha).");
+      return {
+        title: "Capturas da busca web (fila da checagem ao vivo)",
+        steps: [{ kind: "web-finds", limit: WEB_FINDS_LIMIT }, status],
+        notes,
+      };
+    case "checagens-agencias": {
+      if (!env.TAVILY_API_KEY) throw new PlanError("TAVILY_API_KEY não está configurado na Vercel (a busca nas agências usa a Tavily)");
+      const since = req.since ?? addDays(today, -AGENCY_DAYS);
+      const steps = agencySteps(since);
+      notes.push(`${steps.length} buscas na Tavily (1 crédito cada); páginas já na base são puladas.`);
+      return {
+        title: `Checagens recentes das agências via Tavily (desde ${since})`,
+        steps: [...steps, ...embedSteps(env, notes), status],
         notes,
       };
     }

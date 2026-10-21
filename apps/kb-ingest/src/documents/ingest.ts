@@ -18,6 +18,8 @@ export interface DocumentInput {
   published_at: string | null;
   topics: string[];
   body: string;
+  /** 'web' = veio da fila kb_web_finds (busca web durante uma checagem); ausente = carga. */
+  origin?: string | null;
 }
 
 export interface IngestDocOpts {

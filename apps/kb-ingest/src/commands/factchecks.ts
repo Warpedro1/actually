@@ -8,13 +8,24 @@
 //   --refresh                   reprocessa URLs que já estão no banco
 //   --limit N                   no máximo N páginas baixadas
 import { toPgVector } from "@actually/db";
-import { selectAll, upsertRows, type Ctx } from "../lib/ctx";
+import { ingestDocument } from "../documents/ingest";
+import { upsertRows, type Ctx, type Db } from "../lib/ctx";
 import { embedDocuments, hasEmbeddingKey } from "../lib/embed";
 import { extractPage } from "../lib/html";
-import { fetchText, mapUntil } from "../lib/http";
+import { fetchText, mapUntil, RobotsDisallowedError } from "../lib/http";
+import { canFallBackToTavily, hasTavilyKey, tavilyExtract } from "../lib/tavily";
 import { collectFeeds, agencies, discoverFeedLinks } from "../factchecks/feeds";
 import { GOOGLE_QUERIES, searchGoogle } from "../factchecks/google";
-import { buildFactcheckRow, canonicalUrl, isRelevant, type FactcheckCandidate, type FactcheckRow, type PageContent } from "../factchecks/normalize";
+import {
+  agencyStoryDocument,
+  buildFactcheckRow,
+  canonicalUrl,
+  isRelevant,
+  pageFromText,
+  type FactcheckCandidate,
+  type FactcheckRow,
+  type PageContent,
+} from "../factchecks/normalize";
 
 export interface FactchecksOpts {
   source?: "google" | "feeds" | "all";
@@ -64,7 +75,27 @@ export async function ingestCandidates(
   await processCandidates(ctx, todo, opts);
 }
 
-/** Dedup por URL canônica e (sem `refresh`) tira as que já estão no banco. */
+/** URLs por consulta `in` (a lista vai na query string do PostgREST). */
+const URL_BATCH = 50;
+
+/** Quais destas URLs já estão na base (kb_factchecks ou kb_documents). */
+export async function urlsInBase(db: Db, urls: string[]): Promise<Set<string>> {
+  const out = new Set<string>();
+  const uniq = [...new Set(urls)];
+  for (const table of ["kb_factchecks", "kb_documents"]) {
+    for (let i = 0; i < uniq.length; i += URL_BATCH) {
+      const { data, error } = await db.from(table).select("url").in("url", uniq.slice(i, i + URL_BATCH));
+      if (error) throw new Error(`select ${table}: ${error.message}`);
+      for (const r of (data ?? []) as { url: string }[]) out.add(r.url);
+    }
+  }
+  return out;
+}
+
+/**
+ * Dedup por URL canônica e (sem `refresh`) tira as que já estão na base — como checagem
+ * ou como documento (matéria de agência com várias falas não é baixada de novo todo dia).
+ */
 export async function pendingCandidates(
   ctx: Ctx,
   candidates: FactcheckCandidate[],
@@ -77,8 +108,8 @@ export async function pendingCandidates(
     if (!byUrl.has(key)) byUrl.set(key, { ...c, url: key });
   }
   let todo = [...byUrl.values()];
-  if (ctx.db && !opts.refresh) {
-    const existing = new Set((await selectAll<{ url: string }>(ctx.db, "kb_factchecks", "url")).map((r) => r.url));
+  if (ctx.db && !opts.refresh && todo.length) {
+    const existing = await urlsInBase(ctx.db, todo.map((c) => c.url));
     const before = todo.length;
     todo = todo.filter((c) => !existing.has(c.url));
     ctx.log(`${before - todo.length} já estão no banco (use --refresh para reprocessar)`);
@@ -86,9 +117,15 @@ export async function pendingCandidates(
   return todo;
 }
 
+/** Recusas de buildFactcheckRow que, em página de agência, indicam matéria com várias falas. */
+const STORY_REASONS = new Set(["sem_rating", "sem_afirmacao", "sem_trecho"]);
+
 /**
  * Baixa, normaliza, filtra e grava. Com `deadline` (epoch ms) não começa página
  * nova depois do prazo e devolve as que ficaram para a próxima rodada.
+ * - candidato com `page` (busca da Tavily) não é baixado de novo;
+ * - download recusado por HTTP/rede é lido pela Tavily (robots.txt proibindo, não);
+ * - matéria de agência com várias falas (sem selo único) vira documento L3.
  */
 export async function processCandidates(
   ctx: Ctx,
@@ -98,17 +135,67 @@ export async function processCandidates(
   const reasons: Record<string, number> = {};
   const count = (r: string) => (reasons[r] = (reasons[r] ?? 0) + 1);
   const rows: FactcheckRow[] = [];
-  const { rest } = await mapUntil(todo, 3, opts.deadline, async (c) => {
-    let page: PageContent;
+  let viaTavily = 0;
+  // falhas da Tavily: uma linha no fim, não uma por página
+  let tavilyFailures = 0;
+  let firstTavilyFailure = "";
+  const tavilyWarn = (...a: unknown[]) => {
+    tavilyFailures++;
+    firstTavilyFailure ||= a.map(String).join(" ");
+  };
+
+  async function download(c: FactcheckCandidate): Promise<PageContent | null> {
     try {
-      page = extractPage(await fetchText(c.url, { respectRobots: true }), c.url);
+      return extractPage(await fetchText(c.url, { respectRobots: true }), c.url);
     } catch (e) {
-      count("download_falhou");
       if (ctx.verbose) ctx.warn(`${c.url}: ${(e as Error).message}`);
-      return;
+      if (e instanceof RobotsDisallowedError) {
+        count("robots_txt");
+        return null;
+      }
+      if (!canFallBackToTavily(e) || !hasTavilyKey()) {
+        count("download_falhou");
+        return null;
+      }
+      const got = await tavilyExtract(c.url, { warn: tavilyWarn });
+      if (!got) {
+        count("download_falhou");
+        return null;
+      }
+      viaTavily++;
+      return pageFromText({ url: c.url, title: got.title, text: got.text, publishedAt: c.publishedAt });
     }
+  }
+
+  /** Matéria de agência → documento L3, sem sobrescrever documento que já existe. */
+  async function storyAsDocument(c: FactcheckCandidate, page: PageContent): Promise<boolean> {
+    const doc = agencyStoryDocument(c, page);
+    if (!doc) return false;
+    try {
+      if (ctx.db) {
+        // documento com a mesma URL pode ter sido curado à mão
+        const { data, error } = await ctx.db.from("kb_documents").select("id").eq("url", doc.url).maybeSingle();
+        if (error) throw new Error(`kb_documents: ${error.message}`);
+        if (data) {
+          count("ja_na_base");
+          return true;
+        }
+      }
+      await ingestDocument(ctx, doc, { skipEmbed: opts.skipEmbed });
+      count("virou_documento");
+    } catch (e) {
+      count("erro_documento");
+      ctx.warn(`${c.url}: ${(e as Error).message}`);
+    }
+    return true;
+  }
+
+  const { rest } = await mapUntil(todo, 3, opts.deadline, async (c) => {
+    const page = c.page ?? (await download(c));
+    if (!page) return;
     const r = buildFactcheckRow(c, page);
     if (!r.ok) {
+      if (STORY_REASONS.has(r.reason) && (await storyAsDocument(c, page))) return;
       count(r.reason);
       if (ctx.verbose) ctx.log(`  descartado (${r.reason}): ${c.url}`);
       return;
@@ -119,7 +206,11 @@ export async function processCandidates(
     }
     rows.push(r.row);
   });
-  ctx.log(`checagens aproveitadas: ${rows.length}; descartes: ${JSON.stringify(reasons)}`);
+  ctx.log(
+    `checagens aproveitadas: ${rows.length}; descartes: ${JSON.stringify(reasons)}` +
+      (viaTavily ? `; ${viaTavily} páginas lidas pela Tavily (download direto recusado)` : ""),
+  );
+  if (tavilyFailures) ctx.warn(`Tavily não leu ${tavilyFailures} páginas (a primeira: ${firstTavilyFailure})`);
   await writeFactchecks(ctx, rows, opts.skipEmbed);
   return { rest };
 }

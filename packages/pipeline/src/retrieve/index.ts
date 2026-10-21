@@ -52,14 +52,18 @@ export function baseIsStrong(candidates: EvidenceCandidate[], comparison: Indica
   );
 }
 
+/** Opinião/previsão: documentos e web procuram o dado que mede a fala; checagens, a própria fala. */
+export function measureQueryOf(claim: Pick<ExtractedClaim, "measurable" | "text_normalized">): string {
+  return claim.measurable ?? claim.text_normalized;
+}
+
 export async function retrieveAll(
   deps: PipelineDeps,
   claim: ExtractedClaim,
   embedding: number[] | null,
 ): Promise<RetrievalResult> {
   const query = claim.text_normalized;
-  // opinião/previsão: documentos e web procuram o dado que mede a fala; checagens, a própria fala
-  const measureQuery = claim.measurable ?? query;
+  const measureQuery = measureQueryOf(claim);
 
   // a web começa já (latência); o resultado só é usado se a base vier fraca.
   // runLayer nunca rejeita e tem timeout: se não for aguardada, termina sozinha.
@@ -112,5 +116,8 @@ export async function retrieveAll(
   candidates.sort((a, b) =>
     order[a.layer] - order[b.layer] || a.source_tier - b.source_tier || b.relevance - a.relevance);
 
-  return { candidates, comparison, layers, used_web: usedWeb };
+  // o que a web trouxe vale para a base mesmo quando não entrou aqui (index.ts grava
+  // depois dos alertas); a camada não rejeita, então ninguém precisa esperar por isto
+  const web_found = web ? web.then((w) => w.candidates) : null;
+  return { candidates, comparison, layers, used_web: usedWeb, web_found };
 }

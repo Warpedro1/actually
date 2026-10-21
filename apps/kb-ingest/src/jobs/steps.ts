@@ -2,17 +2,19 @@
 // respeita `deadline`: o que não couber volta como continuação no início da
 // fila e roda na próxima invocação. As etapas reaproveitam as funções dos
 // comandos da CLI e são idempotentes (upserts), então repetir uma não duplica.
-import { lookupSource, tierForUrl, toPgVector, webSearchDomains, type DocType, type IndicatorValue, type KbCounts, type SourceTier } from "@actually/db";
+import { lookupSource, tierForUrl, toPgVector, webSearchDomains, type DocType, type IndicatorValue, type KbCounts, type KbWebFind, type SourceTier } from "@actually/db";
 import { abortRun, actorInputProps, datasetPage, inputFromSchema, parseApifyManifest, startActor, waitRun, type ApifyManifest, type YoutubeVideo } from "../apify/client";
 import { fillTemplate, filterByDomains, mapSearchItem, mapTranscriptItem } from "../apify/map";
 import { crawlInput, crawlItemsToFactchecks, DEFAULT_SEARCH_QUERIES } from "../commands/apify";
 import { toDocumentInput } from "../commands/documents";
 import { pendingCandidates, processCandidates, writeFactchecks } from "../commands/factchecks";
+import { processWebFinds } from "../commands/webFinds";
 import { crossCheckUnemployment, loadSeriesValues, withMigrationHint } from "../commands/indicators";
 import { resolveCodigo, SENADO_PERSON, speechDocument, speechList, votesDocuments } from "../commands/senado";
 import { runTiers } from "../commands/tiers";
 import { fetchDocument } from "../documents/fetchDoc";
 import { ingestDocument } from "../documents/ingest";
+import { candidatesFromSearch, searchAgency } from "../factchecks/agencySearch";
 import { collectFeeds } from "../factchecks/feeds";
 import { searchGoogle } from "../factchecks/google";
 import { isRelevant, type FactcheckCandidate } from "../factchecks/normalize";
@@ -37,6 +39,8 @@ export type KbStep =
   | { kind: "factchecks-google"; query: string; maxAgeDays?: number; maxPages: number }
   | { kind: "factchecks-feeds"; since?: string }
   | { kind: "factcheck-pages"; origin: string; candidates: FactcheckCandidate[] }
+  | { kind: "factchecks-tavily"; domain: string; query: string; since: string }
+  | { kind: "web-finds"; limit: number }
   | { kind: "senado-plan"; since: string; discursos: boolean }
   | { kind: "senado-votes"; codigo: number; from: string; to: string; offset: number }
   | { kind: "senado-speeches"; codigo: number; from: string; to: string; offset: number }
@@ -95,6 +99,10 @@ export function describeStep(s: KbStep): string {
       return "Feeds das agências de checagem";
     case "factcheck-pages":
       return `Páginas de checagem (${s.origin}): ${s.candidates.length}`;
+    case "factchecks-tavily":
+      return `Tavily: checagens de ${s.domain} "${s.query}" desde ${s.since}`;
+    case "web-finds":
+      return `Capturas da busca web (até ${s.limit} por rodada)`;
     case "senado-plan":
       return "Senado: localizar o senador";
     case "senado-votes":
@@ -179,6 +187,35 @@ export async function runStep(ctx: Ctx, step: KbStep, env: StepEnv): Promise<KbS
       return rest.length ? [{ ...step, candidates: rest }] : [];
     }
 
+    case "factchecks-tavily": {
+      const results = await searchAgency(step, { now: now(), warn: ctx.warn });
+      const { candidates, dropped } = candidatesFromSearch(results, step.since);
+      ctx.log(
+        `Tavily ${step.domain} "${step.query}": ${results.length} resultados, ${candidates.length} páginas de checagem` +
+          (Object.keys(dropped).length ? ` (fora: ${JSON.stringify(dropped)})` : ""),
+      );
+      const todo = await pendingCandidates(ctx, candidates);
+      if (!todo.length) return [];
+      // a página veio na busca: nada é baixado de novo
+      const { rest } = await processCandidates(ctx, todo, { deadline: env.deadline });
+      if (rest.length) ctx.log(`${rest.length} páginas ficam para a próxima rodada`);
+      return rest.length ? [{ kind: "factcheck-pages", origin: `Tavily ${step.domain}`, candidates: rest }] : [];
+    }
+
+    case "web-finds": {
+      const db = requireDb(ctx);
+      const { data, error } = await db.rpc("kb_web_finds_claim", { p_limit: step.limit });
+      if (error) throw new Error(`kb_web_finds_claim: ${error.message}`);
+      const finds = (data ?? []) as KbWebFind[];
+      if (!finds.length) {
+        ctx.log("fila de capturas da web vazia");
+        return [];
+      }
+      await processWebFinds(ctx, finds, timeLeft);
+      // a fila pode crescer durante o debate: continua até a RPC vir vazia
+      return [step];
+    }
+
     case "senado-plan": {
       const codigo = await resolveCodigo(ctx, SENADO_PERSON);
       const out: KbStep[] = [];
@@ -212,13 +249,13 @@ export async function runStep(ctx: Ctx, step: KbStep, env: StepEnv): Promise<KbS
     }
 
     case "document": {
-      const fetched = await fetchDocument(step.url);
+      const fetched = await fetchDocument(step.url, null, { warn: ctx.warn });
       const doc = toDocumentInput(
         { url: step.url, title: step.title, doc_type: step.doc_type, person: step.person, published_at: step.published_at ?? fetched.publishedAt },
         fetched.text,
       );
       const r = await ingestDocument(ctx, doc);
-      ctx.log(`${r === "skipped" ? "sem mudança" : "gravado"}: ${step.url} (${fetched.format}, ${fetched.text.length} caracteres)`);
+      ctx.log(`${r === "skipped" ? "sem mudança" : "gravado"}: ${step.url} (${fetched.format}${fetched.via ? " via Tavily" : ""}, ${fetched.text.length} caracteres)`);
       return [];
     }
 

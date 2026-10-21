@@ -26,7 +26,7 @@ import { POST as cancel } from "@/app/api/kb/jobs/[id]/cancel/route";
 import { POST as createJob } from "@/app/api/kb/jobs/route";
 import { POST as run } from "@/app/api/kb/run/route";
 import { GET as status } from "@/app/api/kb/status/route";
-import { needsRunner, supabaseJobStore } from "@/lib/server/kb";
+import { kickWebFinds, needsRunner, supabaseJobStore } from "@/lib/server/kb";
 
 const USER = "33333333-3333-4333-8333-333333333333";
 const JOB = "44444444-4444-4444-8444-444444444444";
@@ -235,5 +235,47 @@ describe("[RF15] fila no Supabase", () => {
     expect(needsRunner([{ status: "queued", lease_until: null }], now)).toBe(true);
     expect(needsRunner([{ status: "running", lease_until: "2026-10-20T12:01:00Z" }], now)).toBe(false);
     expect(needsRunner([{ status: "running", lease_until: "2026-10-20T11:59:00Z" }], now)).toBe(true);
+  });
+});
+
+describe("[RF15] a base aprende com a web: disparo da fila", () => {
+  it("[RF15] sem tarefa cria \"capturas-web\" e pede executor; com executor vivo não faz nada; erro não lança", async () => {
+    const fetchMock = vi.fn(async () => new Response(null, { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const origin = "https://actually.test";
+    let inserted: unknown = null;
+    useDb({
+      kb_jobs: (q) => {
+        if (q.ops.some((o) => o.op === "insert")) {
+          inserted = argOf(q, "insert");
+          return ok({ id: JOB });
+        }
+        return ok([]);
+      },
+    });
+    await kickWebFinds(state.db as never, origin);
+    expect(inserted).toMatchObject({ preset: "capturas-web", created_by: null });
+    expect((inserted as { log: { msg: string }[] }).log[0]!.msg).toMatch(/pela checagem ao vivo/);
+    expect(fetchMock).toHaveBeenCalledWith(`${origin}/api/kb/run`, expect.objectContaining({ method: "POST" }));
+
+    // já rodando com lease válido: nada
+    fetchMock.mockClear();
+    useDb({ kb_jobs: () => ok([{ status: "running", lease_until: new Date(Date.now() + 60_000).toISOString() }]) });
+    await kickWebFinds(state.db as never, origin);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(calls.some((c) => c.ops.some((o) => o.op === "insert"))).toBe(false);
+
+    // na fila sem executor: só pede executor
+    useDb({ kb_jobs: () => ok([{ status: "queued", lease_until: null }]) });
+    await kickWebFinds(state.db as never, origin);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(calls.some((c) => c.ops.some((o) => o.op === "insert"))).toBe(false);
+
+    // banco fora: loga e segue
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    useDb({ kb_jobs: () => ({ data: null, error: { message: "fora do ar" } }) });
+    await expect(kickWebFinds(state.db as never, origin)).resolves.toBeUndefined();
+    expect(err).toHaveBeenCalled();
+    vi.unstubAllGlobals();
   });
 });

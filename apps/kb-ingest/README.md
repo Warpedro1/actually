@@ -19,12 +19,16 @@ pnpm --filter @actually/kb-ingest start -- --help
 | `DEEPGRAM_API_KEY` | `transcribe` | só para transcrever |
 | `APIFY_TOKEN` | `apify-*` | só para Apify |
 | `APIFY_MAX_CHARGE_USD` | teto de custo por execução de Actor (padrão 5) | não |
+| `TAVILY_API_KEY` | ler pela Tavily a página que recusa o download direto (403, 5xx, timeout) e buscar as checagens recentes das agências (preset `checagens-agencias`) | não: sem ela essas páginas ficam de fora |
 | `KB_INGEST_CONTACT` | contato acrescentado ao User-Agent (ex.: URL do projeto) | recomendado |
 | `KB_INGEST_MAX_PER_HOST`, `KB_INGEST_MIN_INTERVAL_MS` | concorrência por host (padrão 2) e intervalo mínimo (400 ms) | não |
 | `NODE_USE_ENV_PROXY=1` | só se a máquina sai por proxy HTTP(S) (o `fetch` do Node ignora `HTTPS_PROXY` sem isso) | não |
 
 As páginas (checagens, documentos, feeds) respeitam `robots.txt` (inclusive `Crawl-delay`); APIs
-documentadas (BCB, IBGE, Senado, Google, Voyage, Deepgram) não passam pelo robots.
+documentadas (BCB, IBGE, Senado, Google, Voyage, Deepgram, Tavily) não passam pelo robots. Página HTML cujo
+download direto é recusado por HTTP/rede (UOL Confere e AFP Checamos respondem 403 "Access Denied" para a
+Vercel) é lida pela Tavily (`src/lib/tavily.ts`, 0,2 crédito por página lida) com a mesma limpeza do HTML;
+**robots.txt proibindo nunca cai na Tavily** (o descarte fica, contado como `robots_txt`), nem página 404/410.
 
 ## Pelo /admin (sem a sua máquina)
 
@@ -40,7 +44,18 @@ As mesmas cargas rodam na Vercel pela seção *Base de conhecimento* do /admin (
   (a função não lê o disco): depois de editar os YAML, rode `pnpm --filter @actually/kb-ingest gen:sources`
   (`test/jobs.test.ts` falha se esquecer);
 - vídeo do YouTube sem `youtube.input` no manifesto: o input do Actor sai do schema publicado por ele
-  (campo de URLs reconhecido; sem campo reconhecível, a etapa falha antes de cobrar).
+  (campo de URLs reconhecido; sem campo reconhecível, a etapa falha antes de cobrar);
+- **capturas da web** (preset `capturas-web`, criado pela checagem ao vivo; também no fim da atualização diária):
+  a etapa `web-finds` pega até 10 páginas da fila `kb_web_finds` (`kb_web_finds_claim`), que a busca web (L4) trouxe
+  durante as checagens, e se repete enquanto a fila devolver páginas. Já na base ⇒ `skipped`/`ja_na_base`; texto
+  limpo com menos de 500 caracteres ou sem nenhum acento ⇒ `skipped`; página de agência com selo e no tema ⇒
+  checagem L1; o resto ⇒ documento L3. As duas com `origin = 'web'`; erro numa página ⇒ `failed` e a fila segue;
+  página que não coube no prazo volta para `pending` na hora (`src/commands/webFinds.ts`);
+- **checagens das agências pela Tavily** (preset `checagens-agencias`, padrão: últimos 45 dias): uma busca por
+  agência de `SOURCE_TIERS` × consulta (`Lula`, `Flávio Bolsonaro`, `debate`, `sabatina entrevista`; agência que
+  divide o host com o jornal leva o nome da seção, ex.: "Fato ou Fake Lula"), 1 crédito cada. Fica só página de
+  agência (respeita o caminho: `g1.globo.com/fato-ou-fake`, `noticias.uol.com.br/confere`) com data desde o início
+  pedido (sem data fica); o texto da busca é a página — nada é baixado de novo (`src/factchecks/agencySearch.ts`).
 
 ## Ordem recomendada de carga (dia do ensaio e véspera do debate)
 
@@ -85,7 +100,11 @@ Upsert de `SOURCE_TIERS` (`packages/db/src/tiers.ts`) em `source_tiers`.
 - `person` ("Lula", "Flávio Bolsonaro", "Jair Bolsonaro"; "Bolsonaro" sozinho é ambíguo ⇒ nulo) e `topic`
   (economia, impostos, programas_sociais, seguranca, corrupcao_justica, saude, meio_ambiente, educacao,
   politica_externa) por regras em `src/lib/classify.ts`. Sem pessoa nem tópico ⇒ descartada (use `--all-topics`).
-- Já gravadas são puladas (`--refresh` reprocessa). Embedding = `claim_text`.
+- **Matéria de agência com várias falas** ("Checamos o debate da Band", cada fala com seu selo, sem selo único):
+  quando a página é de agência (`kind: "checagem"` em `SOURCE_TIERS`), não tem selo/afirmação/trecho único e cita
+  pessoa ou tópico-guia, vira **documento L3** (`doc_type=noticia`, tier e nome da agência) em vez de descarte
+  (`virou_documento` no log). Documento que já existe com a mesma URL não é sobrescrito (`ja_na_base`).
+- Já gravadas — como checagem ou como documento — são puladas (`--refresh` reprocessa). Embedding = `claim_text`.
 
 ### `indicators` (L2)
 Catálogo em `src/indicators/catalog.ts` (code, name, aliases, unit, periodicity, aggregation, source_name, source_url,

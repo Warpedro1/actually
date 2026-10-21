@@ -10,16 +10,23 @@ import { claimHash } from "./normalize";
 import { prefilter } from "./prefilter";
 import { publishVerification } from "./publish";
 import { numbersSupported, quoteCheck } from "./quoteCheck";
-import { retrieveAll } from "./retrieve/index";
+import { measureQueryOf, retrieveAll } from "./retrieve/index";
 import { scoreDecision, type ScoreResult } from "./score";
 import type { EvidenceCandidate, EvidenceRecord, ExtractedClaim, ModelVerdict, RetrievalResult } from "./types";
 import { inconclusive, verifyClaim } from "./verify";
+import { queueWebFinds, type WebFound } from "./webFinds";
 
 export interface PipelineResult {
   segment_id: number;
   claims: number;
   /** Alertas criados (published + pending_review), incluindo repetições. */
   alerts: number;
+  /**
+   * Páginas da web (L4) que entraram na fila kb_web_finds neste trecho — gravadas depois
+   * dos alertas; 0 se nada novo, chave `learnFromWeb` desligada ou falha. > 0 ⇒ vale
+   * disparar a carga que as transforma em base (preset "capturas-web").
+   */
+  web_finds: number;
   latency_ms: Record<string, number>;
 }
 
@@ -150,6 +157,8 @@ export async function assessClaim(
   settings: DebateSettings,
   /** Texto inteiro do segmento (fala literal); padrão: o trecho da afirmação. */
   segmentText: string = claim.text_original,
+  /** Falas anteriores do MESMO falante (sem rótulo): o que ele disse antes também vale como número negado. */
+  sameSpeakerContext = "",
 ): Promise<Assessment> {
   const latency: Record<string, number> = {};
   let t = deps.now();
@@ -183,9 +192,11 @@ export async function assessClaim(
   t = deps.now();
   const ev = buildEvidence(model, candidates, retrieval);
   // números da fala não sustentam a correção; só valem negados ("…, não 12%"), e só se o
-  // falante os disse: ano ou número sem unidade vem da fala literal (a reformulação pode ter
-  // inventado o "2003"); com unidade, a reformulação também vale ("7 e meio por 100" → 7,5%)
-  const said = { refuted: [claim.text_original, segmentText, context], refutedWithUnit: [claim.text_normalized] };
+  // falante os disse: ano ou número sem unidade vem da fala literal dele (a reformulação pode
+  // ter inventado o "2003"; o contexto tem a mediação e o adversário — e o rótulo do falante,
+  // "[s1-4f9a12:S0]", que viraria número); com unidade, a reformulação também vale
+  // ("7 e meio por 100" → 7,5%)
+  const said = { refuted: [claim.text_original, segmentText, sameSpeakerContext], refutedWithUnit: [claim.text_normalized] };
   const numsCorrection = numbersSupported(model.correction, ev.verifiedTexts, said);
   const numsSummary = numbersSupported(model.summary, ev.verifiedTexts, said);
   const nums = {
@@ -277,6 +288,10 @@ export function createPipeline(deps: PipelineDeps) {
     settings: DebateSettings,
     /** Etapas do segmento (filter, context, extract, embed), compartilhadas pelas afirmações dele. */
     segmentLatency: Record<string, number>,
+    /** Onde juntar o que a web trouxe (a base aprende com a web); null = não guarda. */
+    webFound: WebFound[] | null,
+    /** Falas anteriores do mesmo falante, sem rótulo (números negados na correção). */
+    sameSpeakerContext = "",
   ): Promise<number> {
     const t0 = deps.now();
     const hash = claimHash(claim.text_normalized);
@@ -293,7 +308,9 @@ export function createPipeline(deps: PipelineDeps) {
       return dedup.repeat_alert ? 1 : 0;
     }
 
-    const a = await assessClaim(deps, claim, embedding, context, settings, segment.text);
+    const a = await assessClaim(deps, claim, embedding, context, settings, segment.text, sameSpeakerContext);
+    // a página vale para a base qualquer que seja a decisão (gravada no fim do trecho)
+    if (webFound && a.retrieval.web_found) webFound.push({ query: measureQueryOf(claim), found: a.retrieval.web_found });
     const latency: Record<string, number> = { ...segmentLatency, dedup: tDedup, ...a.latency_ms };
     if (!a.verify_ran) {
       logger("info", "claim_silence", {
@@ -355,6 +372,8 @@ export function createPipeline(deps: PipelineDeps) {
    * aplica a trava de repetição, recupera evidências (L1–L4), verifica, pontua
    * e grava claims/verifications/evidence/alerts. Nunca lança por falha de
    * uma afirmação isolada — registra e segue (silêncio é o modo seguro).
+   * Com `learnFromWeb`, depois dos alertas espera a busca web e põe as páginas na
+   * fila kb_web_finds (`web_finds` no resultado).
    */
   async function runPipeline(segmentId: number): Promise<PipelineResult> {
     try {
@@ -398,7 +417,8 @@ export function createPipeline(deps: PipelineDeps) {
   async function runSegment(segmentId: number): Promise<PipelineResult> {
     const t0 = deps.now();
     const latency: Record<string, number> = {};
-    const result = (claims: number, alerts: number): PipelineResult => ({ segment_id: segmentId, claims, alerts, latency_ms: latency });
+    const result = (claims: number, alerts: number, web_finds = 0): PipelineResult =>
+      ({ segment_id: segmentId, claims, alerts, web_finds, latency_ms: latency });
 
     const loaded = await store.getSegment(segmentId);
     if (!loaded) {
@@ -432,6 +452,9 @@ export function createPipeline(deps: PipelineDeps) {
       return [] as Segment[];
     });
     const context = formatContext(ctxSegments);
+    const sameSpeakerContext = segment.speaker_label
+      ? ctxSegments.filter((s) => s.speaker_label === segment.speaker_label).map((s) => s.text).join("\n")
+      : "";
     latency.context = deps.now() - t;
 
     t = deps.now();
@@ -448,10 +471,12 @@ export function createPipeline(deps: PipelineDeps) {
     latency.embed = deps.now() - t;
 
     const segmentLatency = { filter: latency.filter!, context: latency.context!, extract: latency.extract!, embed: latency.embed! };
+    // sem a chave, nada é guardado nem esperado (base forte continua não esperando a web)
+    const webFound: WebFound[] | null = deps.learnFromWeb && store.saveWebFinds ? [] : null;
     t = deps.now();
     const alerts = await Promise.all(
       claims.map((c, i) =>
-        processClaim(c, embeddings[i] ?? null, segment, context, settings, segmentLatency).catch((err) => {
+        processClaim(c, embeddings[i] ?? null, segment, context, settings, segmentLatency, webFound, sameSpeakerContext).catch((err) => {
           logger("error", "claim_failed", { segment_id: segmentId, claim: c.text_normalized, ...errorFields(err) });
           return 0;
         }),
@@ -462,7 +487,9 @@ export function createPipeline(deps: PipelineDeps) {
     latency.e2e = sinceSpeech(segment);
     const n = alerts.reduce((s, x) => s + x, 0);
     logger("info", "segment_done", { segment_id: segmentId, claims: claims.length, alerts: n, latency_ms: latency });
-    return result(claims.length, n);
+    // só agora, com os alertas do trecho já gravados: a espera pela web não atrasa nenhum
+    const webFinds = webFound ? await queueWebFinds(deps, segment, webFound) : 0;
+    return result(claims.length, n, webFinds);
   }
 
   /**

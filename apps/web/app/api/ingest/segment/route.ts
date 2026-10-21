@@ -3,6 +3,7 @@ import { runPipeline } from "@actually/pipeline";
 import { after } from "next/server";
 import { errorMessage, json, jsonError, parseJson, serviceOr503 } from "@/lib/server/http";
 import { checkIngestToken } from "@/lib/server/ingestAuth";
+import { kickWebFinds } from "@/lib/server/kb";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -54,6 +55,7 @@ export async function POST(req: Request): Promise<Response> {
   const segmentId = Number(row!.id);
 
   // Em segundo plano: erro no pipeline nunca derruba a resposta ao agente.
+  const origin = new URL(req.url).origin;
   after(async () => {
     const started = Date.now();
     try {
@@ -61,6 +63,8 @@ export async function POST(req: Request): Promise<Response> {
       console.info(
         `[pipeline] segmento ${segmentId}: ${r.claims} afirmações, ${r.alerts} alertas em ${Date.now() - started} ms`,
       );
+      // páginas da web que entraram na fila viram base em segundo plano (carga "capturas-web")
+      if (r.web_finds > 0) await kickWebFinds(db, origin);
     } catch (err) {
       console.error(`[pipeline] segmento ${segmentId} falhou:`, err);
     }

@@ -45,7 +45,17 @@ export const TIMEOUTS_MS = {
   publish: 5_000,
   /** Gravação do uso das APIs (depois do trecho; nunca atrasa alerta). */
   usage: 3_000,
+  /** Gravação da fila kb_web_finds (depois do trecho; nunca atrasa alerta). */
+  web_finds: 5_000,
 } as const;
+
+/**
+ * A base aprende com a web (fila kb_web_finds): só página com pelo menos isto de
+ * texto — abaixo, é o trecho curto do buscador (a página inteira não veio).
+ */
+export const WEB_FIND_MIN_CHARS = 1_500;
+/** Teto do texto de cada página gravada na fila. */
+export const WEB_FIND_MAX_CHARS = 200_000;
 
 /**
  * Regras por tipo de fala (score.ts):

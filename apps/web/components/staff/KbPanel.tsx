@@ -310,7 +310,14 @@ const PRESET_NAME: Record<string, string> = {
   "apify-busca": "busca de checagens",
   embeddings: "embeddings",
   "atualizacao-diaria": "atualização diária",
+  "capturas-web": "capturas da web",
+  "checagens-agencias": "checagens das agências",
 };
+
+/** Data AAAA-MM-DD de `days` dias atrás (padrão da busca nas agências). */
+function daysAgo(days: number): string {
+  return new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
+}
 
 function Actions({
   busy,
@@ -326,7 +333,9 @@ function Actions({
   const [fullSince, setFullSince] = useState("2025-01-01");
   const [checkSince, setCheckSince] = useState("2025-01-01");
   const [discursos, setDiscursos] = useState(false);
+  const [agencySince, setAgencySince] = useState(() => daysAgo(45));
   const noApify = env.APIFY_TOKEN === false;
+  const noTavily = env.TAVILY_API_KEY === false;
   const noVoyage = env.VOYAGE_API_KEY === false;
   const apifyReason = noApify ? "Precisa do APIFY_TOKEN na Vercel." : undefined;
 
@@ -394,6 +403,13 @@ function Actions({
           confirm={ask("fontes", "Atualizar a lista de fontes confiáveis?")}
           onRun={() => onStart({ preset: "fontes" })}
         />
+        <ActionItem
+          label="Processar capturas da web"
+          description="Transforma em checagens e documentos as páginas que a busca web trouxe durante as checagens. Roda sozinho enquanto há debate; use se a fila parar."
+          disabled={busy}
+          confirm={ask("capturas-web", "Processar agora a fila de páginas capturadas da web?")}
+          onRun={() => onStart({ preset: "capturas-web" })}
+        />
       </Group>
 
       <Group id="kb-g-l1" title="Checagens já publicadas (L1)" hint="O que as agências de checagem já verificaram.">
@@ -406,6 +422,22 @@ function Actions({
         >
           <Field label="Desde" htmlFor="kb-check-since">
             <input id="kb-check-since" type="date" className={`${inputCls} sm:max-w-48`} value={checkSince} onChange={(e) => setCheckSince(e.target.value)} />
+          </Field>
+        </ActionItem>
+        <ActionItem
+          label="Checagens recentes das agências (Tavily)"
+          description="Busca pela Tavily as checagens de Lupa, Aos Fatos, Estadão Verifica, Fato ou Fake, Comprova, UOL Confere e AFP Checamos, inclusive nos sites que recusam a Vercel. Matéria com várias falas checadas entra como documento."
+          disabled={busy || noTavily || !agencySince}
+          disabledReason={noTavily ? "Precisa da TAVILY_API_KEY na Vercel." : undefined}
+          confirm={ask(
+            "checagens-agencias",
+            `Buscar as checagens das agências publicadas desde ${agencySince}?`,
+            "Gasta cerca de 30 créditos da Tavily (uma busca por agência e assunto).",
+          )}
+          onRun={() => onStart({ preset: "checagens-agencias", since: agencySince })}
+        >
+          <Field label="Desde" htmlFor="kb-agency-since">
+            <input id="kb-agency-since" type="date" className={`${inputCls} sm:max-w-48`} value={agencySince} onChange={(e) => setAgencySince(e.target.value)} />
           </Field>
         </ActionItem>
         <ActionItem
