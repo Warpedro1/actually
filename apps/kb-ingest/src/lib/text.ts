@@ -31,8 +31,8 @@ const RELATED = /^(leia (mais|tamb[ée]m)|saiba mais|veja (mais|tamb[ée]m))\b\s
 const DATED_HEADLINE = /^\d{1,2}[./](\d{1,2}|[a-zç]{3,4})\.?[./]?\d{2,4}\s*[–—-]\s+\S/i;
 const NOISE = /^(publicidade|>+\s*siga\b.*|siga (o|a) .{1,60} no (whatsapp|telegram|instagram)\b.*)$/i;
 
-/** Linha com cara de manchete: curta e sem pontuação de fim de frase. */
-const looksLikeHeadline = (l: string) => l.length <= 160 && !/[.!?:;…"”)]$/.test(l);
+/** Linha com cara de manchete: curta e sem pontuação de fim de frase (aspas finais não contam). */
+const looksLikeHeadline = (l: string) => l.length <= 160 && !/[.!?:;…]$/.test(l.replace(/["”’')\]]+$/, ""));
 
 /**
  * Tira do texto da matéria as listas de manchetes de outras matérias e o ruído de página
@@ -54,15 +54,22 @@ export function stripRelatedLinks(text: string): string {
       out.push(lines[i]!);
       continue;
     }
-    // título de lista: "Leia mais:" sozinho ou "Leia mais sobre o debate"; o resto é linha única
-    const inline = !(m[5] === "" || (m[4] === "" && /^sobre\b/i.test(m[5]!)));
-    const isItem = (l: string) => DATED_HEADLINE.test(l) || (!inline && looksLikeHeadline(l));
-    // pula as manchetes seguintes (com as linhas em branco entre elas)
+    // título de lista: "Leia mais:" ou "Leia mais sobre o debate:"; sem os dois-pontos
+    // (inclusive "Leia mais" solto, cuja chamada não veio no texto) é linha única
+    const header = line.endsWith(":") && (m[5] === "" || /^sobre\b/i.test(m[5]!));
+    // lista que começa datada só continua com manchetes datadas
+    let datedOnly = !header;
+    let first = true;
+    const isItem = (l: string) => DATED_HEADLINE.test(l) || (!datedOnly && looksLikeHeadline(l));
+    // pula as manchetes seguintes (linhas em branco e ruído no meio não encerram a lista
+    // nem contam como manchete)
     let j = i + 1;
     for (;;) {
       let k = j;
-      while (k < lines.length && !lines[k]!.trim()) k++;
+      while (k < lines.length && (!lines[k]!.trim() || NOISE.test(lines[k]!.trim()))) k++;
       if (k >= lines.length || !isItem(lines[k]!.trim())) break;
+      if (first) datedOnly ||= DATED_HEADLINE.test(lines[k]!.trim());
+      first = false;
       j = k + 1;
     }
     i = j - 1;

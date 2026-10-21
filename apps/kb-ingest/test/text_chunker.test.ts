@@ -107,7 +107,7 @@ describe("[RF15] [RF05] stripRelatedLinks: manchetes de outras matérias não fi
   it("\"Leia mais sobre ...\" com manchetes sem data sai até o próximo parágrafo, que fica", () => {
     const t = [
       "O candidato Beltrano respondeu às críticas.",
-      "Leia mais sobre o debate da TV Exemplo",
+      "Leia mais sobre o debate da TV Exemplo:",
       "Beltrano diz que Sicrano mente sobre a ponte",
       "4.dez.2030 – Sicrano cita áudio sobre R$ 30 milhões",
       "Pesquisas mostram empate técnico entre os dois",
@@ -135,6 +135,35 @@ describe("[RF15] [RF05] stripRelatedLinks: manchetes de outras matérias não fi
     const longa = "Veja também que o orçamento da obra, segundo o relatório do tribunal de contas, passou de R$ 2 bilhões para R$ 3 bilhões entre 2028 e 2030, com aditivos assinados sem licitação e sem parecer da procuradoria do estado.";
     const t = ["publicidade", "Primeiro parágrafo da matéria.", "PUBLICIDADE", ">> Siga o canal da Agência Exemplo no WhatsApp", longa].join("\n");
     expect(stripRelatedLinks(t)).toBe(`Primeiro parágrafo da matéria.\n${longa}`);
+  });
+
+  it("manchete que termina em aspas continua na lista (não interrompe o corte)", () => {
+    const t = [
+      "Leia mais sobre o debate da TV Exemplo:",
+      "Beltrano pede voto: \u201cSou melhor que ele\u201d",
+      "Sicrano diz que Beltrano mente e é \u201cmalandro\u201d na \u201cTV Exemplo\u201d",
+      "Beltrano cobra Sicrano por caso da ponte",
+      "O debate terminou às 23h.",
+    ].join("\n");
+    expect(stripRelatedLinks(t)).toBe("O debate terminou às 23h.");
+  });
+
+  it("lista datada termina na primeira linha sem data, mesmo com \"publicidade\" no meio (o título seguinte fica)", () => {
+    const t = [
+      "Leia mais:",
+      "4.dez.2030 – Fulano recebeu mesada, diz testemunha",
+      "6.mar.2031 – Fulano movimentou R$ 9 milhões",
+      "publicidade",
+      "publicidade",
+      "CORREÇÃO",
+      "21.out.2031 (10h) – diferentemente do publicado, o pedido foi feito em março.",
+    ].join("\n");
+    expect(stripRelatedLinks(t)).toBe("CORREÇÃO\n21.out.2031 (10h) – diferentemente do publicado, o pedido foi feito em março.");
+  });
+
+  it("\"Leia mais\" solto (sem dois-pontos, chamada não capturada) sai sozinho; o intertítulo seguinte fica", () => {
+    const t = ["Primeiro parágrafo.", "Leia mais", "Contradições sobre a eleição", "Segundo parágrafo."].join("\n");
+    expect(stripRelatedLinks(t)).toBe("Primeiro parágrafo.\nContradições sobre a eleição\nSegundo parágrafo.");
   });
 
   it("\"Saiba mais no ...\" é linha única: não leva a linha seguinte junto", () => {
