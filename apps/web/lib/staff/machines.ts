@@ -95,6 +95,19 @@ export function audioPercent(db: number | null | undefined): number {
   return Math.round(Math.min(1, Math.max(0, (db - SILENCE_DB) / -SILENCE_DB)) * 100);
 }
 
+/**
+ * Debate do formulário "Comandar esta máquina": o escolhido, se existe na lista;
+ * senão o selecionado no topo do /admin; senão o primeiro. O formulário pode
+ * nascer antes de a lista carregar (ou antes de o debate ser criado): aí o
+ * <select> mostra a primeira opção e o comando precisa usar essa mesma.
+ */
+export function formDebateSlug(chosen: string, debates: readonly { slug: string }[], preferred: string | null): string {
+  const has = (s: string | null): s is string => !!s && debates.some((d) => d.slug === s);
+  if (has(chosen)) return chosen;
+  if (has(preferred)) return preferred;
+  return debates[0]?.slug ?? "";
+}
+
 /** start_at sugerido = scheduled_at − 15 min (null se o debate não tem horário). */
 export function suggestStartAt(scheduledAt: string | null | undefined): string | null {
   if (!scheduledAt) return null;

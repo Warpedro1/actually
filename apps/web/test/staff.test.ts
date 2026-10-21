@@ -1,7 +1,7 @@
 import type { CaptureAgent, CaptureMachine } from "@actually/db";
 import { describe, expect, it } from "vitest";
 import { isoToLocalInput, localInputToIso } from "@/lib/format";
-import { audioPercent, machineOnline, machineWarnings, pendingStopAt, silenceSeconds, suggestStartAt } from "@/lib/staff/machines";
+import { audioPercent, formDebateSlug, machineOnline, machineWarnings, pendingStopAt, silenceSeconds, suggestStartAt } from "@/lib/staff/machines";
 import { countByPerson, latencyStats, percentile } from "@/lib/staff/stats";
 import { countedText, ratelimitEntries, usageFraction } from "@/lib/staff/usage";
 
@@ -88,6 +88,22 @@ describe("[RF13] formulário de comando: stop_at vencido não vai no 'Iniciar ag
     expect(pendingStopAt("2026-10-24T03:00:00.000Z", NOW)).toBe("2026-10-24T03:00:00.000Z");
     expect(pendingStopAt(undefined, NOW)).toBeNull();
     expect(pendingStopAt("lixo", NOW)).toBeNull();
+  });
+});
+
+describe("[RF13] formulário de comando: debate escolhido", () => {
+  const debates = [{ slug: "ensaio" }, { slug: "oficial" }];
+
+  it("[RF13] formulário criado antes da lista de debates usa o que o <select> mostra (não fica vazio)", () => {
+    expect(formDebateSlug("", debates, null)).toBe("ensaio");
+    expect(formDebateSlug("", [], null)).toBe("");
+  });
+
+  it("[RF13] escolha válida vence; senão o debate selecionado no topo; debate apagado da lista não vale", () => {
+    expect(formDebateSlug("oficial", debates, "ensaio")).toBe("oficial");
+    expect(formDebateSlug("", debates, "oficial")).toBe("oficial");
+    expect(formDebateSlug("antigo", debates, null)).toBe("ensaio");
+    expect(formDebateSlug("antigo", debates, "sumiu")).toBe("ensaio");
   });
 });
 

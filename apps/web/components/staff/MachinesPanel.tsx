@@ -7,6 +7,7 @@ import { formatDuration, formatTimeSec, isoToLocalInput, localInputToIso, second
 import {
   audioPercent,
   describeDesired,
+  formDebateSlug,
   isActiveMachine,
   isSilentLevel,
   machineOnline,
@@ -220,7 +221,9 @@ function DesiredForm({
   onSaveDesired,
 }: Pick<MachinesPanelProps, "debates" | "defaultDebateSlug" | "onSaveDesired"> & { machine: CaptureMachine }) {
   const d = m.desired;
-  const [slug, setSlug] = useState(d.debate_slug ?? defaultDebateSlug ?? debates[0]?.slug ?? "");
+  const [chosenSlug, setSlug] = useState(d.debate_slug ?? "");
+  // o que o <select> mostra é o que vai no comando, mesmo se a lista chegou depois
+  const slug = formDebateSlug(chosenSlug, debates, defaultDebateSlug);
   const debate = debates.find((x) => x.slug === slug) ?? null;
   const [source, setSource] = useState<NonNullable<MachineDesired["source"]>>(d.source ?? "youtube");
   const [url, setUrl] = useState(d.url ?? debate?.youtube_url ?? "");
@@ -342,14 +345,22 @@ function DesiredForm({
               <input id={`${idp}-device`} value={device} onChange={(e) => setDevice(e.target.value)} className={inputCls} />
             </Field>
           ) : (
-            <Field label={source === "youtube" ? "URL da live" : "Caminho do arquivo"} htmlFor={`${idp}-url`}>
+            <Field
+              label={source === "youtube" ? "URL da live" : "Arquivo"}
+              htmlFor={`${idp}-url`}
+              hint={
+                source === "youtube"
+                  ? "Só live de verdade: vídeo gravado seria baixado de uma vez, sem ritmo de tempo real (use Arquivo)."
+                  : "O arquivo precisa estar na pasta .actually/replays da máquina (no Windows, C:\\Users\\<usuário>\\.actually\\replays). Digite só o nome."
+              }
+            >
               <input
                 id={`${idp}-url`}
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
                 className={inputCls}
                 inputMode={source === "youtube" ? "url" : "text"}
-                placeholder={source === "youtube" ? "https://www.youtube.com/watch?v=…" : "/caminho/debate.mp4"}
+                placeholder={source === "youtube" ? "https://www.youtube.com/watch?v=…" : "debate.mp4"}
               />
             </Field>
           )}
