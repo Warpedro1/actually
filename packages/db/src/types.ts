@@ -410,3 +410,38 @@ export interface KbCounts {
   kb_chunks: number;
   kb_chunks_sem_embedding: number;
 }
+
+// Uso das APIs externas (migration 20261021000010) ----------------------------
+
+/** Provedores contados pelo próprio sistema (pipeline e carga da base). */
+export type ApiProvider = "anthropic" | "voyage" | "tavily" | "google_factcheck" | "apify";
+
+/** Uma linha para `api_usage_add` (somada na hora corrente). */
+export interface ApiUsageRow {
+  provider: ApiProvider;
+  model?: string;
+  requests?: number;
+  input_tokens?: number;
+  output_tokens?: number;
+  /** Unidade do provedor: créditos da Tavily, runs do Apify… */
+  units?: number;
+  cost_usd?: number;
+}
+
+export type ApiUsageWindow = "hora" | "hoje" | "24h" | "mes";
+
+/** Retorno de `api_usage_summary()`. */
+export interface ApiUsageSummary {
+  usage: {
+    provider: string;
+    model: string;
+    janela: ApiUsageWindow;
+    requests: number;
+    input_tokens: number;
+    output_tokens: number;
+    units: number;
+    cost_usd: number;
+  }[];
+  /** Último retrato dos cabeçalhos de limite por provedor. */
+  ratelimits: Record<string, { headers: Record<string, string>; observed_at: string }>;
+}

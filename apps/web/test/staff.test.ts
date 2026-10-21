@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { isoToLocalInput, localInputToIso } from "@/lib/format";
 import { audioPercent, machineOnline, machineWarnings, pendingStopAt, silenceSeconds, suggestStartAt } from "@/lib/staff/machines";
 import { countByPerson, latencyStats, percentile } from "@/lib/staff/stats";
+import { countedText, ratelimitEntries, usageFraction } from "@/lib/staff/usage";
 
 const NOW = Date.parse("2026-10-24T00:00:00.000Z");
 const ago = (s: number) => new Date(NOW - s * 1000).toISOString();
@@ -126,6 +127,40 @@ describe("[RNF01] [RNF04] estatísticas do admin (latência e neutralidade)", ()
       { who: "Flávio Bolsonaro", published_red: 0, published_yellow: 1, pending: 0, rejected: 0 },
       { who: "Lula", published_red: 1, published_yellow: 0, pending: 1, rejected: 0 },
       { who: "Não mapeado (S2)", published_red: 0, published_yellow: 0, pending: 0, rejected: 1 },
+    ]);
+  });
+});
+
+describe("[RNF05] painel de uso das APIs: formatação", () => {
+  it("[RNF05] barra só com limite positivo; tom sobe em 70% e 90%; nunca passa de 100%", () => {
+    expect(usageFraction({ used: 5 })).toBeNull();
+    expect(usageFraction({ used: 5, limit: 0 })).toBeNull();
+    expect(usageFraction({ used: 50, limit: 100 })).toEqual({ frac: 0.5, tone: "ok" });
+    expect(usageFraction({ used: 70, limit: 100 })?.tone).toBe("warn");
+    expect(usageFraction({ used: 95, limit: 100 })?.tone).toBe("bad");
+    expect(usageFraction({ used: 130, limit: 100 })).toEqual({ frac: 1, tone: "bad" });
+  });
+
+  it("[RNF05] cada provedor na sua unidade; custo estimado só quando há", () => {
+    const w = { janela: "hoje" as const, requests: 12, input_tokens: 1500, output_tokens: 150, units: 0, cost_usd: 0.0017 };
+    expect(countedText("anthropic", w)).toBe("12 chamadas · 1.500 tokens entrada · 150 saída · ≈ US$ 0,0017");
+    expect(countedText("voyage", { ...w, output_tokens: 0, cost_usd: 0 })).toBe("12 chamadas · 1.500 tokens");
+    expect(countedText("tavily", { ...w, requests: 3, units: 3, input_tokens: 0, output_tokens: 0, cost_usd: 0 })).toBe("3 créditos");
+    expect(countedText("apify", { ...w, requests: 2, units: 2, input_tokens: 0, output_tokens: 0, cost_usd: 0 })).toBe("2 execuções");
+  });
+
+  it("[RNF05] limites por minuto: restante primeiro, depois limite e reset", () => {
+    const keys = ratelimitEntries({
+      "anthropic-ratelimit-requests-reset": "x",
+      "retry-after": "1",
+      "anthropic-ratelimit-requests-limit": "4000",
+      "anthropic-ratelimit-requests-remaining": "3999",
+    }).map(([k]) => k);
+    expect(keys).toEqual([
+      "anthropic-ratelimit-requests-remaining",
+      "anthropic-ratelimit-requests-limit",
+      "anthropic-ratelimit-requests-reset",
+      "retry-after",
     ]);
   });
 });

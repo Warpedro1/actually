@@ -6,7 +6,7 @@ import {
   type FactcheckMatch, type IndicatorMatch, type IndicatorRef, type IndicatorValue, type KbLayer,
   type Segment, type Verdict, type VerifiedClaimMatch, type serviceClient,
 } from "@actually/db";
-import type { EvidenceType, SourceTier } from "@actually/db";
+import type { ApiUsageRow, EvidenceType, SourceTier } from "@actually/db";
 
 /** Erro do banco com o código SQLSTATE preservado (ex.: 23505, 23514). */
 export class DbError extends Error {
@@ -111,6 +111,8 @@ export interface PipelineStore {
   matchChunks(embedding: number[], text: string, count: number, person: string | null): Promise<ChunkMatch[]>;
   findIndicator(q: string, count: number): Promise<IndicatorMatch[]>;
   indicatorValues(seriesCode: string): Promise<IndicatorValue[]>;
+  /** Soma o uso das APIs na hora corrente (opcional: os testes não gravam). */
+  recordUsage?(rows: ApiUsageRow[], ratelimits: Record<string, Record<string, string>>): Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -273,6 +275,11 @@ export function supabaseStore(sb: Sb): PipelineStore {
         "indicatorValues",
       );
       return ((rows ?? []) as IndicatorValue[]).map((r) => ({ ...r, value: num(r.value) }));
+    },
+
+    async recordUsage(rows, ratelimits) {
+      const { error } = await sb.rpc("api_usage_add", { p_rows: rows, p_ratelimits: ratelimits });
+      if (error) throw new DbError(`recordUsage: ${error.message}`, error.code);
     },
   };
 }

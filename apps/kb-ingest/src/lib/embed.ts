@@ -4,6 +4,7 @@
 import { EMBEDDING_DIM } from "@actually/db";
 import { fetchJson } from "./http";
 import { estimateTokens } from "./text";
+import { recordUsage } from "./usage";
 
 const VOYAGE_URL = "https://api.voyageai.com/v1/embeddings";
 export const VOYAGE_MODEL = process.env.VOYAGE_MODEL ?? "voyage-3.5";
@@ -57,6 +58,7 @@ export async function embedDocuments(texts: string[], log?: (...a: unknown[]) =>
       timeoutMs: 120_000,
       retries: 5,
     });
+    recordUsage({ provider: "voyage", model: VOYAGE_MODEL, requests: 1, input_tokens: res.usage?.total_tokens ?? 0 });
     for (const d of res.data ?? []) {
       if (d.embedding.length !== EMBEDDING_DIM) {
         throw new Error(`embedding com ${d.embedding.length} dimensões (esperado ${EMBEDDING_DIM})`);

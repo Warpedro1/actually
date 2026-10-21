@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { ApifyClient } from "apify-client";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
+import { recordUsage } from "../lib/usage";
 
 export function apifyClient(): ApifyClient {
   const token = process.env.APIFY_TOKEN;
@@ -20,6 +21,7 @@ export async function runActor(
 ): Promise<{ runId: string; datasetId: string; items: Record<string, unknown>[] }> {
   const client = apifyClient();
   opts.log(`apify: iniciando ${actorId} (teto de custo US$ ${MAX_CHARGE_USD})`);
+  recordUsage({ provider: "apify", model: actorId, requests: 1, units: 1 });
   const run = await client.actor(actorId).call(input, {
     maxItems: opts.maxItems,
     maxTotalChargeUsd: MAX_CHARGE_USD,
@@ -42,6 +44,7 @@ export async function startActor(
 ): Promise<{ runId: string; datasetId: string }> {
   const client = apifyClient();
   opts.log(`apify: iniciando ${actorId} (teto de custo US$ ${MAX_CHARGE_USD})`);
+  recordUsage({ provider: "apify", model: actorId, requests: 1, units: 1 });
   const run = await client.actor(actorId).start(input, { maxItems: opts.maxItems, maxTotalChargeUsd: MAX_CHARGE_USD });
   opts.log(`apify: run ${run.id} (dataset ${run.defaultDatasetId})`);
   return { runId: run.id, datasetId: run.defaultDatasetId };

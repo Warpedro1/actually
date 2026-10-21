@@ -182,6 +182,26 @@ describe("[RF15] painel da base no /admin: confirmação antes de criar tarefa",
   });
 });
 
+describe("[RNF05] painel de uso das APIs no /admin", () => {
+  it("[RNF05] um cartão por provedor, com situação, barra de limite acessível e link do provedor", async () => {
+    const { ctx, page } = await open("/admin/demo", { mobile: true });
+    const uso = page.locator("#uso");
+    await uso.waitFor();
+    const cards = uso.locator("article");
+    expect(await cards.count()).toBe(8);
+    const tavily = uso.getByRole("article", { name: "Tavily (busca web)" });
+    const bar = tavily.getByRole("progressbar", { name: /Créditos do plano/ });
+    expect(await bar.getAttribute("aria-valuenow")).toBe("81");
+    expect(await tavily.textContent()).toMatch(/Contado pelo actually/);
+    const apify = uso.getByRole("article", { name: "Apify (robôs)" });
+    expect(await apify.textContent()).toMatch(/sem chave/);
+    for (const href of await uso.locator("article a").evaluateAll((as) => as.map((a) => (a as HTMLAnchorElement).href))) {
+      expect(href).toMatch(/^https:\/\//);
+    }
+    await ctx.close();
+  });
+});
+
 describe("[RNF10] celular e acessibilidade", () => {
   for (const path of ["/ao-vivo/demo", "/metodologia", "/", "/admin/demo"]) {
     it(`[RNF10] ${path} em 390 px sem rolagem horizontal`, async () => {

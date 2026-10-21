@@ -7,6 +7,7 @@ import { EVIDENCE_CHARS_FOR_VERIFY, MAX_EVIDENCE_FOR_VERIFY, MODEL_VERIFY, SUMMA
 import type { AnthropicLike } from "./deps";
 import { errorFields, type Logger } from "./log";
 import type { EvidenceCandidate, ModelVerdict } from "./types";
+import { anthropicUsageRow, type UsageMeter } from "./usage";
 
 export const VerifySchema = z.object({
   rationale: z.string().describe("Raciocínio curto (até 3 frases) ligando a afirmação às evidências."),
@@ -94,6 +95,7 @@ export async function verifyClaim(
   client: AnthropicLike,
   input: VerifyInput,
   logger: Logger,
+  usage?: UsageMeter,
 ): Promise<ModelVerdict> {
   const evidence = input.evidence.slice(0, MAX_EVIDENCE_FOR_VERIFY);
   if (!evidence.length) return inconclusive("sem_evidencia");
@@ -108,6 +110,7 @@ export async function verifyClaim(
       },
       { timeout: TIMEOUTS_MS.verify, maxRetries: 1 },
     );
+    usage?.record(anthropicUsageRow(MODEL_VERIFY, msg.usage));
     if (msg.stop_reason === "refusal") {
       logger("warn", "verify_refusal", { stop_details: msg.stop_details ?? null });
       return inconclusive("refusal");

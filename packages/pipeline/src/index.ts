@@ -158,7 +158,7 @@ export async function assessClaim(
     verifyClaim(deps.anthropic, {
       claim_normalized: claim.text_normalized, claim_original: claim.text_original,
       context, today: today(deps), evidence: candidates,
-    }, deps.logger),
+    }, deps.logger, deps.usage),
     TIMEOUTS_MS.verify_total,
     "verify",
   ).catch((err) => {
@@ -232,7 +232,7 @@ async function safeExtract(
 ): Promise<ExtractedClaim[]> {
   try {
     return await withTimeout(
-      extractClaims(deps.anthropic, { text, context, speaker_label: speaker, today: today(deps) }, deps.logger),
+      extractClaims(deps.anthropic, { text, context, speaker_label: speaker, today: today(deps) }, deps.logger, deps.usage),
       TIMEOUTS_MS.extract + 1_000,
       "extract",
     );
@@ -333,6 +333,29 @@ export function createPipeline(deps: PipelineDeps) {
    * uma afirmação isolada — registra e segue (silêncio é o modo seguro).
    */
   async function runPipeline(segmentId: number): Promise<PipelineResult> {
+    try {
+      return await runSegment(segmentId);
+    } finally {
+      await flushUsage();
+    }
+  }
+
+  /**
+   * Grava o uso das APIs acumulado (painel do /admin). Roda depois do trecho —
+   * os alertas já foram gravados — e falha só vira log (RNF03).
+   */
+  async function flushUsage(): Promise<void> {
+    if (!deps.usage || !store.recordUsage) return;
+    const { rows, ratelimits } = deps.usage.drain();
+    if (!rows.length && !Object.keys(ratelimits).length) return;
+    try {
+      await withTimeout(store.recordUsage(rows, ratelimits), TIMEOUTS_MS.usage, "usage");
+    } catch (err) {
+      logger("warn", "usage_record_failed", errorFields(err));
+    }
+  }
+
+  async function runSegment(segmentId: number): Promise<PipelineResult> {
     const t0 = deps.now();
     const latency: Record<string, number> = {};
     const result = (claims: number, alerts: number): PipelineResult => ({ segment_id: segmentId, claims, alerts, latency_ms: latency });

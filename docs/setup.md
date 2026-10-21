@@ -20,7 +20,8 @@ Passo a passo para subir o ambiente do zero. Ordem: Supabase → chaves → Verc
    - `supabase/migrations/20261019000006_settings_patch.sql` — settings do debate gravadas por patch sobre o valor atual;
    - `supabase/migrations/20261019000007_indicator_aggregation.sql` — `indicator_series.aggregation` (como somar/médiar cada série no L2; sem ela, a camada L2 fica em silêncio);
    - `supabase/migrations/20261020000008_kb_jobs.sql` — fila `kb_jobs` e RPCs `kb_job_claim`/`kb_counts` da carga da base pelo /admin (seção 5);
-   - `supabase/migrations/20261020000009_debates_teste.sql` — `debates.is_test`: debate de teste só para editores (RLS) e fora da trava de repetição entre debates.
+   - `supabase/migrations/20261020000009_debates_teste.sql` — `debates.is_test`: debate de teste só para editores (RLS) e fora da trava de repetição entre debates;
+   - `supabase/migrations/20261021000010_api_usage.sql` — `api_usage`/`api_ratelimits` e RPCs `api_usage_add`/`api_usage_summary`/`ops_db_size` do painel *Uso das APIs* (seção 7).
 
    Com a CLI: `supabase link --project-ref <ref>` e `supabase db push`. Sem a CLI: colar cada arquivo no SQL Editor, na ordem.
 3. Conferir: Database → Extensions mostra `vector`, `pg_trgm` e `unaccent` no schema `extensions`; Advisors → Security sem alertas além dos INFO intencionais das tabelas `kb_*`/`indicator_*` (RLS sem políticas, só service role).
@@ -40,7 +41,9 @@ Passo a passo para subir o ambiente do zero. Ordem: Supabase → chaves → Verc
 | `VOYAGE_API_KEY` | dash.voyageai.com | pipeline (embeddings/rerank), kb-ingest, eval |
 | `TAVILY_API_KEY` | app.tavily.com | pipeline (L4) |
 | `GOOGLE_FACTCHECK_API_KEY` | Google Cloud Console → habilitar *Fact Check Tools API* → Credenciais → chave de API (restrita a essa API) | kb-ingest (L1), na máquina ou no painel do /admin |
-| `DEEPGRAM_API_KEY` | console.deepgram.com | capture agent, `kb-ingest transcribe` |
+| `DEEPGRAM_API_KEY` | console.deepgram.com | capture agent, `kb-ingest transcribe`; na Vercel, só para o saldo no painel *Uso das APIs* (chave com permissão de leitura de cobrança) |
+| `ANTHROPIC_ADMIN_KEY` | console.anthropic.com → Settings → Admin keys (`sk-ant-admin…`; só organizações, não contas individuais) | só Vercel: custo oficial do mês no painel *Uso das APIs*. Nunca no pipeline |
+| `SUPABASE_DB_LIMIT_MB` | limite de banco do plano (500 no gratuito, 8192 no Pro) | só Vercel, opcional: barra do banco no painel *Uso das APIs* |
 | `APIFY_TOKEN` | console.apify.com → Settings → API & Integrations | kb-ingest (`apify-crawl`, `apify-youtube`, `apify-search`), na máquina ou no painel do /admin |
 | `INGEST_TOKEN` | gerar: `openssl rand -hex 32` | Vercel **e** máquinas de captura (mesmo valor) |
 | `CRON_SECRET` | gerar: `openssl rand -hex 32` | só Vercel: a carga pelo /admin continua sozinha entre rodadas e o cron diário se autentica com ele |
@@ -58,7 +61,7 @@ Conferir limites de taxa e saldo de cada serviço para ~2 h de debate + ensaios 
    - `INGEST_TOKEN`
    - `REQUIRE_MFA` = `1` para exigir 2FA no /editor e /admin (recomendado em produção)
    - `CRON_SECRET`, e `GOOGLE_FACTCHECK_API_KEY` / `APIFY_TOKEN` se a base for carregada pelo painel do /admin (seção 5)
-   - (`DEEPGRAM_API_KEY` não é necessária na Vercel: só a captura e o `transcribe` em lote usam)
+   - opcionais, só para o painel *Uso das APIs* (seção 7): `ANTHROPIC_ADMIN_KEY`, `DEEPGRAM_API_KEY`, `SUPABASE_DB_LIMIT_MB`
 5. Deploy. Plano Pro recomendado (duração de função e concorrência).
 6. Conferir `GET https://<app>/api/alerts?debate=teste` responde (404/200 em JSON, não 500).
 
@@ -147,7 +150,24 @@ Em **cada** máquina (principal e reserva):
    `--print` mostra o que seria instalado sem instalar. Por SO: macOS usa launchd (com `caffeinate`), Linux usa systemd de usuário (rodar `sudo loginctl enable-linger $USER` para subir sem login), Windows usa o Agendador de Tarefas (ajustar energia com `powercfg`, como o comando indica). Remover: `uninstall-service`.
 6. No `/admin` → **Máquinas de captura**, a máquina aparece pelo nome em poucos segundos (online). Fazer um teste: iniciar com `source=file` ou uma live qualquer, ver nível de áudio e segmentos chegando, parar.
 
-## 7. Verificação final
+
+## 7. Uso das APIs (painel do /admin)
+
+Seção *Uso das APIs* do /admin (`GET /api/ops/usage`, só editor, nunca devolve chave; atualiza a cada
+minuto). Cada cartão junta duas coisas:
+
+- **Oficial** — o que o provedor informa pela própria API: custo do mês da Anthropic (Admin API,
+  `ANTHROPIC_ADMIN_KEY`), saldo da Deepgram, uso do ciclo × limite do Apify, créditos × limite do plano
+  da Tavily e tamanho do banco × `SUPABASE_DB_LIMIT_MB`. Sem a chave, o cartão diz qual falta.
+- **Contado pelo actually** — o pipeline e a carga da base somam o que usaram (chamadas, tokens, créditos;
+  custo da Anthropic estimado pela tabela de `packages/pipeline/src/config.ts`) e gravam por hora em
+  `api_usage`; o último retrato dos limites por minuto (cabeçalhos `*ratelimit*`) fica em `api_ratelimits`.
+
+O que nenhuma API informa e precisa ser conferido no painel do provedor (link em cada cartão): **saldo de
+créditos da Anthropic**, uso e saldo da Voyage, cota diária do Google Fact Check e uso da Vercel. A Deepgram
+da máquina de captura só aparece se a mesma chave (ou outra do mesmo projeto) estiver na Vercel.
+
+## 8. Verificação final
 
 ```bash
 pnpm typecheck

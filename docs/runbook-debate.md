@@ -47,7 +47,7 @@ Todos na mesma chamada de voz durante o debate. Preencher os nomes:
 - [ ] Ensaios: sempre como **debate de teste** (só editores veem, pela prévia `/admin/previa/<slug>`; os vereditos não valem para o oficial). Nunca tornar público um ensaio antes do dia 23.
 - [ ] Settings conferidas: `t_red`, `t_yellow`, `web_penalty`, `require_red_approval`, `require_yellow_approval`, `show_attribution` (padrão `false`), `failover_after_s` (padrão 10).
 - [ ] Editores com login e 2FA funcionando.
-- [ ] Saldos/limites: Anthropic, Voyage, Tavily, Deepgram.
+- [ ] Saldos/limites no `/admin` → **Uso das APIs**: nenhum cartão em “sem permissão”/“erro”; Tavily e Apify com folga no ciclo; banco abaixo de 70%. O que o painel não mostra, conferir no painel do provedor (link no cartão): **saldo de créditos da Anthropic**, Voyage e Deepgram da máquina de captura (se a chave não estiver na Vercel). Estimativa: o custo contado num ensaio de ~2 h × 2 (principal + margem).
 - [ ] Página `/metodologia` com os thresholds e a decisão de HITL em vigor.
 
 ### T-2h
@@ -59,6 +59,7 @@ Todos na mesma chamada de voz durante o debate. Preencher os nomes:
   O daemon usa a hora do servidor, não o relógio da máquina.
 - [ ] Máquinas **online** (último poll < 10 s), sem erro.
 - [ ] `kb-ingest status` de novo (nada sumiu).
+- [ ] `/admin` → **Uso das APIs**: mesmo conferido da véspera; na Anthropic, os limites por minuto (último retrato) com folga.
 - [ ] Deploy de produção é o da `main` congelada; nenhuma mudança pendente.
 
 ### T-30min
@@ -71,7 +72,7 @@ Todos na mesma chamada de voz durante o debate. Preencher os nomes:
 ### Durante
 
 - [ ] **Mapear speakers** nas primeiras falas (`/editor`) — só se `show_attribution` for ligado; **remapear** após qualquer failover ou reconexão ao Deepgram: o rótulo leva a sessão do STT (`s<n>-<agente>:S<k>`) e a sessão nova chega sem mapa ([atribuicao.md](atribuicao.md)).
-- [ ] A cada ~10 min, o operador confere: máquina ativa, último segmento < 30 s (em fala), latência p50/p95 no `/admin`, erros.
+- [ ] A cada ~10 min, o operador confere: máquina ativa, último segmento < 30 s (em fala), latência p50/p95 no `/admin`, erros; e, no **Uso das APIs**, a coluna “Esta hora” e os limites por minuto da Anthropic (restante perto de zero = alertas vão atrasar ou sumir).
 - [ ] Editor segue o SLA (decisão p50 ≤ 15 s); fila > 3 → avisar o responsável.
 - [ ] Registrar incidentes (horário, o que houve, o que foi feito).
 

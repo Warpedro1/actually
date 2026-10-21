@@ -7,6 +7,7 @@ import { consoleLogger, type Logger } from "./log";
 import { voyageRerank, type RerankFn } from "./rerank";
 import { tavilySearch, type WebSearchFn } from "./retrieve/web";
 import { supabaseStore, type PipelineStore } from "./store";
+import { createUsageMeter, type UsageMeter } from "./usage";
 
 /** Só o que o pipeline usa do cliente Anthropic (facilita o mock). */
 export type AnthropicLike = Pick<Anthropic, "messages">;
@@ -21,6 +22,8 @@ export interface PipelineDeps {
   logger: Logger;
   /** Relógio em ms (Date.now) — injetável para latências determinísticas nos testes. */
   now: () => number;
+  /** Contagem de uso das APIs (painel do /admin); ausente nos testes = não conta. */
+  usage?: UsageMeter;
 }
 
 function required(name: string): string {
@@ -37,15 +40,25 @@ export function defaultDeps(): PipelineDeps {
   const voyageKey = required("VOYAGE_API_KEY");
   const tavilyKey = process.env.TAVILY_API_KEY;
   if (!tavilyKey) consoleLogger("warn", "l4_disabled", { reason: "TAVILY_API_KEY ausente" });
+  const usage = createUsageMeter();
   cached = {
-    // retries curtos: ao vivo, atraso grande vale menos que silêncio
-    anthropic: new Anthropic({ maxRetries: 1 }),
-    embed: voyageEmbed(voyageKey),
-    rerank: voyageRerank(voyageKey),
-    webSearch: tavilyKey ? tavilySearch(tavilyKey) : null,
+    // retries curtos: ao vivo, atraso grande vale menos que silêncio.
+    // fetch embrulhado só para guardar os cabeçalhos de limite (painel de uso).
+    anthropic: new Anthropic({
+      maxRetries: 1,
+      fetch: async (url, init) => {
+        const res = await fetch(url, init);
+        usage.ratelimit("anthropic", res.headers);
+        return res;
+      },
+    }),
+    embed: voyageEmbed(voyageKey, fetch, usage),
+    rerank: voyageRerank(voyageKey, fetch, usage),
+    webSearch: tavilyKey ? tavilySearch(tavilyKey, fetch, usage) : null,
     store: supabaseStore(serviceClient()),
     logger: consoleLogger,
     now: Date.now,
+    usage,
   };
   return cached;
 }

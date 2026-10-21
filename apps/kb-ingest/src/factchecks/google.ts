@@ -4,6 +4,7 @@
 // claimant, claimDate, claimReview[].{publisher{name,site}, url, title, reviewDate,
 // textualRating, languageCode}; paginação por nextPageToken.
 import { fetchJson } from "../lib/http";
+import { recordUsage } from "../lib/usage";
 import type { FactcheckCandidate } from "./normalize";
 
 export const FACTCHECK_URL = "https://factchecktools.googleapis.com/v1alpha1/claims:search";
@@ -99,6 +100,7 @@ export async function searchGoogle(opts: {
     let n = 0;
     for (let page = 0; page < opts.maxPages; page++) {
       const res = await fetchJson<GoogleSearchResponse>(googleSearchUrl({ query, key, maxAgeDays: opts.maxAgeDays, pageToken }));
+      recordUsage({ provider: "google_factcheck", requests: 1, units: 1 });
       const items = parseGoogleResponse(res);
       all.push(...items);
       n += items.length;

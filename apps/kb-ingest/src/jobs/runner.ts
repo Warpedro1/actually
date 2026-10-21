@@ -9,6 +9,7 @@
 //   recusada: o executor para na hora, sem sobrescrever nada.
 import type { KbLogLine } from "@actually/db";
 import type { Ctx, Db } from "../lib/ctx";
+import { flushUsage } from "../lib/usage";
 import { describeStep, runStep, type KbStep, type StepEnv } from "./steps";
 
 export interface JobRow {
@@ -153,6 +154,8 @@ export async function runJobs(o: RunOptions): Promise<RunResult> {
         push("error", `falhou: ${describeStep(step)} — ${e instanceof Error ? e.message : String(e)}`);
       }
       steps++;
+      // uso das APIs desta etapa (Voyage, Google, Apify) para o painel do /admin
+      await flushUsage(() => ctx.db, ctx.warn);
       current = null;
       attempts = 0;
       if (!(await save({ steps: queue, current: null, current_attempts: 0, steps_done: done, steps_failed: failed }))) outcome = "lost";

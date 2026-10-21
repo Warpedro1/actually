@@ -4,6 +4,7 @@
 import { tierForUrl, lookupSource, webSearchDomains } from "@actually/db";
 import { RERANK_MIN_RELEVANCE, RERANK_TOP_K, RETRIEVE_COUNT, TAVILY_SEARCH_URL, TIMEOUTS_MS } from "../config";
 import type { RerankFn } from "../rerank";
+import type { UsageMeter } from "../usage";
 import type { EvidenceCandidate } from "../types";
 
 export interface WebResult {
@@ -26,7 +27,7 @@ interface TavilyResponse {
   }[];
 }
 
-export function tavilySearch(apiKey: string, fetchImpl: typeof fetch = fetch): WebSearchFn {
+export function tavilySearch(apiKey: string, fetchImpl: typeof fetch = fetch, usage?: UsageMeter): WebSearchFn {
   return async (query, { includeDomains, maxResults }) => {
     const res = await fetchImpl(TAVILY_SEARCH_URL, {
       method: "POST",
@@ -42,7 +43,10 @@ export function tavilySearch(apiKey: string, fetchImpl: typeof fetch = fetch): W
       }),
       signal: AbortSignal.timeout(TIMEOUTS_MS.L4),
     });
+    usage?.ratelimit("tavily", res.headers);
     if (!res.ok) throw new Error(`tavily ${res.status}: ${(await res.text()).slice(0, 300)}`);
+    // busca "basic" = 1 crédito da Tavily
+    usage?.record({ provider: "tavily", requests: 1, units: 1 });
     const json = (await res.json()) as TavilyResponse;
     return (json.results ?? []).map((r) => ({
       url: r.url,

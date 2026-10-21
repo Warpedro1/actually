@@ -7,6 +7,19 @@ export const MODEL_EXTRACT = "claude-haiku-5-5";
 /** Verificação: roda poucas vezes, precisa de julgamento. */
 export const MODEL_VERIFY = "claude-sonnet-5-5";
 
+/**
+ * Preço por milhão de tokens (USD), só para o custo ESTIMADO do painel "Uso das
+ * APIs" — a cobrança real é a do Console da Anthropic. Haiku 5.5: até 100K
+ * tokens de prompt (os nossos são bem menores).
+ */
+export const ANTHROPIC_PRICES_USD_PER_MTOK: Record<string, { input: number; output: number }> = {
+  "claude-haiku-5-5": { input: 0.1, output: 0.5 },
+  "claude-sonnet-5-5": { input: 2, output: 10 },
+};
+/** Leitura de cache sai a ~0,1× da entrada; escrita (TTL 5 min) a ~1,25×. */
+export const ANTHROPIC_CACHE_READ_FACTOR = 0.1;
+export const ANTHROPIC_CACHE_WRITE_FACTOR = 1.25;
+
 export const VOYAGE_EMBED_MODEL = "voyage-3.5";
 export const VOYAGE_RERANK_MODEL = "rerank-2.5";
 export const VOYAGE_EMBED_URL = "https://api.voyageai.com/v1/embeddings";
@@ -30,6 +43,8 @@ export const TIMEOUTS_MS = {
   /** Teto total da verificação, com retry. */
   verify_total: 20_000,
   publish: 5_000,
+  /** Gravação do uso das APIs (depois do trecho; nunca atrasa alerta). */
+  usage: 3_000,
 } as const;
 
 /** Quantos candidatos cada RPC devolve antes do rerank. */

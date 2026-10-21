@@ -4,6 +4,7 @@ import type { KbJobCreate } from "@actually/db";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { formatDateTime, formatTimeSec } from "@/lib/format";
+import { staffFetch } from "@/lib/staff/fetch";
 import { jobState, type KbJobView, type KbStatus } from "@/lib/staff/kb";
 import { ConfirmBox } from "./ConfirmBox";
 import { Button, Card, ErrorText, Field, OkText, Pill, errMsg, inputCls } from "./ui";
@@ -31,21 +32,6 @@ const DOC_TYPES = [
 const PEOPLE = ["Lula", "Flávio Bolsonaro", "Jair Bolsonaro"];
 const APIFY_COST = "Usa créditos do Apify (até US$ 5 por execução).";
 
-/** Chama /api/kb/* com o token da sessão do editor (o servidor confere is_editor e 2FA). */
-async function kbFetch<T>(client: SupabaseClient, path: string, init: RequestInit = {}): Promise<T> {
-  const { data } = await client.auth.getSession();
-  const token = data.session?.access_token;
-  if (!token) throw new Error("sessão expirada: entre de novo");
-  const r = await fetch(path, {
-    ...init,
-    cache: "no-store",
-    headers: { ...(init.body ? { "content-type": "application/json" } : {}), Authorization: `Bearer ${token}` },
-  });
-  const body = (await r.json().catch(() => ({}))) as T & { error?: string };
-  if (!r.ok) throw new Error(body.error ?? `HTTP ${r.status}`);
-  return body;
-}
-
 type DocReq = Extract<KbJobCreate, { preset: "documento" }>;
 type VideoReq = Extract<KbJobCreate, { preset: "youtube" }>;
 
@@ -64,7 +50,7 @@ export function KbPanel({ client }: { client: SupabaseClient }) {
     async (withCounts = false) => {
       const counts = withCounts || Date.now() - lastCounts.current > 30_000;
       try {
-        const s = await kbFetch<KbStatus>(client, `/api/kb/status${counts ? "?counts=1" : ""}`);
+        const s = await staffFetch<KbStatus>(client, `/api/kb/status${counts ? "?counts=1" : ""}`);
         if (counts) lastCounts.current = Date.now();
         setStatus((prev) => (counts || !prev ? s : { ...s, counts: prev.counts, counts_error: prev.counts_error }));
         setError(null);
@@ -91,7 +77,7 @@ export function KbPanel({ client }: { client: SupabaseClient }) {
     setError(null);
     setOk(null);
     try {
-      const r = await kbFetch<{ title: string; notes: string[] }>(client, "/api/kb/jobs", { method: "POST", body: JSON.stringify(req) });
+      const r = await staffFetch<{ title: string; notes: string[] }>(client, "/api/kb/jobs", { method: "POST", body: JSON.stringify(req) });
       setOk(`Tarefa criada: ${r.title}.${r.notes.length ? ` Aviso: ${r.notes.join(" ")}` : ""}`);
       await load(true);
     } catch (e) {
@@ -104,7 +90,7 @@ export function KbPanel({ client }: { client: SupabaseClient }) {
   async function cancel(id: string) {
     if (!window.confirm("Cancelar esta tarefa? O que já entrou na base fica.")) return;
     try {
-      await kbFetch(client, `/api/kb/jobs/${id}/cancel`, { method: "POST" });
+      await staffFetch(client, `/api/kb/jobs/${id}/cancel`, { method: "POST" });
       await load();
     } catch (e) {
       setError(errMsg(e));

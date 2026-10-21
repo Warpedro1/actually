@@ -3,6 +3,7 @@
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { makeCtx } from "./lib/ctx";
+import { flushUsage } from "./lib/usage";
 import { runTiers } from "./commands/tiers";
 import { runIndicators } from "./commands/indicators";
 import { runFactchecks } from "./commands/factchecks";
@@ -117,79 +118,84 @@ async function main() {
     limit: int(v.limit),
   };
 
-  switch (cmd) {
-    case "tiers":
-      return runTiers(ctx);
-    case "factchecks":
-      return runFactchecks(ctx, {
-        source: (v.source as "google" | "feeds" | "all" | undefined) ?? "all",
-        since: v.since,
-        maxPages: int(v["max-pages"]),
-        queries: v.query,
-        verifyFeeds: v["verify-feeds"],
-        allTopics: v["all-topics"],
-        refresh: v.refresh,
-        limit: int(v.limit),
-        skipEmbed,
-        feedsPath: path("sources/feeds.yaml"),
-      });
-    case "indicators":
-      return runIndicators(ctx, {
-        list: v.list,
-        check: v.check,
-        only: v.only?.split(",").map((s) => s.trim()).filter(Boolean),
-        since: v.since,
-        includePending: v["include-pending"],
-      });
-    case "documents":
-      return runDocuments(ctx, {
-        manifest: v.manifest ?? path("sources/documents.yaml"),
-        only: v.only,
-        file: v.file,
-        meta: v.meta,
-        speakers: v.speakers,
-        force: v.force,
-        skipEmbed,
-      });
-    case "senado":
-      return runSenado(ctx, {
-        codigo: int(v.codigo),
-        nome: v.nome,
-        since: v.since,
-        until: v.until,
-        discursos: v.discursos,
-        skipEmbed,
-        limit: int(v.limit),
-      });
-    case "transcribe":
-      return runTranscribe(ctx, {
-        file: v.file,
-        url: v.url,
-        out: v.out ?? path("data/transcripts"),
-        speakers: v.speakers,
-        ingest: v.ingest,
-        docType: v["doc-type"] as "debate" | "entrevista" | undefined,
-        person: v.person,
-        title: v.title,
-        sourceUrl: v["source-url"],
-        publishedAt: v["published-at"],
-        skipEmbed,
-      });
-    case "embed-missing":
-      return runEmbedMissing(ctx, { table: v.table as "kb_chunks" | "kb_factchecks" | "all" | undefined, max: int(v.max) });
-    case "status":
-      return runStatus(ctx);
-    case "apify-check":
-      return runApifyCheck(ctx, apifyOpts);
-    case "apify-crawl":
-      return runApifyCrawl(ctx, apifyOpts);
-    case "apify-youtube":
-      return runApifyYoutube(ctx, apifyOpts);
-    case "apify-search":
-      return runApifySearch(ctx, apifyOpts);
-    default:
-      console.error(`comando desconhecido: ${cmd}\n\n${HELP}`);
-      process.exitCode = 2;
+  try {
+    switch (cmd) {
+      case "tiers":
+        return await runTiers(ctx);
+      case "factchecks":
+        return await runFactchecks(ctx, {
+          source: (v.source as "google" | "feeds" | "all" | undefined) ?? "all",
+          since: v.since,
+          maxPages: int(v["max-pages"]),
+          queries: v.query,
+          verifyFeeds: v["verify-feeds"],
+          allTopics: v["all-topics"],
+          refresh: v.refresh,
+          limit: int(v.limit),
+          skipEmbed,
+          feedsPath: path("sources/feeds.yaml"),
+        });
+      case "indicators":
+        return await runIndicators(ctx, {
+          list: v.list,
+          check: v.check,
+          only: v.only?.split(",").map((s) => s.trim()).filter(Boolean),
+          since: v.since,
+          includePending: v["include-pending"],
+        });
+      case "documents":
+        return await runDocuments(ctx, {
+          manifest: v.manifest ?? path("sources/documents.yaml"),
+          only: v.only,
+          file: v.file,
+          meta: v.meta,
+          speakers: v.speakers,
+          force: v.force,
+          skipEmbed,
+        });
+      case "senado":
+        return await runSenado(ctx, {
+          codigo: int(v.codigo),
+          nome: v.nome,
+          since: v.since,
+          until: v.until,
+          discursos: v.discursos,
+          skipEmbed,
+          limit: int(v.limit),
+        });
+      case "transcribe":
+        return await runTranscribe(ctx, {
+          file: v.file,
+          url: v.url,
+          out: v.out ?? path("data/transcripts"),
+          speakers: v.speakers,
+          ingest: v.ingest,
+          docType: v["doc-type"] as "debate" | "entrevista" | undefined,
+          person: v.person,
+          title: v.title,
+          sourceUrl: v["source-url"],
+          publishedAt: v["published-at"],
+          skipEmbed,
+        });
+      case "embed-missing":
+        return await runEmbedMissing(ctx, { table: v.table as "kb_chunks" | "kb_factchecks" | "all" | undefined, max: int(v.max) });
+      case "status":
+        return await runStatus(ctx);
+      case "apify-check":
+        return await runApifyCheck(ctx, apifyOpts);
+      case "apify-crawl":
+        return await runApifyCrawl(ctx, apifyOpts);
+      case "apify-youtube":
+        return await runApifyYoutube(ctx, apifyOpts);
+      case "apify-search":
+        return await runApifySearch(ctx, apifyOpts);
+      default:
+        console.error(`comando desconhecido: ${cmd}\n\n${HELP}`);
+        process.exitCode = 2;
+    }
+  } finally {
+    // uso das APIs (Voyage, Google, Apify) para o painel do /admin
+    await flushUsage(() => ctx.db, ctx.warn);
   }
 }
 

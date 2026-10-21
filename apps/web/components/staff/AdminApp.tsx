@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { VERDICT_LABEL } from "@/lib/feed";
 import { formatTimeSec } from "@/lib/format";
 import { countByPerson, latencyStats, type PersonCount, type StageStats } from "@/lib/staff/stats";
+import { ApiUsagePanel } from "./ApiUsagePanel";
 import { DebateForms } from "./DebateForms";
 import { DebatePicker } from "./DebatePicker";
 import { KbPanel } from "./KbPanel";
@@ -32,6 +33,7 @@ export function AdminApp({ client }: { client: SupabaseClient }) {
           ["neutralidade", "Neutralidade"],
           ["alertas", "Alertas"],
           ["base", "Base de conhecimento"],
+          ["uso", "Uso das APIs"],
         ].map(([id, t]) => (
           <a key={id} href={`#${id}`} className="text-muted underline hover:text-fg">
             {t}
@@ -49,6 +51,7 @@ export function AdminApp({ client }: { client: SupabaseClient }) {
         </>
       ) : null}
       <KbPanel client={client} />
+      <ApiUsagePanel client={client} />
     </div>
   );
 }

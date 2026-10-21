@@ -9,6 +9,7 @@ import type { Logger } from "./log";
 import { normalizeClaimNumbers } from "./normalize";
 import { normalizeForQuote, quoteCheck } from "./quoteCheck";
 import { TOPICS, type ExtractedClaim, type Topic } from "./types";
+import { anthropicUsageRow, type UsageMeter } from "./usage";
 
 // Schema leniente de propósito: enums viram texto e são validados em código,
 // para que um campo secundário fora do padrão não derrube a extração inteira.
@@ -144,6 +145,7 @@ export async function extractClaims(
   client: AnthropicLike,
   input: ExtractInput,
   logger: Logger,
+  usage?: UsageMeter,
 ): Promise<ExtractedClaim[]> {
   const msg = await client.messages.parse(
     {
@@ -157,6 +159,7 @@ export async function extractClaims(
     },
     { timeout: TIMEOUTS_MS.extract, maxRetries: 0 },
   );
+  usage?.record(anthropicUsageRow(MODEL_EXTRACT, msg.usage));
   if (msg.stop_reason === "refusal" || msg.stop_reason === "max_tokens") {
     logger("warn", "extract_incomplete", { stop_reason: msg.stop_reason });
     return [];

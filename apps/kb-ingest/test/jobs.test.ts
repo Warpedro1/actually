@@ -10,6 +10,7 @@ import { GOOGLE_QUERIES } from "../src/factchecks/google";
 import { activeSeries } from "../src/indicators/catalog";
 import type { Ctx } from "../src/lib/ctx";
 import { mapUntil } from "../src/lib/http";
+import { drainUsage, flushUsage, recordUsage } from "../src/lib/usage";
 import { planJob, PlanError } from "../src/jobs/presets";
 import { MAX_ATTEMPTS, runJobs, type JobPatch, type JobRow, type JobStore } from "../src/jobs/runner";
 import { defaultApifyManifest, describeStep, type KbStep } from "../src/jobs/steps";
@@ -259,5 +260,29 @@ describe("[RF15] utilitários das etapas", () => {
     expect(inputFromSchema({ urls: { type: "array", items: { type: "string" } } }, urls)).toEqual({ urls });
     expect(inputFromSchema({ videoUrl: { type: "string" } }, urls)).toEqual({ videoUrl: urls[0] });
     expect(() => inputFromSchema({ query: { type: "string" } }, urls)).toThrow(/campos: query/);
+  });
+});
+
+describe("[RF15] uso das APIs na carga da base", () => {
+  it("[RF15] o acumulado vai para api_usage numa chamada só; sem banco, só descarta; falha vira aviso", async () => {
+    drainUsage();
+    const calls: { fn: string; args: unknown }[] = [];
+    const db = { rpc: async (fn: string, args: unknown) => (calls.push({ fn, args }), { error: null }) };
+    recordUsage({ provider: "voyage", model: "voyage-3.5", requests: 1, input_tokens: 100 });
+    recordUsage({ provider: "google_factcheck", requests: 1, units: 1 });
+    await flushUsage(() => db as never);
+    expect(calls).toEqual([{ fn: "api_usage_add", args: { p_rows: expect.arrayContaining([expect.objectContaining({ provider: "voyage" })]), p_ratelimits: {} } }]);
+    expect((calls[0]!.args as { p_rows: unknown[] }).p_rows).toHaveLength(2);
+
+    // nada acumulado: nem chama o banco
+    let asked = false;
+    await flushUsage(() => ((asked = true), db as never));
+    expect(asked).toBe(false);
+
+    const warnings: unknown[] = [];
+    recordUsage({ provider: "apify", units: 1 });
+    await flushUsage(() => ({ rpc: async () => ({ error: { message: "fora" } }) }) as never, (...a) => warnings.push(...a));
+    expect(String(warnings[0])).toMatch(/fora/);
+    expect(drainUsage()).toEqual([]);
   });
 });

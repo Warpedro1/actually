@@ -372,3 +372,65 @@ export function demoKbStatus(now: number): import("../staff/kb").KbStatus {
     ],
   };
 }
+
+/** Painel "Uso das APIs" do /admin/demo: números fictícios, um cartão em cada situação. */
+export function demoUsageReport(now: number): import("../staff/usage").UsageReport {
+  const ago = (s: number) => new Date(now - s * 1000).toISOString();
+  const w = (janela: "hora" | "hoje" | "24h" | "mes", requests: number, input_tokens: number, output_tokens: number, units: number, cost_usd: number) => ({
+    janela, requests, input_tokens, output_tokens, units, cost_usd,
+  });
+  return {
+    generated_at: ago(12),
+    counted_error: null,
+    cards: [
+      {
+        id: "anthropic", name: "Anthropic (Claude)", link: "https://platform.claude.com/usage", status: "ok",
+        message: "o saldo de créditos não é exposto por API: confira no Console",
+        official: [{ label: "Custo no mês (oficial)", text: "US$ 18,42" }],
+        counted: [w("hora", 412, 618_000, 41_200, 0, 0.21), w("hoje", 1630, 2_410_000, 160_300, 0, 0.83), w("24h", 1630, 2_410_000, 160_300, 0, 0.83), w("mes", 9120, 13_700_000, 902_000, 0, 4.61)],
+        ratelimit: {
+          observed_at: ago(40),
+          headers: {
+            "anthropic-ratelimit-requests-limit": "4000",
+            "anthropic-ratelimit-requests-remaining": "3987",
+            "anthropic-ratelimit-requests-reset": ago(-20),
+            "anthropic-ratelimit-input-tokens-limit": "2000000",
+            "anthropic-ratelimit-input-tokens-remaining": "1996000",
+          },
+        },
+      },
+      {
+        id: "deepgram", name: "Deepgram (transcrição)", link: "https://console.deepgram.com/", status: "ok",
+        official: [{ label: "Saldo (actually)", text: "US$ 187,30" }], counted: [], ratelimit: null,
+      },
+      {
+        id: "voyage", name: "Voyage (embeddings e rerank)", link: "https://dashboard.voyageai.com/", status: "sem_api",
+        message: "a API não informa uso nem saldo: números contados pelo actually",
+        official: [], counted: [w("hoje", 2210, 1_480_000, 0, 0, 0), w("mes", 6020, 9_900_000, 0, 0, 0)], ratelimit: null,
+      },
+      {
+        id: "tavily", name: "Tavily (busca web)", link: "https://app.tavily.com/", status: "ok",
+        official: [{ label: "Créditos do plano (Researcher)", text: "812 de 1.000", used: 812, limit: 1000 }],
+        counted: [w("hoje", 64, 0, 0, 64, 0), w("mes", 790, 0, 0, 790, 0)], ratelimit: null,
+      },
+      {
+        id: "google_factcheck", name: "Google Fact Check", link: "https://console.cloud.google.com/apis/api/factchecktools.googleapis.com/quotas", status: "sem_api",
+        message: "a cota diária fica no Google Cloud Console: números contados pelo actually",
+        official: [], counted: [w("hoje", 38, 0, 0, 0, 0), w("mes", 412, 0, 0, 0, 0)], ratelimit: null,
+      },
+      {
+        id: "apify", name: "Apify (robôs)", link: "https://console.apify.com/billing", status: "sem_chave", message: "sem APIFY_TOKEN na Vercel",
+        official: [], counted: [], ratelimit: null,
+      },
+      {
+        id: "supabase", name: "Supabase (banco)", link: "https://supabase.com/dashboard/project/_/settings/billing/usage", status: "ok",
+        official: [{ label: "Banco de dados", text: "96,4 MB de 500 MB", used: 96.4, limit: 500 }, { label: "Maior tabela", text: "kb_chunks (61,2 MB)" }],
+        counted: [], ratelimit: null,
+      },
+      {
+        id: "vercel", name: "Vercel (site e funções)", link: "https://vercel.com/dashboard/usage", status: "sem_api",
+        message: "uso e cota (pedidos, tráfego, funções) só no painel da Vercel", official: [], counted: [], ratelimit: null,
+      },
+    ],
+  };
+}
