@@ -16,7 +16,9 @@ Durante o debate presidencial de 23 de outubro de 2026, um sistema automatizado 
    - **acusação** (situação judicial de uma pessoa: condenado, réu, investigado, inelegível, processo anulado ou arquivado) — julgamos **só o fato processual**, com órgão e data, nunca culpa ou intenção; vermelho só com decisão judicial, documento oficial ou checagem profissional; e **todo** alerta de acusação passa por um editor antes de ser publicado;
    - **opinião com base mensurável** (“não tem mais carne na mesa do brasileiro”) — comparada com o dado que a mede; no máximo “Impreciso”, com exigência maior de confiança;
    - **previsão** (“o país vai crescer 3% no ano que vem”) — comparada com projeções publicadas (Banco Central, IFI, Tesouro, FMI, agências de risco); no máximo “Impreciso”, com exigência maior de confiança;
-   - **promessas** e **opiniões sem base mensurável** (adjetivos, ataques pessoais) não são checadas.
+   - **promessas** e **opiniões sem base mensurável** (adjetivos, ataques pessoais) não são checadas, nem **perguntas**, **hipóteses** (“pode ser”, “talvez”) e falas da **mediação**.
+
+   A afirmação reescrita para a checagem não pode dizer mais do que a fala: se ela acrescenta um ano, um período, o turno de uma eleição ou um nome que ninguém disse, é descartada.
 3. **Repetição.** Se a mesma afirmação — com os mesmos números — já foi verificada neste debate, reutilizamos o resultado e indicamos “Repetido — já verificado às HH:MM”. Afirmações parecidas com números diferentes são verificadas de novo.
 4. **Busca de evidências**, em quatro camadas, nesta ordem de preferência:
    - checagens já publicadas por agências profissionais;
@@ -117,7 +119,7 @@ Além dos limiares, há **regras fixas que nenhum ajuste muda**: nenhum alerta �
 
 ## Revisão humana
 
-Alertas vermelhos podem ser configurados para passar por um editor humano antes de serem publicados. Alertas sobre **acusações** (situação judicial de alguém) passam **sempre** pelo editor, com a revisão ligada ou não. Com a revisão ligada, o editor confere se a fonte sustenta a correção e aprova ou rejeita; **nada é publicado automaticamente por falta de tempo**. A decisão de usar a revisão no dia 23 depende dos testes de precisão e de tempo de resposta, e será informada nesta página.
+Alertas vermelhos podem ser configurados para passar por um editor humano antes de serem publicados. Um vermelho de fato ou estatística que fica **logo abaixo do limiar** (até 5 pontos) não é publicado automaticamente: vai para o editor, com a revisão ligada ou não, e só sai se ele aprovar. Alertas sobre **acusações** (situação judicial de alguém) passam **sempre** pelo editor, com a revisão ligada ou não. Com a revisão ligada, o editor confere se a fonte sustenta a correção e aprova ou rejeita; **nada é publicado automaticamente por falta de tempo**. A decisão de usar a revisão no dia 23 depende dos testes de precisão e de tempo de resposta, e será informada nesta página.
 
 Os editores não têm vínculo com as campanhas e seguem um critério único: aprovar só quando a fonte mostrada sustenta a correção.
 
@@ -136,7 +138,7 @@ Por padrão, os alertas dizem “Afirmação feita no debate”, sem nome. A ide
 
 - **Pode errar.** Transcrição automática pode ouvir errado; o modelo pode interpretar mal uma afirmação; uma fonte pode estar desatualizada.
 - **Não checa tudo.** Muitas afirmações não têm dado público, dependem de contexto ou levariam mais tempo do que o debate permite. Silêncio não é confirmação.
-- **Atraso.** Os alertas chegam alguns segundos depois da fala — mais, se houver revisão humana.
+- **Atraso.** Os alertas chegam em geral de 10 a 20 segundos depois da fala — mais, se houver revisão humana. Buscar e conferir a fonte leva tempo, e preferimos chegar um pouco depois a errar.
 - **Dados com defasagem.** Indicadores oficiais são divulgados com atraso; usamos o dado mais recente disponível na data do debate.
 - **Contexto.** Um alerta trata de uma afirmação específica, não da fala inteira nem do candidato.
 - **Repetição.** Uma afirmação repetida mostra o resultado da primeira verificação.

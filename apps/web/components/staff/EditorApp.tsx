@@ -254,6 +254,9 @@ function ReviewItem({
         </Pill>
         <Pill tone={urgency}>esperando {formatDuration(waited)}</Pill>
         {alert.is_repeat ? <Pill>repetição</Pill> : null}
+        {alert.verification?.score_components?.review_band ? (
+          <Pill tone="warn">abaixo do limiar: só sai se você aprovar</Pill>
+        ) : null}
         <span className="ml-auto text-xs text-muted">
           {alert.speaker_label ? `speaker ${alert.speaker_label} · ` : ""}
           {formatTimeSec(alert.created_at)}

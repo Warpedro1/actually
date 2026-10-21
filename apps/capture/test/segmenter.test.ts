@@ -158,3 +158,111 @@ describe("[RF09] speaker_label carrega a sessão do STT", () => {
     ]);
   });
 });
+
+// Ensaios de 21/10: no monólogo, o corte por tamanho só olhava para trás quando a fala
+// chegava a 25 s — um pedaço de 8 s saía ~17 s depois de terminar. Agora o fim de frase
+// com ≥ minCutS de fala fecha o segmento no mesmo final que traz o ponto.
+describe("[RNF01] segmentador: monólogo não espera a janela de 25 s", () => {
+  type Timed = { at: number; ev: SegmenterEvent };
+
+  /** Palavras de a até b (a última termina em b), ~0,4 s cada; ponto na palavra mais perto de cada instante. */
+  function span(a: number, b: number, tag: string, sentenceEndsAt: number[], speaker: Sp = "s1-x:S2"): Word[] {
+    const n = Math.max(2, Math.round((b - a) / 0.4));
+    const step = (b - a - 0.3) / (n - 1);
+    const out = Array.from({ length: n }, (_, i) => {
+      const start = a + i * step;
+      return w(`${tag}${i}`, start, i === n - 1 ? b : start + 0.3, speaker);
+    });
+    for (const t of sentenceEndsAt) {
+      let best = 0;
+      for (let i = 1; i < out.length; i++) if (Math.abs(out[i]!.end - t) < Math.abs(out[best]!.end - t)) best = i;
+      out[best]!.text += ".";
+    }
+    return out;
+  }
+
+  /** Finais como o Deepgram manda em fala contínua: um a cada 3 s de áudio, 0,7 s depois; speech_final nas pausas. */
+  function deepgramFinals(all: Word[], speechFinalAt: number[], chunkS = 3, lagS = 0.7): Timed[] {
+    const out: Timed[] = [];
+    let buf: Word[] = [];
+    let chunkEnd = all[0]!.start + chunkS;
+    for (const x of all) {
+      while (x.end > chunkEnd) {
+        if (buf.length) out.push({ at: chunkEnd + lagS, ev: { type: "final", words: buf, speechFinal: false } });
+        buf = [];
+        chunkEnd += chunkS;
+      }
+      buf.push(x);
+      if (speechFinalAt.some((t) => Math.abs(t - x.end) < 1e-6)) {
+        out.push({ at: x.end + lagS, ev: { type: "final", words: buf, speechFinal: true } });
+        buf = [];
+        chunkEnd = x.end + chunkS;
+      }
+    }
+    if (buf.length) out.push({ at: chunkEnd + lagS, ev: { type: "final", words: buf, speechFinal: false } });
+    return out;
+  }
+
+  function simulate(events: Timed[]) {
+    const s = new Segmenter();
+    const out = events.flatMap(({ at, ev }) => s.push(ev).map((d) => ({ ...d, delay: at - d.t_end })));
+    return [...out, ...s.push({ type: "flush" }).map((d) => ({ ...d, delay: Infinity }))];
+  }
+
+  // monólogo do ensaio 2 (seq 12–16): speech_final só em 201,31 e no fim do turno
+  const MONOLOGO = [
+    ...span(187.8, 201.31, "a", [192.5, 197.0, 201.31]),
+    ...span(201.96, 210.01, "b", [210.01]),
+    ...span(210.9, 234.22, "c", [234.22]),
+    ...span(234.3, 254.72, "d", [244.4, 254.72]),
+    ...span(254.8, 267.54, "e", [261.2, 267.54]),
+  ];
+
+  it("fim de frase depois de 8 s sai no mesmo final; o resto fica pendente", () => {
+    const texts = Array.from({ length: 30 }, (_, i) => (i === 24 ? "governo." : `p${i}`)); // ponto em ~9,9 s
+    const r = segmenterStep(initialSegmenterState(), { type: "final", words: phrase(texts, 0), speechFinal: false });
+    expect(r.segments.map((s) => s.text.split(" ").at(-1))).toEqual(["governo."]);
+    expect(r.state.pending.map((x) => x.text)).toEqual(["p25", "p26", "p27", "p28", "p29"]);
+  });
+
+  it("fim de frase antes de 8 s não corta", () => {
+    const texts = Array.from({ length: 30 }, (_, i) => (i === 10 ? "governo." : `p${i}`)); // ponto em ~4,3 s
+    const r = segmenterStep(initialSegmenterState(), { type: "final", words: phrase(texts, 0), speechFinal: false });
+    expect(r.segments).toEqual([]);
+    expect(r.state.pending).toHaveLength(30);
+  });
+
+  it("speech_final com ponto no meio do final: um segmento só (como antes)", () => {
+    const ws = [...span(0, 6, "a", []), ...span(6.3, 10, "b", [9.2])];
+    const segs = run([
+      { type: "final", words: ws.filter((x) => x.end <= 6), speechFinal: false },
+      { type: "final", words: ws.filter((x) => x.end > 6), speechFinal: true },
+    ]);
+    expect(segs).toHaveLength(1);
+  });
+
+  it("rajada após reconexão (40 s num final só): segmentos ≤ 25 s, cortados em frase", () => {
+    const segs = run([{ type: "final", words: span(0, 40, "r", [10, 20, 30, 38]), speechFinal: false }, { type: "flush" }]);
+    for (const s of segs) expect(s.t_end - s.t_start).toBeLessThanOrEqual(DEFAULT_SEGMENTER_OPTIONS.maxSegmentS);
+    expect(segs.slice(0, -1).every((s) => s.text.endsWith("."))).toBe(true);
+  });
+
+  it("monólogo do ensaio 2: nenhum segmento espera mais que um final do Deepgram (≤ 3,7 s)", () => {
+    const segs = simulate(deepgramFinals(MONOLOGO, [201.31, 267.54]));
+    const b = segs.find((s) => Math.abs(s.t_start - 201.96) < 0.01)!;
+    expect(b.t_end).toBeCloseTo(210.01, 2); // antes saía ~17,5 s depois
+    expect(Math.max(...segs.map((s) => s.delay))).toBeLessThanOrEqual(3.7);
+    for (const s of segs) {
+      expect(s.t_end - s.t_start).toBeLessThanOrEqual(DEFAULT_SEGMENTER_OPTIONS.maxSegmentS);
+      if (s.t_end !== 201.31 && s.t_end !== 267.54) {
+        expect(s.text.endsWith(".")).toBe(true);
+        expect(s.t_end - s.t_start).toBeGreaterThanOrEqual(DEFAULT_SEGMENTER_OPTIONS.minCutS);
+      }
+    }
+  });
+
+  it("não perde nem duplica palavra", () => {
+    const segs = simulate(deepgramFinals(MONOLOGO, [201.31, 267.54]));
+    expect(segs.map((s) => s.text).join(" ")).toBe(MONOLOGO.map((x) => x.text).join(" "));
+  });
+});

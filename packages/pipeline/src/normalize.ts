@@ -80,7 +80,8 @@ const WORD_RE = Object.keys(WORD_NUMBERS).sort((a, b) => b.length - a.length).jo
 const NUMBER_RE = new RegExp(
   `(?:(${QUAL_RE})\\s+)?` +
   `(R\\$|US\\$)?\\s*` +
-  `(?:(\\d[\\d.,]*\\d|\\d)|\\b(${WORD_RE})\\b(?=\\s+(?:${MULT_RE}|por\\s+cento)\\b))` +
+  // dígito colado em letra ou dígito não é número ("g1", "Poder360", "R7")
+  `(?:(?<![\\p{L}\\p{N}])(\\d[\\d.,]*\\d|\\d)|\\b(${WORD_RE})\\b(?=\\s+(?:${MULT_RE}|por\\s+cento)\\b))` +
   `(?:\\s*(${MULT_RE})\\b)?` +
   `(?:\\s*(?:de\\s+)?(${UNIT_RE}))?`,
   "giu",

@@ -67,6 +67,8 @@ export class MemoryStore implements PipelineStore {
   private seq = 0;
   /** Métodos que devem falhar (simula banco/RPC fora). */
   failing = new Set<string>();
+  /** Mapa de falantes confirmado (getSpeakerMap). */
+  speakerMap: { speaker_label: string; person: string }[] = [];
   /** Antes do insertClaim: hook para simular corrida. */
   beforeInsertClaim: ((row: NewClaim) => void) | null = null;
 
@@ -102,6 +104,10 @@ export class MemoryStore implements PipelineStore {
     await this.gate("getSegment");
     const segment = this.segments.find((s) => s.id === id);
     return segment ? { segment, debate: this.debate } : null;
+  }
+  async getSpeakerMap(_debateId: string) {
+    await this.gate("getSpeakerMap");
+    return this.speakerMap;
   }
   async getContext(debateId: string, capturedAt: string, windowS: number, excludeId: number) {
     await this.gate("getContext");

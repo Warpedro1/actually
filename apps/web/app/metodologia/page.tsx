@@ -73,11 +73,13 @@ export default function MetodologiaPage() {
           </li>
           <li>
             <strong>Filtro.</strong> Só seguem frases com afirmação checável (números, fatos, datas, votos, leis).
-            Opiniões, promessas e ataques pessoais são ignorados.
+            Opiniões, promessas, ataques pessoais, perguntas, hipóteses (“pode ser”, “talvez”) e falas da mediação
+            são ignorados.
           </li>
           <li>
             <strong>Extração.</strong> Cada afirmação é isolada e reescrita de forma autocontida, usando o contexto do
-            último minuto da fala.
+            último minuto da fala. A reescrita não pode dizer mais do que a fala: se acrescenta um ano, um período, o
+            turno de uma eleição ou um nome que ninguém disse, é descartada.
           </li>
           <li>
             <strong>Busca de evidências</strong> nas camadas de fontes descritas abaixo.
@@ -92,7 +94,8 @@ export default function MetodologiaPage() {
           </li>
           <li>
             <strong>Pontuação e decisão.</strong> A confiança final combina a confiança do modelo, a qualidade da
-            fonte, a concordância entre camadas e a citação verificada. Abaixo do limiar, nada é publicado.
+            fonte, a concordância entre camadas e a citação verificada. Abaixo do limiar, nada é publicado
+            sem revisão humana.
           </li>
         </ol>
         <p>Os alertas têm dois níveis:</p>
@@ -174,6 +177,10 @@ export default function MetodologiaPage() {
           automaticamente por tempo esgotado. A mesma revisão pode ser ligada para os amarelos.
         </p>
         <p>
+          Um vermelho de fato ou estatística que fica logo abaixo do limiar (até 5 pontos) não é publicado
+          automaticamente: vai para o editor, com a revisão ligada ou não, e só sai se ele aprovar.
+        </p>
+        <p>
           Independentemente da revisão, o banco de dados recusa publicar qualquer correção sem ao menos uma fonte com
           link e trecho verificado.
         </p>
@@ -204,7 +211,10 @@ export default function MetodologiaPage() {
           <li>A transcrição automática pode errar palavras, números e quem falou.</li>
           <li>O modelo pode interpretar mal o contexto, ironia ou uma afirmação incompleta.</li>
           <li>A base de fontes é finita: muitas afirmações não são checadas — ausência de alerta não significa que a fala é verdadeira.</li>
-          <li>Os alertas chegam com alguns segundos de atraso em relação à fala.</li>
+          <li>
+            Os alertas chegam em geral de 10 a 20 segundos depois da fala (mais, se houver revisão humana): buscar e
+            conferir a fonte leva tempo, e preferimos chegar um pouco depois a errar.
+          </li>
           <li>Dados oficiais podem ser revisados depois de publicados.</li>
         </ul>
       </Section>

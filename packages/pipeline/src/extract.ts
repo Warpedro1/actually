@@ -76,17 +76,19 @@ Você recebe a transcrição automática dos últimos segundos (<contexto>) e a 
 
 NÃO extraia:
 - cumprimentos, falas do mediador, regras do debate, fatos sobre o próprio debate, perguntas;
-- hipóteses e condicionais ("se eu tivesse...", "poderia ter...");
+- hipóteses, condicionais e insinuações ("se eu tivesse...", "poderia ter...", "o dinheiro pode ser do aposentado", "talvez ele esteja...");
+- promessas disfarçadas de fato ("com X presidente você vai ter...", "no meu governo vai ter...") — são "promessa";
 - afirmações cujo sujeito, objeto ou período não dá para resolver com segurança pelo contexto.
 
 Para cada afirmação:
 - text_original: trecho LITERAL da fala atual (copie exatamente como transcrito).
 - text_normalized: frase autossuficiente em português, com sujeito e tempo explícitos. Em opinião e previsão, mantenha o sentido literal da fala (a métrica vai em "measurable", não no texto). Resolva "isso", "ele", "lá", "no meu governo", "no governo dele", "ano passado" usando o contexto e a data do debate. Se o falante não puder ser identificado com segurança, NÃO atribua o governo a ninguém — descarte a afirmação se ela depender disso.
+- FIDELIDADE: a afirmação normalizada diz exatamente o que a fala diz. Nunca acrescente período, ano, "e não X", escopo, causa, pessoa, nome ou situação jurídica que não estejam na fala atual ou no contexto. Se o mesmo falante deu o período no contexto (ex.: "em 2010" segundos antes), use-o; se não deu, não invente. Mantenha o verbo dito ("fugido" não vira "foragido"; "foi do seu governo" não vira "foi vinculado ao governo"). "Seu irmão", "seu filho", "seu pai" são parentes do interlocutor, nunca o próprio interlocutor. "Eles" só se resolve se o contexto disser quem são.
 - Uma afirmação = um fato. Separe frases com dois fatos em duas afirmações.
 - topic: economia, impostos, programas_sociais, seguranca, corrupcao_justica, saude, meio_ambiente, educacao, politica_externa ou outro.
 - numbers: todos os números da afirmação, com valor absoluto ("1,5 milhão" → 1500000; "R$ 600" → 600 com unidade "R$"; "6%" → 6 com unidade "%").
 - indicator: preencha só quando a afirmação é sobre o valor de um indicador oficial (desemprego/desocupação, inflação/IPCA, Selic, PIB, dívida pública, salário mínimo, desmatamento, homicídios, preço de combustível, beneficiários de programa social...). period: "AAAA", "AAAA-T4", "AAAA-MM" ou intervalo "INICIO..FIM" (ex.: "2019..2022"); null quando a fala diz "hoje"/"atualmente". kind: level (valor no período), change_abs (variação absoluta; em indicador percentual, pontos percentuais), change_pct (variação relativa %), max/min (recorde). claimed_value: o número afirmado; use negativo só se a fala disser queda explicitamente em uma variação.
-- reference: preencha só quando a afirmação é (a) sobre quanto tempo uma pessoa ou um partido ocupou a Presidência da República ("o PT governou 20 dos últimos 24 anos" → type "tempo_no_poder", subject "PT", window_years 24, claimed_value 20, unit "anos") ou (b) sobre votos ou percentual de votos válidos de um candidato num turno de eleição presidencial ("tive 58 milhões de votos no segundo turno de 2022" → type "eleicao", subject o candidato, year 2022, round 2, claimed_value 58000000, unit "votos"). qualifier: "mais_de", "menos_de", "quase", "cerca_de" ou "exato", conforme a fala. Sem candidato ou partido explícito (ex.: "50 milhões escolheram a mudança"), reference null.
+- reference: preencha só quando a afirmação é (a) sobre quanto tempo uma pessoa ou um partido ocupou a Presidência da República ("o PT governou 20 dos últimos 24 anos" → type "tempo_no_poder", subject "PT", window_years 24, claimed_value 20, unit "anos") ou (b) sobre votos ou percentual de votos válidos de um candidato num turno de eleição presidencial, com ano E turno DITOS na fala ou no contexto ("no segundo turno de 2022 eu tive 58 milhões de votos" → type "eleicao", subject o candidato, year 2022, round 2, claimed_value 58000000, unit "votos"). Ano ou turno não ditos → year/round null (não presuma a última eleição). qualifier: "mais_de", "menos_de", "quase", "cerca_de" ou "exato", conforme a fala. Sem candidato ou partido explícito (ex.: "50 milhões escolheram a mudança"), reference null.
 - time_reference: período resolvido em texto, ou null.
 
 Se não houver nada checável, devolva {"claims": []}.
@@ -126,6 +128,106 @@ const ACCUSATION_RE =
   /\b(conden\w*|pres[oa]|prisao|reu|re|denunciad\w*|investigad\w*|inquerito|indiciad\w*|inelegiv\w*|absolvid\w*|inocentad\w*|anulad\w*|arquivad\w*|prescri\w*|corrupt\w*|lavagem de dinheiro|propina\w*|peculato|rachadinha\w*|milicia\w*|miliciano\w*|golpista\w*|tentativa de golpe|ladr\w*)\b/;
 export function looksLikeAccusation(...texts: string[]): boolean {
   return texts.some((t) => ACCUSATION_RE.test(t.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase()));
+}
+
+// --- Travas de fidelidade (determinísticas; só descartam — na dúvida, silêncio) ---
+
+const fold = (t: string) => t.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+
+/** Pergunta sem núcleo afirmativo: termina em "?", tem pronome interrogativo e nenhum número. */
+const INTERROGATIVE = /\b(qual|quais|quem|quanto|quantos|quantas|por que|porque|pra que|onde|quando|como)\b/;
+export function isOpenQuestion(original: string): boolean {
+  return /\?\s*$/.test(original) && INTERROGATIVE.test(fold(original)) && !/\d/.test(original);
+}
+
+/** Hipótese/insinuação ("pode ser", "talvez") sem número: não é afirmação de fato. */
+const HEDGE = /\b(pode ser|pode estar|podem ser|podem estar|deve estar|talvez|quem sabe|sera que)\b/;
+export function isHedged(original: string): boolean {
+  return HEDGE.test(fold(original)) && !/\d/.test(original);
+}
+
+// "ano passado", "este ano", "hoje", "últimos N anos"... autorizam anos perto de hoje
+const RELATIVE_TIME = /\b(ano passado|este ano|esse ano|neste ano|nesse ano|ano que vem|proximo ano|hoje|atualmente|agora|mes passado|este mes)\b/;
+const YEAR_RE = /\b(19[5-9]\d|20[0-4]\d)\b/g;
+
+/**
+ * Anos que a normalização (ou o período/indicador/referência) trouxe e que a fala, o
+ * segmento e o contexto não dizem. Ano dito por extenso de 2 dígitos ("de 88") vale;
+ * "ano passado"/"hoje" autorizam o ano da data e os vizinhos; "últimos N anos", a janela.
+ */
+export function unlicensedYears(added: string[], sources: string, today: string): number[] {
+  const src = fold(sources);
+  const y0 = Number(today.slice(0, 4));
+  const relative = RELATIVE_TIME.test(src);
+  const windows = [...src.matchAll(/\bultimos (\d{1,2}) anos\b/g)].map((m) => Number(m[1]));
+  const out = new Set<number>();
+  for (const text of added) {
+    for (const m of text.matchAll(YEAR_RE)) {
+      const y = Number(m[1]);
+      if (new RegExp(`\\b${y}\\b`).test(src)) continue;
+      const yy = String(y % 100).padStart(2, "0");
+      if (new RegExp(`\\b(de|em|anos|ano)\\s+${yy}\\b`).test(src)) continue;
+      if (relative && Math.abs(y - y0) <= 1) continue;
+      if (windows.some((n) => y >= y0 - n && y <= y0)) continue;
+      out.add(y);
+    }
+  }
+  return [...out];
+}
+
+/** Eleição citada precisa ter ano e turno ditos (fala, segmento ou contexto). */
+export function electionUnderspecified(ref: ReferenceRef | null, sources: string): boolean {
+  if (!ref || ref.type !== "eleicao") return false;
+  const src = fold(sources);
+  const yearSaid = ref.year !== null && new RegExp(`\\b${ref.year}\\b`).test(src);
+  const roundSaid = /\b(primeiro|segundo|1o|2o) turno\b/.test(src.replace(/[º°]/g, "o"));
+  return !yearSaid || !roundSaid;
+}
+
+// Nomes que podem aparecer na afirmação sem estar na fala: candidatos, ex-presidentes e
+// instituições que o extrator escreve por extenso a partir de siglas ou pronomes.
+const KNOWN_NAME_WORDS = new Set(
+  (
+    "lula luiz inacio silva flavio bolsonaro jair eduardo carlos michelle dilma rousseff michel temer fernando henrique " +
+    "cardoso collor itamar franco haddad geraldo alckmin brasil brasileiro brasileira brasileiros federal federais policia " +
+    "banco central supremo tribunal superior eleitoral justica ministerio publico camara deputados senado congresso nacional " +
+    "receita caixa economica bolsa familia minha casa vida mais medicos programa governo uniao estado estados unidos rio " +
+    "janeiro sao paulo constituicao lei emenda proposta operacao lava jato petrobras previdencia social instituto seguro " +
+    "amazonia legal nordeste presidencia republica presidente senador senadora deputado deputada ministro ministra partido " +
+    "trabalhadores liberal comando vermelho primeiro capital auxilio plano real reforma tributaria mundial monetario " +
+    "internacional fundo nacoes unidas forum seguranca anuario estatistica geografia tesouro conselho comissao parlamentar " +
+    "inquerito mista assembleia legislativa distrito defensoria advocacia geral controladoria " +
+    // siglas que o extrator escreve como estão ou expande
+    "inss pf stf stj tse tcu cgu agu mpf pgr sus ibge ipea pt pl psdb mdb psol pdt psb pp pcc cv cpi cpmi pec mp bc onu fmi " +
+    "ocde bndes fgts clt"
+  ).split(" "),
+);
+const CONNECTORS = new Set(["da", "de", "do", "das", "dos", "e"]);
+
+/**
+ * Nome próprio (2+ palavras com maiúscula em sequência) que a fala, o segmento e o contexto
+ * não trazem e que não é candidato nem instituição conhecida: o extrator inventou.
+ */
+export function inventedNames(normalized: string, sources: string): string[] {
+  const src = new Set(fold(sources).split(/[^\p{L}\p{N}]+/u).filter(Boolean));
+  const words = normalized.split(/\s+/).map((w) => w.replace(/^[^\p{L}]+|[^\p{L}]+$/gu, ""));
+  const out: string[] = [];
+  let run: string[] = [];
+  const flush = () => {
+    const caps = run.filter((w) => !CONNECTORS.has(w.toLowerCase()));
+    if (caps.length >= 2) {
+      const bad = caps.filter((w) => w.length >= 3 && !src.has(fold(w)) && !KNOWN_NAME_WORDS.has(fold(w)));
+      if (bad.length) out.push(run.join(" "));
+    }
+    run = [];
+  };
+  for (const w of words) {
+    if (w && /^\p{Lu}/u.test(w)) run.push(w);
+    else if (run.length && CONNECTORS.has(w.toLowerCase())) run.push(w);
+    else flush();
+  }
+  flush();
+  return out;
 }
 
 /** Opinião e previsão só são julgáveis com o dado que as mede. */
@@ -170,8 +272,14 @@ function toIndicator(raw: ExtractionOutput["claims"][number]["indicator"]): Indi
 }
 
 /** Pós-processamento determinístico: valida, normaliza números e descarta o que não está na fala. */
-export function postprocessExtraction(out: ExtractionOutput, segmentText: string, logger: Logger): ExtractedClaim[] {
+export function postprocessExtraction(
+  out: ExtractionOutput,
+  segmentText: string,
+  logger: Logger,
+  opts: { context?: string; today?: string } = {},
+): ExtractedClaim[] {
   const segNorm = normalizeForQuote(segmentText);
+  const today = opts.today ?? new Date().toISOString().slice(0, 10);
   const claims: ExtractedClaim[] = [];
   for (const c of out.claims) {
     const original = c.text_original.trim();
@@ -189,8 +297,45 @@ export function postprocessExtraction(out: ExtractionOutput, segmentText: string
       logger("info", "extract_dropped", { reason: c.tipo.trim().toLowerCase(), text_original: original });
       continue;
     }
+    const drop = (reason: string, extra: Record<string, unknown> = {}) =>
+      logger("info", "extract_dropped", { reason, kind, text_original: original, text_normalized: normalized, ...extra });
+    if (isOpenQuestion(original)) {
+      drop("pergunta");
+      continue;
+    }
+    if (isHedged(original)) {
+      drop("hipotese");
+      continue;
+    }
+    // o que a pessoa disse = fala atual + transcrição anterior (mesmo falante ou não)
+    const sources = `${original}\n${segmentText}\n${opts.context ?? ""}`;
+    const reference = toReference(c.reference);
+    const indicator = toIndicator(c.indicator);
+    const years = unlicensedYears(
+      [normalized, indicator?.period ?? "", c.time_reference ?? "", reference?.year ? String(reference.year) : ""],
+      sources,
+      today,
+    );
+    if (years.length) {
+      drop("normalizacao_acrescenta_ano", { years });
+      continue;
+    }
+    // eleição sem ano ou turno vira referência nula em toReference: a fala continua ambígua
+    const election = c.reference?.type.trim() === "eleicao";
+    if (election && (!reference || electionUnderspecified(reference, sources))) {
+      drop("periodo_ambiguo");
+      continue;
+    }
+    const names = inventedNames(normalized, sources);
+    if (names.length) {
+      drop("nome_inventado", { names });
+      continue;
+    }
+    const kindModel = kind;
+    let kindRule = "";
     if ((kind === "fato" || kind === "estatistica") && looksLikeAccusation(original, normalized)) {
       logger("info", "extract_kind_upgraded", { from: kind, to: "acusacao", text_original: original });
+      kindRule = `promovida_de_${kind}`;
       kind = "acusacao";
     }
     if (NEEDS_MEASURE.includes(kind) && !measurable) {
@@ -204,9 +349,11 @@ export function postprocessExtraction(out: ExtractionOutput, segmentText: string
       kind,
       measurable: NEEDS_MEASURE.includes(kind) ? measurable : null,
       numbers: normalizeClaimNumbers(c.numbers),
-      indicator: toIndicator(c.indicator),
-      reference: toReference(c.reference),
+      indicator,
+      reference,
       time_reference: c.time_reference?.trim() || null,
+      kind_model: kindModel,
+      ...(kindRule ? { kind_rule: kindRule } : {}),
     });
   }
   return claims;
@@ -263,5 +410,5 @@ export async function extractClaims(
     logger("warn", "extract_unparsed", { stop_reason: msg.stop_reason });
     return [];
   }
-  return postprocessExtraction(msg.parsed_output, input.text, logger);
+  return postprocessExtraction(msg.parsed_output, input.text, logger, { context: input.context, today: input.today });
 }

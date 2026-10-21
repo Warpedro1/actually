@@ -306,10 +306,18 @@ const NEGATED_BEFORE = new RegExp(`(?:^|[^\\p{L}\\p{N}])(?:nao|nem)(?:\\s+${CONN
 export function numbersSupported(
   text: string,
   sources: string[],
-  opts: { refuted?: string[] } = {},
+  opts: {
+    /** Fala literal (trecho original, segmento, contexto): vale para qualquer número negado. */
+    refuted?: string[];
+    /** Afirmação reformulada: só vale para número com unidade ("7,5%" de "7 e meio por 100"). */
+    refutedWithUnit?: string[];
+  } = {},
 ): { ok: boolean; unsupported: string[] } {
   const known = sources.flatMap((s) => extractNumbers(s));
-  const said = (opts.refuted ?? []).flatMap((s) => extractNumbers(s));
+  const said = [
+    ...(opts.refuted ?? []).flatMap((s) => extractNumbers(s)),
+    ...(opts.refutedWithUnit ?? []).flatMap((s) => extractNumbers(s)).filter((n) => n.unit !== null),
+  ];
   const unsupported: string[] = [];
   let pos = 0;
   for (const n of extractNumbers(text)) {

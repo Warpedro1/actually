@@ -64,8 +64,13 @@ export interface Assessment {
   retrieval: RetrievalResult;
   /** O modelo deu um veredito de fato (vale gravar `verifications`). */
   verify_ran: boolean;
+  /** Números da correção/resumo sem fonte (auditoria). */
+  unsupported_numbers?: string[];
   latency_ms: Record<string, number>;
 }
+
+/** Pessoa do mapa de falantes que é a mediação do debate (não é candidato). */
+const MEDIATOR_RE = /^(mediacao|mediador|mediadora|moderacao|moderador|moderadora|jornalista|apresentador|apresentadora)\b/;
 
 const today = (deps: PipelineDeps) => new Date(deps.now()).toISOString().slice(0, 10);
 
@@ -143,6 +148,8 @@ export async function assessClaim(
   embedding: number[] | null,
   context: string,
   settings: DebateSettings,
+  /** Texto inteiro do segmento (fala literal); padrão: o trecho da afirmação. */
+  segmentText: string = claim.text_original,
 ): Promise<Assessment> {
   const latency: Record<string, number> = {};
   let t = deps.now();
@@ -175,8 +182,10 @@ export async function assessClaim(
 
   t = deps.now();
   const ev = buildEvidence(model, candidates, retrieval);
-  // números da fala não sustentam a correção; só valem negados ("…, não 12%")
-  const said = { refuted: [claim.text_normalized, claim.text_original] };
+  // números da fala não sustentam a correção; só valem negados ("…, não 12%"), e só se o
+  // falante os disse: ano ou número sem unidade vem da fala literal (a reformulação pode ter
+  // inventado o "2003"); com unidade, a reformulação também vale ("7 e meio por 100" → 7,5%)
+  const said = { refuted: [claim.text_original, segmentText, context], refutedWithUnit: [claim.text_normalized] };
   const numsCorrection = numbersSupported(model.correction, ev.verifiedTexts, said);
   const numsSummary = numbersSupported(model.summary, ev.verifiedTexts, said);
   const nums = {
@@ -218,7 +227,7 @@ export async function assessClaim(
   };
   // refusal também é gravado (auditoria); erros/timeouts não — a afirmação pode ser tentada de novo
   const verify_ran = model.forced_reason === null || model.forced_reason === "refusal";
-  return { decision, model, score, evidence: ev.records, retrieval, verify_ran, latency_ms: latency };
+  return { decision, model, score, evidence: ev.records, retrieval, verify_ran, latency_ms: latency, unsupported_numbers: nums.unsupported };
 }
 
 async function embedClaims(deps: PipelineDeps, claims: ExtractedClaim[]): Promise<(number[] | null)[]> {
@@ -284,7 +293,7 @@ export function createPipeline(deps: PipelineDeps) {
       return dedup.repeat_alert ? 1 : 0;
     }
 
-    const a = await assessClaim(deps, claim, embedding, context, settings);
+    const a = await assessClaim(deps, claim, embedding, context, settings, segment.text);
     const latency: Record<string, number> = { ...segmentLatency, dedup: tDedup, ...a.latency_ms };
     if (!a.verify_ran) {
       logger("info", "claim_silence", {
@@ -316,6 +325,11 @@ export function createPipeline(deps: PipelineDeps) {
       score_components: {
         ...(a.score?.components ?? {}),
         ...(a.decision.silence_reason ? { silence_reason: a.decision.silence_reason } : {}),
+        // auditoria (verificação sem alerta não é pública): de onde veio o tipo e o que travou
+        ...(claim.kind_model ? { kind_model: claim.kind_model } : {}),
+        ...(claim.kind_rule ? { kind_rule: claim.kind_rule } : {}),
+        ...(a.unsupported_numbers?.length ? { unsupported_numbers: a.unsupported_numbers.join("|").slice(0, 200) } : {}),
+        ...(a.decision.alert ? {} : a.model.summary ? { summary_silenced: a.model.summary.slice(0, 280) } : {}),
       },
       layer,
       model: MODEL_VERIFY,
@@ -365,6 +379,22 @@ export function createPipeline(deps: PipelineDeps) {
     }
   }
 
+  /**
+   * O rótulo do falante está mapeado (e confirmado) como Mediação. Falha ao ler o mapa ⇒
+   * segue como sem mapa (a regra do prompt continua valendo).
+   */
+  async function isMediator(debateId: string, label: string): Promise<boolean> {
+    if (!store.getSpeakerMap) return false;
+    try {
+      const rows = await withTimeout(store.getSpeakerMap(debateId), TIMEOUTS_MS.context, "speaker_map");
+      const person = rows.find((r) => r.speaker_label === label)?.person ?? "";
+      return MEDIATOR_RE.test(person.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase());
+    } catch (err) {
+      logger("warn", "speaker_map_failed", errorFields(err));
+      return false;
+    }
+  }
+
   async function runSegment(segmentId: number): Promise<PipelineResult> {
     const t0 = deps.now();
     const latency: Record<string, number> = {};
@@ -383,6 +413,12 @@ export function createPipeline(deps: PipelineDeps) {
     latency.filter = deps.now() - t;
     if (!pf.pass) {
       logger("debug", "segment_prefiltered", { segment_id: segmentId, reason: pf.reason });
+      return result(0, 0);
+    }
+
+    // fala de quem o editor mapeou como Mediação não é checada (pergunta, regra, dado citado)
+    if (segment.speaker_label && (await isMediator(segment.debate_id, segment.speaker_label))) {
+      logger("info", "extract_dropped", { segment_id: segmentId, reason: "mediacao", speaker_label: segment.speaker_label });
       return result(0, 0);
     }
 
@@ -451,7 +487,7 @@ export function createPipeline(deps: PipelineDeps) {
     return Promise.all(
       claims.map(async (c, i) => {
         try {
-          const a = await assessClaim(deps, c, embeddings[i] ?? null, context, settings);
+          const a = await assessClaim(deps, c, embeddings[i] ?? null, context, settings, text);
           return { ...a.decision, latency_ms: { extract: tExtract, embed: tEmbed, ...a.decision.latency_ms, total: deps.now() - t0 } };
         } catch (err) {
           logger("error", "evaluate_claim_failed", { claim: c.text_normalized, ...errorFields(err) });

@@ -101,6 +101,8 @@ export interface PipelineStore {
   getSegment(id: number): Promise<{ segment: Segment; debate: Debate } | null>;
   /** Segmentos do debate capturados na janela [capturedAt - windowS, capturedAt), em ordem. */
   getContext(debateId: string, capturedAt: string, windowS: number, excludeId: number): Promise<Segment[]>;
+  /** Mapa de falantes CONFIRMADO pelo editor (rótulo da diarização → pessoa). */
+  getSpeakerMap?(debateId: string): Promise<{ speaker_label: string; person: string }[]>;
   findClaimByHash(debateId: string, hash: string): Promise<HashMatch | null>;
   matchVerifiedClaims(debateId: string, embedding: number[], minSimilarity: number, count: number): Promise<VerifiedClaimMatch[]>;
   getAlert(id: string): Promise<Alert | null>;
@@ -169,6 +171,14 @@ export function supabaseStore(sb: Sb): PipelineStore {
         "getContext",
       );
       return (rows ?? []) as Segment[];
+    },
+
+    async getSpeakerMap(debateId) {
+      const rows = check(
+        await sb.from("speaker_map").select("speaker_label, person").eq("debate_id", debateId).not("confirmed_by", "is", null),
+        "getSpeakerMap",
+      );
+      return (rows ?? []) as { speaker_label: string; person: string }[];
     },
 
     async findClaimByHash(debateId, hash) {

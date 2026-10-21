@@ -34,7 +34,7 @@ Regras:
    - "confirmado": as evidências sustentam a afirmação.
    - "inconclusivo": evidências insuficientes, indiretas, sobre outro assunto/pessoa/período, ou contraditórias entre si.
 3. Tempo importa: se a evidência é de outro período que o da afirmação (ex.: dado de 2022 para uma fala sobre "hoje"), use "impreciso" só se a própria evidência mostrar a divergência; caso contrário, "inconclusivo".
-4. Arredondamentos e aproximações comuns de fala ("quase 10 milhões", "cerca de 6%") não tornam a afirmação imprecisa.
+4. Arredondamentos e aproximações comuns de fala ("quase 10 milhões", "cerca de 6%") não tornam a afirmação imprecisa. Nuance que não muda a essência (tempo verbal, "vai investigar" quando já investiga, causa ou detalhe que a fala não afirma) também não. Se uma checagem de nível 1 da MESMA fala diz que o falante acerta, o veredito não pode ser "impreciso" nem "contradito".
 5. Citações: para cada evidência usada, copie em "quote" um trecho LITERAL e contíguo do texto da evidência (sem parafrasear, sem juntar partes, sem corrigir erros) que sustente o veredito. Use o número da evidência em "evidence_index". Sem citação literal, não há alerta.
 6. "correction": uma linha em português com o dado correto, apenas com números que aparecem nas evidências (ex.: "Segundo o IBGE, a taxa de desocupação em 2023 foi de 7,8%."). Vazio se "confirmado" ou "inconclusivo".
 7. "summary": até 140 caracteres, neutro, sem adjetivos, sem nomear o candidato.
@@ -42,7 +42,9 @@ Regras:
 9. Tipo "opinião mensurável": julgue se os dados que medem o ponto indicado em "O que medir" contradizem a fala de forma clara. Exagero retórico com fundo verdadeiro não é impreciso. Sem dado direto sobre exatamente isso, "inconclusivo". Nunca "contradito": use "impreciso" quando os dados mostram o contrário.
 10. Tipo "previsão": compare com as projeções publicadas nas evidências (Banco Central/Focus, IFI, Tesouro, FMI, agências de rating...). "impreciso" só se a fala diverge claramente de todas as projeções citadas; projeções divergentes entre si ou ausentes, "inconclusivo". Nunca "contradito". A correção diz quem projetou e quando.
 11. Tipo "acusação": julgue só fatos processuais — denunciado, réu, condenado, absolvido, anulado, arquivado, prescrito, investigado, indiciado, inelegível — com órgão e data. Nunca julgue culpa nem intenção. Anulação não é absolvição; investigação não é condenação. A situação processual muda com o tempo: vale a evidência mais recente, e um texto mais antigo não contradiz uma afirmação sobre a situação atual (sem evidência recente, "inconclusivo"). A correção cita o órgão e a data da decisão.
-12. Não é evidência do fato, mesmo que esteja no texto: (a) o boato ou post que uma checagem reproduz para desmentir; (b) fala, acusação ou alegação de candidato, defesa, partido ou parte, relatada pela matéria; (c) voto vencido; (d) manchete de outra matéria ("Leia mais", "Leia também"). Nunca cite esses trechos em "quote".`;
+12. Não é evidência do fato, mesmo que esteja no texto: (a) o boato ou post que uma checagem reproduz para desmentir; (b) fala, acusação ou alegação de candidato, defesa, partido ou parte, relatada pela matéria; (c) voto vencido; (d) manchete de outra matéria ("Leia mais", "Leia também"). Nunca cite esses trechos em "quote".
+13. Projeto em tramitação (aprovado em comissão ou em uma só Casa) não contradiz afirmação sobre lei aprovada ou sancionada: sem o texto final da lei, "inconclusivo".
+14. Julgue o que o falante disse ("Trecho original da fala"). Se a afirmação reformulada acrescentou período, escopo ou detalhe que a fala original não diz, julgue a leitura mais favorável ao falante.`;
 
 function evidenceBlock(c: EvidenceCandidate, i: number): string {
   const kind = { L1: "checagem publicada", L2: "indicador oficial (série)", L3: "documento", L4: "página web" }[c.layer];

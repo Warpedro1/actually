@@ -51,6 +51,9 @@ export interface ExtractedClaim {
   /** Fato de referência (mandatos, eleições), quando a fala é sobre isso. */
   reference: ReferenceRef | null;
   time_reference: string | null;
+  /** Auditoria: tipo que o modelo deu e a regra em código que o mudou (se houve). */
+  kind_model?: string;
+  kind_rule?: string;
 }
 
 /** Resultado determinístico da comparação numérica da camada L2. */

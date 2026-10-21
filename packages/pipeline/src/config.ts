@@ -55,6 +55,15 @@ export const TIMEOUTS_MS = {
  * - red_max_tier: vermelho só com fonte deste nível ou melhor;
  * - force_review: alerta sempre passa pelo editor, com HITL ligado ou não.
  */
+/**
+ * Faixa de revisão do vermelho: contradito de fato/estatística que passou em todas as
+ * regras duras mas ficou até RED_REVIEW_BAND abaixo do limiar (com a penalidade da web, se
+ * houver) vai para a fila do editor em vez de silêncio — nunca é publicado sem humano.
+ */
+export const RED_REVIEW_BAND = 0.05;
+/** Confiança mínima do modelo para entrar na faixa de revisão. */
+export const RED_REVIEW_MIN_CONFIDENCE = 0.7;
+
 export const KIND_RULES = {
   fato: { max_level: "red", extra_threshold: 0, max_tier: 3, red_max_tier: 2, force_review: false },
   estatistica: { max_level: "red", extra_threshold: 0, max_tier: 3, red_max_tier: 2, force_review: false },

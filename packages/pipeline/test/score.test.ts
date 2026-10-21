@@ -84,8 +84,9 @@ describe("[RF07] [RF05] scoreDecision — regras duras", () => {
     expect(web.components.threshold).toBeCloseTo(0.8);
   });
   it("abaixo do threshold ⇒ silêncio (thresholds das settings)", () => {
-    expect(scoreDecision(base({ model_confidence: 0.8 })).silence_reason).toBe("abaixo_do_threshold"); // 0,8 < 0,85
-    expect(scoreDecision(base({ model_confidence: 0.8, settings: { ...DEFAULT_SETTINGS, t_red: 0.75 } })).alert).toBe("red");
+    // 0,79 < 0,85 e fora da faixa de revisão (0,80–0,85, ver fidelity.test.ts)
+    expect(scoreDecision(base({ model_confidence: 0.78 })).silence_reason).toBe("abaixo_do_threshold");
+    expect(scoreDecision(base({ model_confidence: 0.78, settings: { ...DEFAULT_SETTINGS, t_red: 0.75 } })).alert).toBe("red");
   });
   it("L2 divergente do modelo ⇒ silêncio", () => {
     const r = scoreDecision(base({ comparison: cmp("confirmado"), evidence: [ev({ layer: "L2" })] }));

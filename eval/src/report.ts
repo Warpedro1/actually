@@ -81,7 +81,7 @@ export function renderReport(m: EvalMetrics, meta: ReportMeta): string {
         ["Falso alarme em verdadeiras + não checáveis", pct(m.false_alarm.on_true_or_uncheckable.rate), "o menor possível"],
         ["vermelho onde nenhum alerta era esperado", `${m.false_alarm.red_on_no_alert_expected.hits}`, "0"],
         ["Taxa de silêncio (geral)", pct(m.silence.overall.rate), "—"],
-        ["Latência total p50 / p95", `${ms(m.latency_ms["total (item, parede)"]?.p50)} / ${ms(m.latency_ms["total (item, parede)"]?.p95)}`, "p50 < 5 s"],
+        ["Latência total p50 / p95", `${ms(m.latency_ms["total (item, parede)"]?.p50)} / ${ms(m.latency_ms["total (item, parede)"]?.p95)}`, "p50 ≤ 13 s / p95 ≤ 20 s"],
       ],
     ),
   );

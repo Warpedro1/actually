@@ -86,8 +86,10 @@ export function segmenterStep(
     lastWordEnd = Math.max(lastWordEnd, w.end);
   }
 
-  // Cortes "no meio": troca estável de speaker e fala longa demais.
-  const { pending, segments } = drainCuts([...state.pending, ...fresh], opts);
+  // Cortes "no meio": troca estável de speaker, fim de frase depois de minCutS
+  // (só se a fala continua pendente; no speech_final o emitAll já leva tudo) e
+  // fala longa demais.
+  const { pending, segments } = drainCuts([...state.pending, ...fresh], opts, !event.speechFinal);
   const next: SegmenterState = { pending, lastWordEnd };
   if (event.speechFinal) {
     const flushed = emitAll(next, opts);
@@ -103,11 +105,15 @@ function emitAll(state: SegmenterState, opts: SegmenterOptions): StepResult {
   return { state: { pending: [], lastWordEnd: state.lastWordEnd }, segments };
 }
 
-function drainCuts(words: Word[], opts: SegmenterOptions): { pending: Word[]; segments: SegmentDraft[] } {
+function drainCuts(
+  words: Word[],
+  opts: SegmenterOptions,
+  eager = false,
+): { pending: Word[]; segments: SegmentDraft[] } {
   let pending = words;
   const segments: SegmentDraft[] = [];
   for (;;) {
-    const cut = speakerCut(pending, opts) ?? lengthCut(pending, opts);
+    const cut = speakerCut(pending, opts) ?? (eager ? sentenceCut(pending, opts) : null) ?? lengthCut(pending, opts);
     if (cut === null) break;
     segments.push(toDraft(pending.slice(0, cut)));
     pending = pending.slice(cut);
@@ -144,6 +150,27 @@ function speakerCut(words: Word[], opts: SegmenterOptions): number | null {
   return null;
 }
 
+const SENTENCE_END_RE = /[.!?…]["”')\]]*$/;
+
+/**
+ * Corte em fim de frase sem esperar a janela fechar: com pelo menos minCutS de
+ * fala desde o início do pendente, o último fim de frase já finalizado (dentro
+ * de maxSegmentS) fecha o segmento agora, e o resto continua pendente. Sem
+ * isto, o corte por tamanho só olhava para trás quando a fala chegava a
+ * maxSegmentS: um pedaço de 8 s saía ~17 s depois de terminar (ensaios de
+ * 21/10, monólogos: p95 fim da fala → recebido de 14,5 s).
+ */
+function sentenceCut(words: Word[], opts: SegmenterOptions): number | null {
+  if (words.length === 0) return null;
+  const t0 = words[0]!.start;
+  for (let k = words.length - 1; k >= 0; k--) {
+    const w = words[k]!;
+    if (w.end - t0 < opts.minCutS) break;
+    if (w.end - t0 <= opts.maxSegmentS && SENTENCE_END_RE.test(w.text)) return k + 1;
+  }
+  return null;
+}
+
 /**
  * Corte por fala contínua longa: prefere o último fim de frase que deixe um
  * pedaço ≥ minCutS; senão a maior pausa entre palavras; senão corta tudo.
@@ -161,7 +188,7 @@ function lengthCut(words: Word[], opts: SegmenterOptions): number | null {
   for (let k = limit - 1; k >= 0; k--) {
     const w = words[k]!;
     if (w.end - t0 < opts.minCutS) break;
-    if (/[.!?…]["”')\]]*$/.test(w.text)) return k + 1;
+    if (SENTENCE_END_RE.test(w.text)) return k + 1;
   }
   let best = -1;
   let bestGap = -1;

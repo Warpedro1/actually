@@ -67,6 +67,11 @@ function hostname(url: string): string {
   }
 }
 
+/** Texto longo em português sem nenhum acento: codificação perdida na leitura. */
+export function accentsLost(text: string): boolean {
+  return text.length >= 400 && !/[áàâãéêíóôõúüç]/i.test(text);
+}
+
 /** Busca, filtra por domínio permitido, reranqueia e devolve candidatos L4. */
 export async function retrieveWeb(
   query: string,
@@ -77,7 +82,10 @@ export async function retrieveWeb(
   const results = (await search(query, { includeDomains: domains, maxResults: RETRIEVE_COUNT.L4 }))
     // defesa em profundidade: o buscador pode ignorar include_domains
     .filter((r) => /^https?:\/\//i.test(r.url) && tierForUrl(r.url) <= 2)
-    .filter((r) => (r.raw_content ?? r.content).trim().length > 0);
+    .filter((r) => (r.raw_content ?? r.content).trim().length > 0)
+    // página com o texto corrompido (ex.: Planalto em windows-1252 lido como UTF-8 perde os
+    // acentos: "Compete Unio estabelecer a Poltica"): não vira citação para o público
+    .filter((r) => !accentsLost(r.raw_content ?? r.content));
   if (!results.length) return [];
 
   const docs = results.map((r) => `${r.title}\n${r.content}`);

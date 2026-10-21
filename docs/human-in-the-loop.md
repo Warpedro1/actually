@@ -19,6 +19,11 @@ Com a chave desligada, o alerta é criado já como `published` — e o trigger d
 
 Mudar a chave **não** altera alertas que já estão na fila: pendentes continuam pendentes até alguém decidir.
 
+Dois casos vão à fila **mesmo com as chaves desligadas**:
+
+- **Acusação** (situação judicial de alguém): sempre (`KIND_RULES.acusacao.force_review`).
+- **Faixa de revisão do vermelho**: contradito de fato ou estatística com score até 0,05 abaixo do limiar (`RED_REVIEW_BAND` em `packages/pipeline/src/config.ts`) e confiança do modelo ≥ 0,7, depois de passar por todas as regras duras (fonte tier ≤ 2 verificada, números da correção na fonte, sem conflito entre camadas). Antes disso esse caso ficava em silêncio; no ensaio 2 eram correções certas perdidas por pouco. No `/editor` ele aparece com o selo “abaixo do limiar: só sai se você aprovar” (`score_components.review_band`). Rejeitar é o padrão seguro.
+
 ## Fluxo no /editor
 
 1. Alerta pendente aparece no topo da fila (Realtime), com: afirmação, veredito, correção proposta, **fonte (nome, link, trecho)**, tier, camada, score, trecho da transcrição em volta e há quanto tempo está esperando.

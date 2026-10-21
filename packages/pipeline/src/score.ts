@@ -1,7 +1,7 @@
 // Score final + regras duras. FUNÇÃO PURA: tudo que decide se um alerta sai
 // está aqui, testável sem rede. Na dúvida, silêncio.
 import type { DebateSettings, KbLayer, SourceTier, Verdict } from "@actually/db";
-import { KIND_RULES } from "./config";
+import { KIND_RULES, RED_REVIEW_BAND, RED_REVIEW_MIN_CONFIDENCE } from "./config";
 import type { AlertLevel } from "./index";
 import type { ClaimKind, EvidenceRecord, IndicatorComparison } from "./types";
 
@@ -147,7 +147,15 @@ export function scoreDecision(input: ScoreInput): ScoreResult {
   if (best.source_tier > rules.max_tier) return silence("tipo_exige_tier_1_2");
   if (!input.correction.trim()) return silence("sem_correcao");
   if (!input.correction_numbers_ok) return silence("numero_sem_fonte");
-  if (threshold === null || final_score < threshold) return silence("abaixo_do_threshold");
+  if (threshold === null) return silence("abaixo_do_threshold");
+  if (final_score < threshold) {
+    // faixa de revisão: vermelho de fato/estatística logo abaixo do limiar vai ao editor
+    const inBand =
+      level === "red" && (kind === "fato" || kind === "estatistica") &&
+      conf >= RED_REVIEW_MIN_CONFIDENCE && final_score >= threshold - RED_REVIEW_BAND - 1e-9;
+    if (!inBand) return silence("abaixo_do_threshold");
+    return { final_score, alert: "red", silence_reason: null, layer, components: { ...components, review_band: true }, review: true };
+  }
 
   return { final_score, alert: level, silence_reason: null, layer, components, review: rules.force_review };
 }
