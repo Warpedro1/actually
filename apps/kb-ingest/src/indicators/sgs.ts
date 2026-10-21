@@ -2,6 +2,9 @@
 // Formato: [{"data":"01/07/2021","valor":"0.96"}, ...] (valor em string, ponto decimal).
 // Limites medidos por terceiros (pacote bcb-br-mcp, 08/2026): série DIÁRIA só aceita
 // janela ≤ 10 anos (erro 406) e janelas longas estouram o tempo — fatiamos em 3 anos.
+// Às vezes o SGS responde 200 com uma página XHTML em vez do JSON (aconteceu nas cargas de
+// 24369, 433 e 1 em 10/2026; na tentativa seguinte veio certo): repetimos duas vezes, com
+// espera curta (SGS_NON_JSON_RETRIES).
 import { fetchJson } from "../lib/http";
 import { parseSgsDate, toSgsDate } from "./periods";
 
@@ -80,11 +83,14 @@ export function dateWindows(startIso: string, endIso: string, years: number): [s
   return out;
 }
 
+/** Repetições quando o SGS devolve HTML no lugar do JSON (esperas de ~2 s e ~4 s). */
+export const SGS_NON_JSON_RETRIES = 2;
+
 export async function fetchSgs(code: number, opts: { since: string; until: string; daily: boolean }): Promise<SgsObservation[]> {
   const windows = opts.daily ? dateWindows(opts.since, opts.until, 3) : [[opts.since, opts.until] as [string, string]];
   const all: SgsObservation[] = [];
   for (const [a, b] of windows) {
-    all.push(...parseSgs(await fetchJson(sgsUrl(code, a, b), { timeoutMs: 45_000 })));
+    all.push(...parseSgs(await fetchJson(sgsUrl(code, a, b), { timeoutMs: 45_000, nonJsonRetries: SGS_NON_JSON_RETRIES })));
   }
   // emendas de janelas não se sobrepõem, mas deduplica por segurança
   const seen = new Set<string>();

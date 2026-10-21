@@ -24,7 +24,7 @@ comandos:
   factchecks                    L1: Google Fact Check Tools + feeds das agências
       [--source google|feeds|all] [--since AAAA-MM-DD] [--max-pages N] [--query "..."]...
       [--verify-feeds] [--all-topics] [--refresh] [--limit N]
-  indicators                    L2: séries oficiais (BCB SGS, IBGE SIDRA)
+  indicators                    L2: séries oficiais (BCB SGS, IBGE SIDRA, manuais em sources/manual)
       [--list] [--check] [--only a,b] [--since AAAA-MM-DD] [--include-pending]
   documents                     L3: manifesto sources/documents.yaml ou arquivo local
       [--manifest arq.yaml] [--only trecho-da-url] [--force]

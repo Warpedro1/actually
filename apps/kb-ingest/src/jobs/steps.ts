@@ -141,7 +141,8 @@ export async function runStep(ctx: Ctx, step: KbStep, env: StepEnv): Promise<KbS
     case "indicator-values": {
       const s = CATALOG.find((x) => x.code === step.code);
       if (!s) throw new Error(`série ${step.code} não está no catálogo`);
-      const values = await loadSeriesValues(s, step.since, today());
+      // principal falhou e a reserva entrou: fica no log da tarefa
+      const values = await loadSeriesValues(s, step.since, today(), { warn: ctx.warn });
       await upsertRows(ctx, "indicator_values", values as unknown as Record<string, unknown>[], "series_code,period_start");
       const last = values.at(-1);
       ctx.log(`${s.code}: ${values.length} valores${last ? `; último ${last.period_start}..${last.period_end} = ${last.value} ${s.unit}` : ""}`);

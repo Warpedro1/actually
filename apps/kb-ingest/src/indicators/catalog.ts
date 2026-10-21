@@ -12,6 +12,27 @@
 //                python-bcb 0.4.0 (ex.: sgs.get({'IPCA': 433}) → 2020-12 = 1.35).
 //  [ibge-v3]     catálogo do pacote npm ibge-br-mcp@5.10.0, "medido contra a API de
 //                Agregados em 2026-10-08", uma série por variável/categoria.
+// Conferidos em 21/10/2026 (mesmo bloqueio; a API de metadados do IBGE não abriu daqui):
+//  [sidra-6381]  tabela 6381, variável 4099, período AAAAMM = último mês do trimestre móvel:
+//                (a) github.com/guilhermekleinmartins-creator/indicador-made, fetch_sidra.py
+//                chama apisidra .../t/6381/n1/all/v/4099/p/last%2024 (lê o período em D3C) e o
+//                data/pnadc.csv que ele atualiza traz 2026-03 = 6,1 e 2026-05 = 5,6, iguais às
+//                divulgações do IBGE (Agência IBGE: "No trimestre encerrado em março, desocupação
+//                sobe para 6,1%"; "Taxa de desocupação é de 5,6% ... no trimestre encerrado em
+//                maio"); (b) github.com/alexandrepsaldanha/monitor-mercado-trabalho (R/coleta.R:
+//                6381 = taxa de desocupação, trimestre móvel; variável "Taxa de desocupação, na
+//                semana de referência, das pessoas de 14 anos ou mais de idade"; 2012-03 = 8,0,
+//                igual ao indicador-made); (c) Análise Macro, get_sidra('/t/6381/n1/all/v/4099/p/all'),
+//                e a lista de tabelas da PNAD Contínua mensal no SIDRA, ambos lidos via busca.
+//                A 6381 tem outras variáveis (CV, variações): a 4099 tem de ir fixa na consulta.
+//  [bcb-7326]    nome "Produto Interno Bruto - Taxa de variação real no ano" (anual, fonte IBGE)
+//                no espelho do SGS da Quantilica e na Nota Técnica nº 14 da UFG (via busca);
+//                valores reais da API gravados por github.com/rlavourinha/monitor-cobertura
+//                (coletar.py: bcb.sgs(7326, ...) → data/realizado.json): 2010 = 7,53,
+//                2020 = −3,28, 2023 = 3,24, 2024 = 3,42, 2025 = 2,29 — batem com o IBGE e com o
+//                Relatório de Política Monetária do BCB de set/2026 (tabela 1.2.1, via busca).
+//  [manual]      valores copiados da publicação oficial para sources/manual/<arquivo>.yaml, com
+//                URL e conferência por valor (ver src/indicators/manual.ts).
 // Antes do debate: rode `indicators --check` numa máquina com acesso e confira os
 // últimos valores contra a página pública de cada série.
 //
@@ -23,6 +44,16 @@
 // EMPATE: só se resolve quando apenas uma delas cabe na afirmação (ex.: "inflação de
 // 2023" só cabe no acumulado 12m; "inflação de março" cabe nas duas ⇒ silêncio).
 // Não ponha em duas séries um alias que as duas respondem do mesmo jeito (desemprego).
+// O par do PIB (anual × trimestral) é empate de propósito: o ano só cabe na anual (a trimestral
+// tem `none`), o trimestre só na trimestral; sem período, as duas cabem ⇒ silêncio.
+//
+// SÉRIE ANUAL DE TAXA (PIB anual, carga tributária): `mean_or_last`. "Cresceu X% ao ano entre
+// 2003 e 2010" é a média das taxas anuais (média aritmética, a que o comparador calcula;
+// 2003–2010 = 4,08, a geométrica dá 4,05); "chegou a X% no fim do governo" é o último ponto.
+// `sum` somaria taxas, `last`/`none` não dão média e `accum_12m` é de série mensal. Para série
+// anual, `none` e `mean_or_last` se comportam igual na L2 de hoje: ela ainda não compara nível
+// com intervalo ("2003..2010" ⇒ nivel_com_intervalo, silêncio). Série anual de nível/contagem
+// (população, PIB per capita em R$) fica `none`.
 import type { IndicatorAggregation, IndicatorSeries } from "@actually/db";
 import { sgsPublicUrl } from "./sgs";
 import { sidraPublicUrl } from "./sidra";
@@ -30,7 +61,12 @@ import { sidraPublicUrl } from "./sidra";
 export type SeriesFetch =
   | { kind: "sgs"; code: number; daily?: { aggregate: "last" | "mean" } }
   | { kind: "sidra"; table: string; variable: string; classification?: string }
+  /** Valores em sources/manual/<file>.yaml (embutido em src/generated/sources.ts). */
+  | { kind: "manual"; file: string }
   | { kind: "none" };
+
+/** Fonte de dados de verdade (com API): a que serve de principal ou de reserva. */
+export type ApiFetch = Extract<SeriesFetch, { kind: "sgs" | "sidra" }>;
 
 export interface CatalogSeries extends IndicatorSeries {
   /**
@@ -40,14 +76,33 @@ export interface CatalogSeries extends IndicatorSeries {
    */
   aggregation: IndicatorAggregation;
   fetch: SeriesFetch;
+  /**
+   * Reserva: o MESMO dado por outra porta, usada só se a principal falhar ou vier vazia. Tem de
+   * gerar os mesmos period_start/period_end (é o que o upsert e a L2 usam); `indicators --check`
+   * carrega as duas e compara.
+   */
+  fallback?: ApiFetch;
   /** Como o código foi conferido (ver cabeçalho). */
   verified_by: string;
   /** Preenchido quando a série NÃO pode ser carregada ainda. */
   pending?: string;
 }
 
+/** Rótulo curto da fonte ("SGS 433", "SIDRA t6381 v4099", "manual carga_tributaria"). */
+export function describeFetch(f: SeriesFetch): string {
+  switch (f.kind) {
+    case "sgs":
+      return `SGS ${f.code}`;
+    case "sidra":
+      return `SIDRA t${f.table} v${f.variable}`;
+    case "manual":
+      return `manual ${f.file}`;
+    case "none":
+      return "—";
+  }
+}
+
 const BCB = "Banco Central do Brasil (SGS)";
-const IBGE = "IBGE (SIDRA)";
 
 export const CATALOG: CatalogSeries[] = [
   // ------------------------------------------------------------------ preços
@@ -198,20 +253,29 @@ export const CATALOG: CatalogSeries[] = [
     verified_by: "ibge-v3",
   },
   {
+    // PRINCIPAL = SIDRA 6381 (IBGE, quem produz o dado); RESERVA = SGS 24369 (o BCB espelha a
+    // mesma taxa). Por quê: o SGS devolveu HTML nas duas cargas de 10/2026 enquanto as tabelas
+    // do SIDRA (4099, 6387) carregaram; a 24369 é "bcb-medido" (nome herdado, sem dataset no
+    // portal), a 6381 foi conferida com valores do IBGE; a evidência aponta para a tabela do
+    // IBGE, que o leitor abre, e não para o JSON do SGS; e a conferência móvel × trimestral
+    // fica IBGE × IBGE. As duas geram os mesmos períodos (SIDRA 202603 e SGS 01/03/2026 ⇒
+    // 2026-01-01..2026-03-31), então trocar de porta não muda o upsert nem a L2.
     code: "desocupacao_pnadc_movel",
     name: "Taxa de desocupação — PNAD Contínua (trimestre móvel)",
     aliases: ["desemprego", "taxa de desemprego", "desocupação", "taxa de desocupação", "desemprego atual", "menor desemprego", "desemprego mensal"],
     unit: "%",
     periodicity: "moving_quarter",
     aggregation: "mean_or_last",
-    source_name: "IBGE — PNAD Contínua (série 24369 do SGS/BCB)",
-    source_url: sgsPublicUrl(24369),
+    source_name: "IBGE — PNAD Contínua, tabela 6381",
+    source_url: sidraPublicUrl("6381"),
     tier: 1,
     notes:
-      "Divulgação mensal do IBGE, cada ponto é um trimestre móvel rotulado pelo último mês. " +
-      "`indicators --check` compara os pontos de mar/jun/set/dez com a série trimestral (4099).",
-    fetch: { kind: "sgs", code: 24369 },
-    verified_by: "bcb-medido",
+      "Divulgação mensal do IBGE, cada ponto é um trimestre móvel rotulado pelo último mês (SIDRA 202607 = mai-jun-jul/2026). " +
+      "Reserva: série 24369 do SGS/BCB (mesmo dado). `indicators --check` compara as duas e os pontos de mar/jun/set/dez " +
+      "com a série trimestral (4099).",
+    fetch: { kind: "sidra", table: "6381", variable: "4099" },
+    fallback: { kind: "sgs", code: 24369 },
+    verified_by: "sidra-6381 (principal) + bcb-medido (reserva 24369)",
   },
   {
     code: "pib_variacao_trimestral",
@@ -223,7 +287,7 @@ export const CATALOG: CatalogSeries[] = [
     source_name: "IBGE — Contas Nacionais Trimestrais, tabela 5932",
     source_url: sidraPublicUrl("5932"),
     tier: 1,
-    notes: "PIB a preços de mercado (c11255/90707). Não é o crescimento do ano; ver pib_variacao_anual (pendente).",
+    notes: "PIB a preços de mercado (c11255/90707). Não é o crescimento do ano: esse é pib_variacao_anual.",
     fetch: { kind: "sidra", table: "5932", variable: "6561", classification: "c11255/90707" },
     verified_by: "ibge-v3",
   },
@@ -256,21 +320,26 @@ export const CATALOG: CatalogSeries[] = [
     verified_by: "ibge-v3",
   },
   {
+    // SGS 7326 (o BCB espelha a taxa anual das Contas Nacionais do IBGE). As variáveis do SIDRA
+    // (5932 "acumulada em quatro trimestres", 6784 "variação em volume") NÃO foram confirmadas.
+    // Aliases genéricos do PIB repetidos na trimestral de propósito (ver cabeçalho).
     code: "pib_variacao_anual",
-    name: "PIB — variação real anual",
-    aliases: ["crescimento do pib no ano", "pib cresceu", "crescimento anual", "pib anual"],
+    name: "PIB — taxa de variação real no ano",
+    aliases: [
+      "pib", "crescimento do pib", "crescimento da economia", "variação do pib",
+      "crescimento do pib no ano", "pib cresceu", "pib anual", "crescimento anual do pib",
+    ],
     unit: "%",
     periodicity: "annual",
-    aggregation: "none",
-    source_name: IBGE,
-    source_url: sidraPublicUrl("6784"),
+    aggregation: "mean_or_last",
+    source_name: "IBGE — Contas Nacionais (série 7326 do SGS/BCB)",
+    source_url: sgsPublicUrl(7326),
     tier: 1,
-    notes: null,
-    fetch: { kind: "none" },
-    verified_by: "—",
-    pending:
-      "variável da taxa de variação real anual não confirmada (tabela 6784 ou 5932 'acumulado em 4 trimestres'). " +
-      "Confirme em servicodados.ibge.gov.br/api/v3/agregados/6784/metadados.",
+    notes:
+      "Variação real (em volume) do PIB no ano civil, em %. Média de vários anos = média das taxas anuais " +
+      "(2003–2010 ≈ 4,1% ao ano). O IBGE revisa os anos recentes: o valor guardado é o da última carga.",
+    fetch: { kind: "sgs", code: 7326 },
+    verified_by: "bcb-7326",
   },
   {
     code: "rendimento_medio_real",
@@ -313,6 +382,28 @@ export const CATALOG: CatalogSeries[] = [
     notes: "Nome herdado no catálogo de referência (série sem dataset no portal do BCB): confira o último valor com o MTE antes de usar.",
     fetch: { kind: "sgs", code: 28561 },
     verified_by: "bcb-medido",
+  },
+  // ------------------------------------------------------------------ impostos
+  {
+    // Sem API: o Tesouro publica um boletim anual (PDF) e a planilha "Base CTB GG.xlsx" no
+    // Tesouro Transparente. Valores conferidos, um a um, em sources/manual/carga_tributaria.yaml.
+    // A Receita Federal publica outra estimativa ("Carga Tributária no Brasil"), com metodologia
+    // própria: não misture as duas na mesma série.
+    code: "carga_tributaria_pib",
+    name: "Carga tributária bruta do governo geral (% do PIB)",
+    aliases: ["carga tributária", "carga tributária bruta", "impostos em relação ao pib", "peso dos impostos", "carga de impostos"],
+    unit: "% do PIB",
+    periodicity: "annual",
+    aggregation: "mean_or_last",
+    source_name: "Tesouro Nacional — Estimativa da Carga Tributária Bruta do Governo Geral",
+    source_url: "https://www.tesourotransparente.gov.br/publicacoes/carga-tributaria-do-governo-geral/2025/114",
+    tier: 1,
+    notes:
+      "Governo geral (União, estados e municípios), metodologia do manual de finanças públicas do FMI (2014). " +
+      "O Tesouro revisa a série inteira a cada boletim (na revisão metodológica, FGTS e Sistema S deixaram de contar " +
+      "como tributo): só valores da edição mais recente. A Receita Federal publica outra estimativa, com outra metodologia.",
+    fetch: { kind: "manual", file: "carga_tributaria" },
+    verified_by: "manual (sources/manual/carga_tributaria.yaml: URL e conferência por valor)",
   },
   // ------------------------------------------------------------------ pendentes (outros tópicos)
   {
@@ -386,6 +477,6 @@ export function activeSeries(includePending = false): CatalogSeries[] {
  * que o comparador L2 lê pelo find_indicator (migration 20261019000007_indicator_aggregation).
  */
 export function toSeriesRow(s: CatalogSeries): IndicatorSeries & { aggregation: IndicatorAggregation } {
-  const { fetch: _f, verified_by: _v, pending: _p, ...row } = s;
+  const { fetch: _f, fallback: _fb, verified_by: _v, pending: _p, ...row } = s;
   return row;
 }
