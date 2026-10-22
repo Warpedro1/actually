@@ -215,6 +215,10 @@ export function polaritySignature(textNormalized: string): string {
  * ("caiu para 4%" x "caiu 4%" x "caiu até 2022"), nem "a" (artigo e preposição).
  */
 const ARTICLES = new Set(["o", "os", "as", "um", "uma", "uns", "umas"]);
+// preposições de lugar/tempo/duração não mudam o fato ("governou EM 20 dos últimos 24 anos" =
+// "governou POR 20 dos últimos 24 anos"; ensaio de 21/10). As de direção ("de", "para", "até",
+// "desde") ficam: "caiu PARA 6%" não é "caiu DE 6%".
+const NEUTRAL_PREPOSITIONS = new Set(["em", "no", "na", "nos", "nas", "por", "pelo", "pela", "pelos", "pelas", "durante", "ha"]);
 
 /**
  * Redação essencial, na ordem: palavras sem acento e em minúsculas (menos
@@ -228,7 +232,7 @@ const ARTICLES = new Set(["o", "os", "as", "um", "uma", "uns", "umas"]);
 export function wordingKey(text: string): string {
   const out: string[] = [];
   const words = (s: string) => {
-    for (const w of normalizeText(s).split(" ")) if (w && !ARTICLES.has(w)) out.push(w);
+    for (const w of normalizeText(s).split(" ")) if (w && !ARTICLES.has(w) && !NEUTRAL_PREPOSITIONS.has(w)) out.push(w);
   };
   let last = 0;
   for (const n of numberMatches(text)) {

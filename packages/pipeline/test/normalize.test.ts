@@ -194,6 +194,13 @@ describe("[RF06] trava por similaridade: qualquer palavra trocada, a mais ou for
 describe("[RF06] qualificador aproximado conta na redação", () => {
   it("[RF06] \"uns 10 milhões\" não é a mesma afirmação que \"10 milhões\"", () => {
     expect(wordingKey("O Brasil tem uns 10 milhões de desempregados.")).not.toBe(wordingKey("O Brasil tem 10 milhões de desempregados."));
+  });
+
+  it("[RF06] preposição de lugar/tempo não muda o fato; de direção muda (ensaio de 21/10: \"em\" x \"por\")", () => {
+    const same = (a: string, b: string) => sameFacts({ text_normalized: a, indicator: null }, { text_normalized: b, indicator: null });
+    expect(same("O PT governou o Brasil em 20 dos últimos 24 anos.", "O PT governou o Brasil por 20 dos últimos 24 anos.")).toBe(true);
+    expect(same("O desemprego caiu para 6%.", "O desemprego caiu de 6%.")).toBe(false);
+    expect(same("O desemprego caiu para 6% em 2023.", "O desemprego caiu para 6% em 2024.")).toBe(false);
     expect(wordingKey("O Brasil tem umas 10 mil escolas.")).not.toBe(wordingKey("O Brasil tem 10 mil escolas."));
     expect(wordingKey("O Brasil tem quase 10 milhões de desempregados.")).not.toBe(wordingKey("O Brasil tem 10 milhões de desempregados."));
   });
