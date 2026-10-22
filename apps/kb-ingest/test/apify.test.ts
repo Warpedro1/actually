@@ -34,20 +34,31 @@ describe("[RF15] website-content-crawler (Apify)", () => {
       "Veja o dado e  forte e ênfase cod\ncitação",
     );
   });
-  it("job factcheck: página com rating vira checagem com trecho literal", () => {
+  it("[RF15] job factcheck: página com rating e data vira checagem com trecho literal; sem data não", () => {
     const job = CrawlJob.parse({ name: "x", kind: "factcheck", start_urls: ["https://checagem.exemplo.org/"] });
     const { rows, reasons } = crawlItemsToFactchecks(
       [
-        { url: "https://checagem.exemplo.org/ponte", markdown: ARTICLE, metadata: { title: "É falso que a ponte de Vila Imaginária custou R$ 9 bilhões" } },
+        {
+          url: "https://checagem.exemplo.org/ponte",
+          markdown: ARTICLE,
+          metadata: { title: "É falso que a ponte de Vila Imaginária custou R$ 9 bilhões", datePublished: "2030-03-14" },
+        },
+        // a mesma checagem sem data em lugar nenhum não vira L1 (passaria por atual)
+        { url: "https://checagem.exemplo.org/ponte-sem-data", markdown: ARTICLE, metadata: { title: "É falso que a ponte de Vila Imaginária custou R$ 9 bilhões" } },
         { url: "https://checagem.exemplo.org/sobre", text: "Quem somos. ".repeat(40), metadata: { title: "Sobre" } },
         { url: "https://checagem.exemplo.org/vazio" },
       ],
       job,
     );
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ verdict: "contradito", rating_original: "falso", claim_text: "A ponte de Vila Imaginária custou R$ 9 bilhões" });
+    expect(rows[0]).toMatchObject({
+      verdict: "contradito",
+      rating_original: "falso",
+      claim_text: "A ponte de Vila Imaginária custou R$ 9 bilhões",
+      published_at: "2030-03-14T00:00:00.000Z",
+    });
     expect(rows[0]!.body.includes(rows[0]!.quote)).toBe(true);
-    expect(reasons).toEqual({ sem_rating: 1, item_invalido: 1 });
+    expect(reasons).toEqual({ sem_rating: 1, sem_data: 1, item_invalido: 1 });
   });
   it("input do Actor a partir do template do manifesto", () => {
     const job = CrawlJob.parse({ name: "x", kind: "document", start_urls: ["https://a.org/"], max_pages: 7, input_extra: { foo: 1 } });

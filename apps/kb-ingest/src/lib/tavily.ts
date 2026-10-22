@@ -3,8 +3,10 @@
 // checagens recentes das agências sem feed (g1 Fato ou Fake).
 //
 // Nunca serve para contornar robots.txt: quem chama só cai no extract depois de um
-// download recusado por HTTP/rede (canFallBackToTavily). Sem TAVILY_API_KEY ⇒ null/[]
-// com aviso. O uso entra no medidor da carga (lib/usage.ts).
+// download recusado por HTTP/rede (canFallBackToTavily), e a página que chega pronta (busca,
+// fila kb_web_finds) só é usada se o robots.txt da URL permitir (robotsPermits). Texto do
+// extract não substitui documento que já está na base (ingestFetched). Sem TAVILY_API_KEY
+// ⇒ null/[] com aviso. O uso entra no medidor da carga (lib/usage.ts).
 import { fetchJson, HttpError, RobotsDisallowedError } from "./http";
 import { recordUsage } from "./usage";
 

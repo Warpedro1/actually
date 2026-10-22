@@ -6,7 +6,7 @@ import { lookupSource, tierForUrl, toPgVector, webSearchDomains, type DocType, t
 import { abortRun, actorInputProps, datasetPage, inputFromSchema, parseApifyManifest, startActor, waitRun, type ApifyManifest, type YoutubeVideo } from "../apify/client";
 import { fillTemplate, filterByDomains, mapSearchItem, mapTranscriptItem } from "../apify/map";
 import { crawlInput, crawlItemsToFactchecks, DEFAULT_SEARCH_QUERIES } from "../commands/apify";
-import { toDocumentInput } from "../commands/documents";
+import { ingestFetched, toDocumentInput } from "../commands/documents";
 import { pendingCandidates, processCandidates, writeFactchecks } from "../commands/factchecks";
 import { processWebFinds } from "../commands/webFinds";
 import { crossCheckUnemployment, loadSeriesValues, withMigrationHint } from "../commands/indicators";
@@ -254,7 +254,8 @@ export async function runStep(ctx: Ctx, step: KbStep, env: StepEnv): Promise<KbS
         { url: step.url, title: step.title, doc_type: step.doc_type, person: step.person, published_at: step.published_at ?? fetched.publishedAt },
         fetched.text,
       );
-      const r = await ingestDocument(ctx, doc);
+      // texto da Tavily não substitui documento que já está na base
+      const r = await ingestFetched(ctx, doc, fetched);
       ctx.log(`${r === "skipped" ? "sem mudança" : "gravado"}: ${step.url} (${fetched.format}${fetched.via ? " via Tavily" : ""}, ${fetched.text.length} caracteres)`);
       return [];
     }

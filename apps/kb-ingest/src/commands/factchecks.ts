@@ -13,6 +13,7 @@ import { upsertRows, type Ctx, type Db } from "../lib/ctx";
 import { embedDocuments, hasEmbeddingKey } from "../lib/embed";
 import { extractPage } from "../lib/html";
 import { fetchText, mapUntil, RobotsDisallowedError } from "../lib/http";
+import { robotsPermits } from "../lib/robots";
 import { canFallBackToTavily, hasTavilyKey, tavilyExtract } from "../lib/tavily";
 import { collectFeeds, agencies, discoverFeedLinks } from "../factchecks/feeds";
 import { GOOGLE_QUERIES, searchGoogle } from "../factchecks/google";
@@ -20,6 +21,7 @@ import {
   agencyStoryDocument,
   buildFactcheckRow,
   canonicalUrl,
+  isListingPage,
   isRelevant,
   pageFromText,
   type FactcheckCandidate,
@@ -117,15 +119,20 @@ export async function pendingCandidates(
   return todo;
 }
 
-/** Recusas de buildFactcheckRow que, em página de agência, indicam matéria com várias falas. */
-const STORY_REASONS = new Set(["sem_rating", "sem_afirmacao", "sem_trecho"]);
+/**
+ * Recusas de buildFactcheckRow que, em página de agência, levam ao documento: matéria com
+ * várias falas (sem selo único) ou checagem sem data (não vira L1, vira documento sem data).
+ */
+const STORY_REASONS = new Set(["sem_rating", "sem_afirmacao", "sem_trecho", "sem_data"]);
 
 /**
  * Baixa, normaliza, filtra e grava. Com `deadline` (epoch ms) não começa página
  * nova depois do prazo e devolve as que ficaram para a próxima rodada.
- * - candidato com `page` (busca da Tavily) não é baixado de novo;
+ * - candidato com `page` (busca da Tavily) não é baixado de novo, mas só é usado se o
+ *   robots.txt da URL permitir (erro ao ler o robots.txt ⇒ não usa);
  * - download recusado por HTTP/rede é lido pela Tavily (robots.txt proibindo, não);
- * - matéria de agência com várias falas (sem selo único) vira documento L3.
+ * - matéria de agência com várias falas (sem selo único) ou sem data vira documento L3,
+ *   salvo página de lista (home, seção, tag: "lista").
  */
 export async function processCandidates(
   ctx: Ctx,
@@ -171,6 +178,12 @@ export async function processCandidates(
   async function storyAsDocument(c: FactcheckCandidate, page: PageContent): Promise<boolean> {
     const doc = agencyStoryDocument(c, page);
     if (!doc) return false;
+    // página de lista é cheia de manchetes de outras checagens: nunca vira documento
+    if (isListingPage(doc.url, doc.body)) {
+      count("lista");
+      if (ctx.verbose) ctx.log(`  descartado (lista): ${c.url}`);
+      return true;
+    }
     try {
       if (ctx.db) {
         // documento com a mesma URL pode ter sido curado à mão
@@ -191,6 +204,11 @@ export async function processCandidates(
   }
 
   const { rest } = await mapUntil(todo, 3, opts.deadline, async (c) => {
+    // página pronta (texto da Tavily) não passou pelo robots.txt do download direto
+    if (c.page && !(await robotsPermits(c.url))) {
+      count("robots_txt");
+      return;
+    }
     const page = c.page ?? (await download(c));
     if (!page) return;
     const r = buildFactcheckRow(c, page);

@@ -1,12 +1,24 @@
 // "A base aprende com a web": páginas que a busca web (L4, só nível 1–2) trouxe durante
 // a checagem ao vivo ficam na fila kb_web_finds (o pipeline só grava a fila). Aqui cada
-// página vira checagem L1 (página de agência com selo, no tema) ou documento L3, sempre
-// com origin 'web'. Uma página com problema é marcada e a fila segue.
+// página vira checagem L1 (página de agência com selo e data, no tema) ou documento L3,
+// sempre com origin 'web'. O texto veio da Tavily, sem passar pelo robots.txt: a página só
+// é usada se o robots.txt da URL permitir. Página de lista (home, seção, tag) não vira
+// documento. Uma página com problema é marcada e a fila segue.
 import { lookupSource, tierForUrl, type DocType, type KbWebFind, type SourceTier } from "@actually/db";
 import { ingestDocument, type DocumentInput } from "../documents/ingest";
-import { buildFactcheckRow, canonicalUrl, cleanPageTitle, dateFromUrl, isRelevant, pageFromText } from "../factchecks/normalize";
+import {
+  buildFactcheckRow,
+  canonicalUrl,
+  cleanPageTitle,
+  dateFromText,
+  dateFromUrl,
+  isListingPage,
+  isRelevant,
+  pageFromText,
+} from "../factchecks/normalize";
 import { detectPerson, detectTopics } from "../lib/classify";
 import { requireDb, type Ctx, type Db } from "../lib/ctx";
+import { robotsPermits } from "../lib/robots";
 import { cleanText, stripRelatedLinks } from "../lib/text";
 import { urlsInBase, writeFactchecks } from "./factchecks";
 
@@ -41,7 +53,7 @@ export function webFindDocument(f: KbWebFind, url: string, text: string): Docume
     person: detectPerson(title, head),
     source_name: f.source_name || lookupSource(url)?.name || new URL(url).hostname,
     tier: tierForUrl(url) as SourceTier,
-    published_at: f.published_at ?? dateFromUrl(url),
+    published_at: f.published_at ?? dateFromUrl(url) ?? dateFromText(text),
     topics: detectTopics(title, head).slice(0, 3),
     body: text,
     origin: WEB_ORIGIN,
@@ -54,6 +66,8 @@ async function processOne(ctx: Ctx, f: KbWebFind, inBase: Set<string>): Promise<
   const text = stripRelatedLinks(cleanText(f.text));
   if (text.length < WEB_FIND_MIN_TEXT) return { status: "skipped", note: "texto_curto" };
   if (accentsLost(text)) return { status: "skipped", note: "sem_acento" };
+  // erro ao ler o robots.txt também é "não" (na dúvida, não usa)
+  if (!(await robotsPermits(url))) return { status: "skipped", note: "robots_txt" };
 
   let note = "documento";
   const publishedAt = f.published_at ?? dateFromUrl(url);
@@ -62,6 +76,8 @@ async function processOne(ctx: Ctx, f: KbWebFind, inBase: Set<string>): Promise<
   if (r?.ok && isRelevant(r.row)) {
     await writeFactchecks(ctx, [{ ...r.row, origin: WEB_ORIGIN }]);
     note = "checagem";
+  } else if (isListingPage(url, text)) {
+    return { status: "skipped", note: "lista" };
   } else {
     await ingestDocument(ctx, webFindDocument(f, url, text));
   }

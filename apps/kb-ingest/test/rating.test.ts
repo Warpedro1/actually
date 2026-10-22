@@ -70,4 +70,11 @@ describe("rating no título e em rótulo", () => {
     expect(ratingFromLabel("Etiqueta: Enganoso")).toBe("Enganoso");
     expect(ratingFromLabel("Classificação: indicativa livre")).toBeNull();
   });
+  it("[RF15] várias linhas de rótulo com selos diferentes (matéria com várias falas) ⇒ null; o mesmo selo repetido vale", () => {
+    expect(ratingFromLabel("fala 1\nClassificação: Falso\nfala 2\nClassificação: Exagerado\nfim")).toBeNull();
+    expect(ratingFromLabel("Selo: Falso\ntexto\nEtiqueta: Verdadeiro")).toBeNull();
+    // rótulo fora da tabela também é outro selo: na dúvida, nenhum
+    expect(ratingFromLabel("Classificação: Falso\nClassificação: Verdadeiro em parte")).toBeNull();
+    expect(ratingFromLabel("Classificação: Falso\ntexto\nCLASSIFICAÇÃO: falso.")).toBe("Falso");
+  });
 });

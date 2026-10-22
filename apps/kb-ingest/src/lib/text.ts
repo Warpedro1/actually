@@ -32,7 +32,7 @@ const DATED_HEADLINE = /^\d{1,2}[./](\d{1,2}|[a-zç]{3,4})\.?[./]?\d{2,4}\s*[–
 const NOISE = /^(publicidade|>+\s*siga\b.*|siga (o|a) .{1,60} no (whatsapp|telegram|instagram)\b.*)$/i;
 
 /** Linha com cara de manchete: curta e sem pontuação de fim de frase (aspas finais não contam). */
-const looksLikeHeadline = (l: string) => l.length <= 160 && !/[.!?:;…]$/.test(l.replace(/["”’')\]]+$/, ""));
+export const looksLikeHeadline = (l: string) => l.length <= 160 && !/[.!?:;…]$/.test(l.replace(/["”’')\]]+$/, ""));
 
 /**
  * Tira do texto da matéria as listas de manchetes de outras matérias e o ruído de página

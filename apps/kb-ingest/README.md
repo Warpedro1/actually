@@ -29,6 +29,16 @@ documentadas (BCB, IBGE, Senado, Google, Voyage, Deepgram, Tavily) não passam p
 download direto é recusado por HTTP/rede (UOL Confere e AFP Checamos respondem 403 "Access Denied" para a
 Vercel) é lida pela Tavily (`src/lib/tavily.ts`, 0,2 crédito por página lida) com a mesma limpeza do HTML;
 **robots.txt proibindo nunca cai na Tavily** (o descarte fica, contado como `robots_txt`), nem página 404/410.
+Página que chega pronta da Tavily (busca das agências, fila `kb_web_finds`) também só é usada se o `robots.txt` da
+URL permitir (erro ou 5xx ao ler o `robots.txt` ⇒ não usa). Texto lido pela Tavily não substitui documento que já
+está em `kb_documents` (aviso "download recusado; documento existente mantido", resultado `skipped`).
+
+Checagem só vira L1 com data: do candidato/buscador, do HTML, do caminho da URL ou de uma linha de data no começo
+do texto ("Publicado em 15 de outubro de 2026", "15/10/2026", "15.out.2026"); sem data ⇒ `sem_data` (em página de
+agência, vira documento sem data). Selos diferentes em várias linhas de rótulo ("Classificação: Falso" e
+"Classificação: Exagerado") não são selo único. Página de lista (home, seção, `/noticias`, `/tag/...`,
+`/autor/...`, `/categoria/...`, `/page/N`, a própria seção da agência, ou texto com mais da metade das linhas com
+cara de manchete) nunca vira documento: descarte `lista`.
 
 ## Pelo /admin (sem a sua máquina)
 
@@ -48,14 +58,15 @@ As mesmas cargas rodam na Vercel pela seção *Base de conhecimento* do /admin (
 - **capturas da web** (preset `capturas-web`, criado pela checagem ao vivo; também no fim da atualização diária):
   a etapa `web-finds` pega até 10 páginas da fila `kb_web_finds` (`kb_web_finds_claim`), que a busca web (L4) trouxe
   durante as checagens, e se repete enquanto a fila devolver páginas. Já na base ⇒ `skipped`/`ja_na_base`; texto
-  limpo com menos de 500 caracteres ou sem nenhum acento ⇒ `skipped`; página de agência com selo e no tema ⇒
-  checagem L1; o resto ⇒ documento L3. As duas com `origin = 'web'`; erro numa página ⇒ `failed` e a fila segue;
+  limpo com menos de 500 caracteres, sem nenhum acento, `robots.txt` proibindo (`robots_txt`) ou página de lista
+  (`lista`) ⇒ `skipped`; página de agência com selo e data, no tema ⇒ checagem L1; o resto ⇒ documento L3. As duas com `origin = 'web'`; erro numa página ⇒ `failed` e a fila segue;
   página que não coube no prazo volta para `pending` na hora (`src/commands/webFinds.ts`);
 - **checagens das agências pela Tavily** (preset `checagens-agencias`, padrão: últimos 45 dias): uma busca por
   agência de `SOURCE_TIERS` × consulta (`Lula`, `Flávio Bolsonaro`, `debate`, `sabatina entrevista`; agência que
   divide o host com o jornal leva o nome da seção, ex.: "Fato ou Fake Lula"), 1 crédito cada. Fica só página de
-  agência (respeita o caminho: `g1.globo.com/fato-ou-fake`, `noticias.uol.com.br/confere`) com data desde o início
-  pedido (sem data fica); o texto da busca é a página — nada é baixado de novo (`src/factchecks/agencySearch.ts`).
+  agência (respeita o caminho: `g1.globo.com/fato-ou-fake`, `noticias.uol.com.br/confere`) com data (do buscador, da
+  URL ou do começo do texto) desde o início pedido; sem data nenhuma segue, mas não vira L1 (no máximo documento sem
+  data); o texto da busca é a página — nada é baixado de novo, só o `robots.txt` é consultado (`src/factchecks/agencySearch.ts`).
 
 ## Ordem recomendada de carga (dia do ensaio e véspera do debate)
 

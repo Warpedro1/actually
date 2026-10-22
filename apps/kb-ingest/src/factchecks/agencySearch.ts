@@ -35,7 +35,9 @@ export function agencyQuery(domain: string, query: string): string {
 /**
  * Resultados → candidatos com a página já obtida. Fica só página de agência de
  * checagem (respeita o caminho: g1.globo.com/fato-ou-fake, noticias.uol.com.br/confere);
- * data (do buscador ou da URL) anterior a `since` sai; sem data fica.
+ * data (do buscador, da URL ou do começo do texto) anterior a `since` sai. Sem data
+ * nenhuma segue, mas não vira checagem L1 (buildFactcheckRow exige data): no máximo
+ * documento da agência, sem data.
  */
 export function candidatesFromSearch(
   results: TavilySearchResult[],
@@ -51,18 +53,22 @@ export function candidatesFromSearch(
       continue;
     }
     const url = canonicalUrl(r.url);
-    const date = r.published_date || dateFromUrl(url);
+    // título do buscador vem com o nome do site; a limpeza fica em pageFromText, que
+    // também procura a data no caminho da URL e no começo do texto
+    const page = r.raw_content ? pageFromText({ url, title: r.title, text: r.raw_content, publishedAt: r.published_date }) : null;
+    const date = page ? page.publishedAt : r.published_date || dateFromUrl(url);
     const dateMs = date ? Date.parse(date) : NaN;
-    if (Number.isFinite(dateMs) && Number.isFinite(sinceMs) && dateMs < sinceMs) {
+    // sem data nenhuma (URL, buscador ou começo do texto): não dá para saber se é recente
+    // nem se é a checagem (home, seção e lista nunca têm) — na dúvida, fica de fora
+    if (!Number.isFinite(dateMs)) {
+      drop("sem_data");
+      continue;
+    }
+    if (Number.isFinite(sinceMs) && dateMs < sinceMs) {
       drop("antiga");
       continue;
     }
-    candidates.push({
-      url,
-      publishedAt: date ?? null,
-      // título do buscador vem com o nome do site; a limpeza fica em pageFromText
-      page: r.raw_content ? pageFromText({ url, title: r.title, text: r.raw_content, publishedAt: date }) : null,
-    });
+    candidates.push({ url, publishedAt: date || null, page });
   }
   return { candidates, dropped };
 }

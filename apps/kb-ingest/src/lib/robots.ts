@@ -101,6 +101,24 @@ export async function robotsAllows(url: string): Promise<boolean> {
   return isAllowed(r, u.pathname + u.search);
 }
 
+/**
+ * Como robotsAllows, mas nunca lança: URL inválida ou erro ⇒ proibido (na dúvida, não usa).
+ * Para página que chegou pronta por outro caminho (texto da Tavily), que não passou pelo
+ * fetchWithRetry com respectRobots.
+ */
+export async function robotsPermits(url: string): Promise<boolean> {
+  try {
+    return await robotsAllows(url);
+  } catch {
+    return false;
+  }
+}
+
+/** Esquece os robots.txt já lidos (testes: cada um define o seu). */
+export function clearRobotsCache(): void {
+  cache.clear();
+}
+
 export async function robotsCrawlDelayMs(url: string): Promise<number | null> {
   const r = await rulesFor(url);
   return r === "deny-all" ? null : r.crawlDelayMs;

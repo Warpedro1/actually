@@ -9,8 +9,8 @@ import { basename } from "node:path";
 import { lookupSource, tierForUrl, type DocType, type SourceTier } from "@actually/db";
 import type { Ctx } from "../lib/ctx";
 import { detectTopics } from "../lib/classify";
-import { fetchDocument } from "../documents/fetchDoc";
-import { ingestDocument, type DocumentInput } from "../documents/ingest";
+import { fetchDocument, type FetchedDoc } from "../documents/fetchDoc";
+import { ingestDocument, type DocumentInput, type IngestDocOpts } from "../documents/ingest";
 import { LocalMeta, loadManifest, type ManifestEntry } from "../documents/manifest";
 import { localFileToText, parseSpeakerMap } from "../transcribe/format";
 
@@ -40,6 +40,28 @@ export function toDocumentInput(e: Omit<ManifestEntry, "format">, body: string):
   };
 }
 
+/**
+ * Grava o documento baixado. Texto lido pela Tavily (download direto recusado) não
+ * substitui documento que já está na base: o existente foi baixado inteiro ou curado, e o
+ * extract pode vir parcial ou com outra página (nem com --force).
+ */
+export async function ingestFetched(
+  ctx: Ctx,
+  doc: DocumentInput,
+  fetched: Pick<FetchedDoc, "via">,
+  opts: IngestDocOpts = {},
+): Promise<"skipped" | "written" | "dry-run"> {
+  if (fetched.via === "tavily" && ctx.db) {
+    const { data, error } = await ctx.db.from("kb_documents").select("id").eq("url", doc.url).maybeSingle();
+    if (error) throw new Error(`kb_documents: ${error.message}`);
+    if (data) {
+      ctx.warn(`${doc.url}: download recusado; documento existente mantido`);
+      return "skipped";
+    }
+  }
+  return ingestDocument(ctx, doc, opts);
+}
+
 export async function runDocuments(ctx: Ctx, opts: DocumentsOpts): Promise<void> {
   if (opts.file) {
     if (!opts.meta) throw new Error("--file exige --meta '{\"url\":...,\"title\":...,\"doc_type\":...}'");
@@ -60,7 +82,7 @@ export async function runDocuments(ctx: Ctx, opts: DocumentsOpts): Promise<void>
     try {
       const fetched = await fetchDocument(e.url, e.format, { warn: ctx.warn });
       const doc = toDocumentInput({ ...e, published_at: e.published_at ?? fetched.publishedAt }, fetched.text);
-      const r = await ingestDocument(ctx, doc, opts);
+      const r = await ingestFetched(ctx, doc, fetched, opts);
       result[r] = (result[r] ?? 0) + 1;
       ctx.log(`${r.padEnd(8)} ${e.url} (${fetched.format}${fetched.via ? " via Tavily" : ""}, ${fetched.text.length} chars)`);
     } catch (err) {

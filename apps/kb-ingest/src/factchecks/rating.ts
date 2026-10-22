@@ -146,12 +146,13 @@ export function ratingFromTitle(title: string | null | undefined): string | null
 /**
  * Rating declarado em linha própria no texto ("Classificação: Falso",
  * "Etiqueta: Enganoso", "Selo: Falso"). Só reconhece rótulos da tabela.
+ * Mais de uma linha de rótulo com selos diferentes ("Classificação: Falso" numa fala,
+ * "Classificação: Exagerado" em outra) é matéria com várias falas, não selo único ⇒ null.
+ * O mesmo selo repetido (no topo e no fim da página) vale.
  */
 export function ratingFromLabel(text: string): string | null {
   const re = /^(?:classifica[cç][aã]o|etiqueta|selo|veredito|avalia[cç][aã]o)\s*:\s*(.{3,40})$/gim;
-  for (const m of text.matchAll(re)) {
-    const label = m[1]!.trim();
-    if (RATING_TABLE[normalizeRating(label)]) return label;
-  }
-  return null;
+  const labels = [...text.matchAll(re)].map((m) => m[1]!.trim());
+  if (new Set(labels.map(normalizeRating)).size > 1) return null;
+  return labels.find((l) => RATING_TABLE[normalizeRating(l)]) ?? null;
 }

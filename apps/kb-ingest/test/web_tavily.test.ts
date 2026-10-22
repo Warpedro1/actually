@@ -3,7 +3,13 @@
 // - matéria de agência com várias falas checadas vira documento L3 (sem sobrescrever documento curado);
 // - etapa web-finds: fila kb_web_finds → checagem L1 ou documento L3 com origin 'web';
 // - etapa factchecks-tavily: busca nas agências sem baixar de novo, filtrando caminho e data.
+// Correções da revisão: página de lista nunca vira documento; página pronta da Tavily só com
+// robots.txt permitindo; checagem sem data não vira L1; texto da Tavily não substitui documento
+// que já está na base; título sem sufixo de data; vários selos diferentes ⇒ sem selo único.
 // Sem rede: fetch falso e banco em memória. Pessoas, lugares e números são fictícios.
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // sem intervalo mínimo entre requisições ao mesmo host (lido quando lib/http é carregado)
@@ -12,11 +18,22 @@ vi.hoisted(() => {
 });
 
 import type { KbWebFind } from "@actually/db";
+import { runDocuments } from "../src/commands/documents";
 import { processCandidates } from "../src/commands/factchecks";
 import { fetchDocument } from "../src/documents/fetchDoc";
 import { agencyQuery, candidatesFromSearch } from "../src/factchecks/agencySearch";
-import { cleanPageTitle, dateFromUrl, pageFromText, type FactcheckCandidate } from "../src/factchecks/normalize";
+import {
+  cleanPageTitle,
+  dateFromText,
+  dateFromUrl,
+  isListingPage,
+  isListingPath,
+  mostlyHeadlines,
+  pageFromText,
+  type FactcheckCandidate,
+} from "../src/factchecks/normalize";
 import { HttpError } from "../src/lib/http";
+import { clearRobotsCache } from "../src/lib/robots";
 import { timeRangeSince } from "../src/lib/tavily";
 import { drainUsage } from "../src/lib/usage";
 import { runStep, type KbStep } from "../src/jobs/steps";
@@ -56,6 +73,39 @@ const NOTICIA = [
   "A oposição na Câmara Municipal pediu a íntegra dos estudos de viabilidade antes da votação do orçamento.",
 ].join("\n");
 
+/** Página de lista de uma agência (home/seção): só manchetes de outras checagens e datas. */
+const LISTA = [
+  "Notícias",
+  "É falso que a inflação de Vila Imaginária chegou a 40% em 2030",
+  "14.mar.2030",
+  "Vídeo de ponte desabando em Vila Imaginária é montagem",
+  "13.mar.2030",
+  "Desemprego em Vila Imaginária: o que dizem os dados do instituto",
+  "12.mar.2030",
+  "Checamos o debate de Vila Imaginária: inflação e desemprego",
+  "11.mar.2030",
+  "Prefeito de Vila Imaginária exagera ao falar do custo da ponte nova",
+  "10.mar.2030",
+  "Post engana ao dizer que o salário mínimo de Vila Imaginária caiu",
+  "09.mar.2030",
+  "Deputado distorce dado de emprego em Vila Imaginária",
+  "Mais checagens sobre a eleição em Vila Imaginária",
+].join("\n");
+
+/** Matéria com duas falas, cada uma com o seu rótulo, sem selo único; data só no texto. */
+const DUAS_FALAS = [
+  "Checamos as falas do prefeito de Vila Imaginária sobre a economia",
+  "Por Agência Exemplo",
+  "Publicado em 15 de março de 2030, às 18h",
+  "O prefeito Fulano de Tal deu entrevista nesta sexta-feira e falou sobre inflação e desemprego em Vila Imaginária. A reportagem checou duas falas.",
+  "“A inflação dobrou no último ano”",
+  "Os dados do Instituto de Estatística Imaginário mostram que a inflação passou de 4,1% para 4,6% entre 2029 e 2030, alta bem menor do que a citada.",
+  "Classificação: Falso",
+  "“O desemprego é o menor da história”",
+  "A taxa de desocupação de 2030 ficou em 7,2%, mas em 2014 ela chegou a 6,8%, segundo a série histórica do instituto.",
+  "Classificação: Exagerado",
+].join("\n");
+
 type Route = (init: RequestInit | undefined) => Response | Promise<Response>;
 
 /** fetch falso: rota por URL exata; o resto (robots.txt incluído) responde 404. */
@@ -77,6 +127,9 @@ beforeEach(() => {
   vi.stubEnv("TAVILY_API_KEY", "tvly-teste");
   vi.stubEnv("VOYAGE_API_KEY", "");
   drainUsage();
+  // sem rede: todo teste começa com fetch falso (tudo 404, robots.txt incluído) e sem robots.txt guardado
+  clearRobotsCache();
+  fakeFetch({});
 });
 
 afterEach(() => {
@@ -206,8 +259,12 @@ describe("[RF15] matéria de agência com várias falas", () => {
     });
     await processCandidates(ctx, [withPage(lupa), withPage(aosFatos), withPage(jornal)], {});
 
-    // página já obtida (busca): nada é baixado
-    expect(calls).toEqual([]);
+    // página já obtida (busca): nada é baixado; só o robots.txt de cada origem é consultado
+    expect(calls.map((c) => c.url).sort()).toEqual([
+      "https://aosfatos.org/robots.txt",
+      "https://jornal-qualquer.test/robots.txt",
+      "https://lupa.uol.com.br/robots.txt",
+    ]);
     expect(db.rows("kb_factchecks")).toEqual([]);
     const docs = db.rows("kb_documents");
     expect(docs).toHaveLength(2);
@@ -374,18 +431,16 @@ describe("[RF15] etapa factchecks-tavily (checagens recentes das agências)", ()
       ],
       "2030-02-01",
     );
-    expect(candidates.map((c) => c.url)).toEqual([
-      "https://noticias.uol.com.br/confere/ultimas-noticias/2030/03/14/e-falso.htm",
-      "https://checamos.afp.com/doc.afp.com.DEF456",
-    ]);
+    expect(candidates.map((c) => c.url)).toEqual(["https://noticias.uol.com.br/confere/ultimas-noticias/2030/03/14/e-falso.htm"]);
     expect(candidates[0]).toMatchObject({ publishedAt: "2030-03-14", page: { publishedAt: "2030-03-14", claimReviews: [] } });
-    expect(dropped).toEqual({ fora_da_agencia: 1, antiga: 1 });
+    // sem data na URL, no buscador nem no texto: fica de fora
+    expect(dropped).toEqual({ fora_da_agencia: 1, antiga: 1, sem_data: 1 });
   });
 
   it("[RF15] busca uma vez, não baixa as páginas: checagem com selo ⇒ L1, matéria com várias falas ⇒ documento, já na base ⇒ pula", async () => {
     const base = "https://g1.globo.com/fato-ou-fake/noticia";
     const selo = `${base}/2030/03/14/e-falso-que-a-inflacao-chegou-a-40.ghtml`;
-    const varias = `${base}/checamos-a-sabatina-de-vila-imaginaria.ghtml`;
+    const varias = `${base}/2030/03/14/checamos-a-sabatina-de-vila-imaginaria.ghtml`;
     const jaNaBase = `${base}/2030/03/14/ja-checada.ghtml`;
     const results = [
       { url: selo, title: `${CHECAGEM_TITULO} | Fato ou Fake | g1`, raw_content: CHECAGEM, published_date: null },
@@ -405,7 +460,8 @@ describe("[RF15] etapa factchecks-tavily (checagens recentes das agências)", ()
     );
 
     expect(more).toEqual([]);
-    expect(calls.map((c) => c.url)).toEqual([TAVILY_SEARCH]);
+    // a página veio na busca: só o robots.txt (uma vez por origem) antes de usá-la
+    expect(calls.map((c) => c.url)).toEqual([TAVILY_SEARCH, "https://g1.globo.com/robots.txt"]);
     expect(jsonBody(calls[0]!.init)).toMatchObject({
       query: "Fato ou Fake Lula",
       include_domains: ["g1.globo.com"],
@@ -433,5 +489,279 @@ describe("[RF15] etapa factchecks-tavily (checagens recentes das agências)", ()
     expect(more).toEqual([]);
     expect(calls).toEqual([]);
     expect(warns.join(" ")).toMatch(/TAVILY_API_KEY ausente/);
+  });
+});
+
+// --- correções da revisão adversarial ---------------------------------------------
+
+const withPage = (url: string, title: string, text: string, publishedAt: string | null = null): FactcheckCandidate => ({
+  url,
+  publishedAt,
+  page: pageFromText({ url, title, text, publishedAt }),
+});
+const summaryOf = (logs: string[]) => logs.find((l) => l.startsWith("checagens aproveitadas"))!;
+
+describe("[RF15] página de lista (home, seção, tag) nunca vira documento", () => {
+  it("[RF15] caminho de índice e texto só de manchetes", () => {
+    for (const url of [
+      "https://www.aosfatos.org/noticias/",
+      "https://g1.globo.com/fato-ou-fake/",
+      "https://www1.folha.uol.com.br/poder/",
+      "https://aosfatos.org/",
+      "https://noticias.uol.com.br/confere/ultimas-noticias/",
+      "https://aosfatos.org/tag/eleicoes/",
+      "https://lupa.uol.com.br/autor/fulano-de-tal",
+      "https://www.estadao.com.br/estadao-verifica/categoria/politica/",
+      "https://lupa.uol.com.br/jornalismo/page/2",
+      // a própria seção da agência em SOURCE_TIERS, mesmo com dois segmentos
+      "https://noticias.uol.com.br/confere",
+    ]) {
+      expect(isListingPath(url), url).toBe(true);
+    }
+    for (const url of [
+      "https://checamos.afp.com/doc.afp.com.36YL8ZA",
+      "https://aosfatos.org/noticias/checamos-a-sabatina-de-vila-imaginaria/",
+      "https://lupa.uol.com.br/jornalismo/2030/03/15/checamos-o-debate",
+      "https://www1.folha.uol.com.br/a.shtml",
+      "https://exemplo.org/e-falso-que-a-ponte-caiu-ontem",
+      "https://noticias.uol.com.br/confere/ultimas-noticias/2030/03/14/e-falso.htm",
+    ]) {
+      expect(isListingPath(url), url).toBe(false);
+    }
+    expect(mostlyHeadlines(LISTA)).toBe(true);
+    // selos, falas citadas, data e assinatura não contam: matéria com várias falas não é lista
+    for (const text of [CHECAGEM, NOTICIA, MATERIA_VARIAS_FALAS, DUAS_FALAS]) expect(mostlyHeadlines(text)).toBe(false);
+    expect(isListingPage("https://lupa.uol.com.br/jornalismo/2030/03/15/especial", LISTA)).toBe(true);
+  });
+
+  it("[RF15] matéria de agência: home, seção e página de manchetes contam como lista; nada é gravado", async () => {
+    const db = new FakeDb();
+    const { ctx, logs } = testCtx(db);
+    await processCandidates(
+      ctx,
+      [
+        withPage("https://www.aosfatos.org/noticias/", "Notícias | Aos Fatos", LISTA),
+        withPage("https://g1.globo.com/fato-ou-fake/", "Fato ou Fake | g1", LISTA),
+        // caminho de matéria, texto de lista
+        withPage("https://lupa.uol.com.br/jornalismo/2030/03/15/especial-vila-imaginaria", "Especial: Vila Imaginária", LISTA),
+        // caminho de lista, texto de matéria
+        withPage("https://aosfatos.org/tag/vila-imaginaria/", "Vila Imaginária | Aos Fatos", MATERIA_VARIAS_FALAS),
+      ],
+      {},
+    );
+    expect(db.rows("kb_documents")).toEqual([]);
+    expect(db.rows("kb_factchecks")).toEqual([]);
+    expect(summaryOf(logs)).toContain('"lista":4');
+  });
+
+  it("[RF15] web-finds: página de lista ⇒ skipped/lista; matéria comum segue virando documento", async () => {
+    const artigo = "https://www1.folha.uol.com.br/cotidiano/2030/03/ponte-nova.shtml";
+    const finds = [
+      find("https://www.aosfatos.org/noticias/", LISTA, { title: "Notícias | Aos Fatos", source_name: "Aos Fatos" }),
+      find("https://www1.folha.uol.com.br/poder/", NOTICIA, { title: "Poder - Folha", source_name: "Folha de S.Paulo", tier: 2 }),
+      find("https://www1.folha.uol.com.br/poder/2030/03/especial-eleicoes.shtml", LISTA, { source_name: "Folha de S.Paulo", tier: 2 }),
+      find(artigo, NOTICIA, { title: "Prefeitura anuncia ponte nova", source_name: "Folha de S.Paulo", tier: 2 }),
+    ];
+    const db = webFindsDb(finds);
+    await drain(testCtx(db).ctx, { kind: "web-finds", limit: 10 });
+    expect(Object.fromEntries(db.rows("kb_web_finds").map((r) => [r.url, [r.status, r.note]]))).toEqual({
+      "https://www.aosfatos.org/noticias/": ["skipped", "lista"],
+      "https://www1.folha.uol.com.br/poder/": ["skipped", "lista"],
+      "https://www1.folha.uol.com.br/poder/2030/03/especial-eleicoes.shtml": ["skipped", "lista"],
+      [artigo]: ["done", "documento"],
+    });
+    expect(db.rows("kb_documents").map((d) => d.url)).toEqual([artigo]);
+  });
+});
+
+describe("[RF15] robots.txt também vale para a página que veio pronta da Tavily", () => {
+  it("[RF15] processCandidates: robots.txt \"Disallow: /\" ou com erro (503) ⇒ robots_txt, sem gravar e sem Tavily", async () => {
+    const calls = fakeFetch({
+      "https://aosfatos.org/robots.txt": () => new Response("User-agent: *\nDisallow: /\n"),
+      "https://lupa.uol.com.br/robots.txt": () => new Response("fora do ar", { status: 503 }),
+    });
+    const db = new FakeDb();
+    const { ctx, logs } = testCtx(db);
+    await processCandidates(
+      ctx,
+      [
+        withPage("https://aosfatos.org/noticias/e-falso-que-a-inflacao-chegou-a-40", CHECAGEM_TITULO, CHECAGEM, "2030-03-14"),
+        withPage("https://lupa.uol.com.br/jornalismo/2030/03/15/checamos-o-debate", "Checamos o debate", MATERIA_VARIAS_FALAS),
+      ],
+      {},
+    );
+    expect(db.rows("kb_factchecks")).toEqual([]);
+    expect(db.rows("kb_documents")).toEqual([]);
+    expect(summaryOf(logs)).toContain('"robots_txt":2');
+    expect(tavilyCalls(calls)).toEqual([]);
+  });
+
+  it("[RF15] etapa factchecks-tavily: agência com \"Disallow: /\" ⇒ nada gravado", async () => {
+    const url = "https://aosfatos.org/noticias/e-falso-que-a-inflacao-chegou-a-40";
+    fakeFetch({
+      [TAVILY_SEARCH]: () => Response.json({ results: [{ url, title: `${CHECAGEM_TITULO} - Aos Fatos`, raw_content: CHECAGEM, published_date: "2030-03-14" }] }),
+      "https://aosfatos.org/robots.txt": () => new Response("User-agent: *\nDisallow: /\n"),
+    });
+    const db = new FakeDb();
+    const { ctx, logs } = testCtx(db);
+    await runStep(ctx, { kind: "factchecks-tavily", domain: "aosfatos.org", query: "Lula", since: "2030-02-01" }, { deadline: Date.now() + 60_000 });
+    expect(db.rows("kb_factchecks")).toEqual([]);
+    expect(db.rows("kb_documents")).toEqual([]);
+    expect(summaryOf(logs)).toContain('"robots_txt":1');
+  });
+
+  it("[RF15] web-finds: robots.txt \"Disallow: /\" ou com erro (500) ⇒ skipped/robots_txt", async () => {
+    fakeFetch({
+      "https://www1.folha.uol.com.br/robots.txt": () => new Response("User-agent: *\nDisallow: /\n"),
+      "https://g1.globo.com/robots.txt": () => new Response("erro", { status: 500 }),
+    });
+    const folha = "https://www1.folha.uol.com.br/cotidiano/2030/03/ponte-nova.shtml";
+    const g1 = "https://g1.globo.com/fato-ou-fake/noticia/2030/03/14/e-falso-que-a-inflacao-chegou-a-40.ghtml";
+    const db = webFindsDb([find(folha, NOTICIA, { tier: 2 }), find(g1, CHECAGEM, { title: CHECAGEM_TITULO })]);
+    await drain(testCtx(db).ctx, { kind: "web-finds", limit: 10 });
+    expect(db.rows("kb_web_finds").map((r) => [r.url, r.status, r.note])).toEqual([
+      [folha, "skipped", "robots_txt"],
+      [g1, "skipped", "robots_txt"],
+    ]);
+    expect(db.rows("kb_documents")).toEqual([]);
+    expect(db.rows("kb_factchecks")).toEqual([]);
+  });
+});
+
+describe("[RF15] checagem L1 precisa de data", () => {
+  it("[RF15] data no começo do texto: formatos das agências; só em linha de data", () => {
+    expect(dateFromText("Título da checagem\nPublicado em 15 de outubro de 2026 às 10h00\nTexto.")).toBe("2026-10-15");
+    expect(dateFromText("Título\n15/10/2026 10h00 Atualizado há 2 horas\nTexto.")).toBe("2026-10-15");
+    expect(dateFromText("Por Fulano de Tal\n15.out.2026 às 18h30")).toBe("2026-10-15");
+    expect(dateFromText("15 out 2026 - 10:00")).toBe("2026-10-15");
+    expect(dateFromText("15 de out. de 2026")).toBe("2026-10-15");
+    expect(dateFromText("2026-10-15T10:00:00-03:00")).toBe("2026-10-15");
+    expect(dateFromText("1º de março de 2026")).toBe("2026-03-01");
+    expect(dateFromText("Publicado em 15/10/2026 às 10h00.")).toBe("2026-10-15");
+    // "Publicado em" vence data de título
+    expect(dateFromText("Lula diz que a ponte caiu em 12 de março de 2024\nPublicado em 15/10/2026.")).toBe("2026-10-15");
+    // data no meio de parágrafo é do assunto, não da página
+    expect(dateFromText("O vídeo, publicado em 12/03/2024, mostra o deputado na tribuna.")).toBeNull();
+    // depois dos primeiros ~2000 caracteres não conta
+    expect(dateFromText(`${"Texto da matéria sem data nenhuma. ".repeat(60)}\n15/10/2026`)).toBeNull();
+    expect(dateFromText("31/02/2026")).toBeNull();
+    expect(dateFromText("15/13/2026")).toBeNull();
+    expect(dateFromText(CHECAGEM)).toBeNull();
+    // pageFromText usa a data do texto quando a URL e o buscador não têm
+    expect(pageFromText({ url: "https://aosfatos.org/noticias/x/", text: DUAS_FALAS }).publishedAt).toBe("2030-03-15");
+  });
+
+  it("[RF15] checagem com selo sem data em lugar nenhum ⇒ documento da agência sem data; com linha de data ⇒ L1", async () => {
+    const semData = "https://aosfatos.org/noticias/e-falso-que-a-inflacao-chegou-a-40";
+    const comData = "https://aosfatos.org/noticias/e-falso-que-a-inflacao-chegou-a-40-de-novo";
+    const comDataTexto = CHECAGEM.replace(CHECAGEM_TITULO, `${CHECAGEM_TITULO}\nPublicado em 14 de março de 2030, às 18h`);
+    const db = new FakeDb();
+    const { ctx, logs } = testCtx(db);
+    await processCandidates(ctx, [withPage(semData, CHECAGEM_TITULO, CHECAGEM), withPage(comData, CHECAGEM_TITULO, comDataTexto)], {});
+
+    expect(db.rows("kb_factchecks").map((r) => [r.url, r.published_at])).toEqual([[comData, "2030-03-14T00:00:00.000Z"]]);
+    expect(db.rows("kb_documents")).toHaveLength(1);
+    expect(db.rows("kb_documents")[0]).toMatchObject({ url: semData, source_name: "Aos Fatos", tier: 1, published_at: null });
+    expect(summaryOf(logs)).toContain('"virou_documento":1');
+  });
+
+  it("[RF15] factchecks-tavily: sem data no buscador nem na URL ⇒ data do texto; anterior a `since` ⇒ antiga; sem data ⇒ fora", () => {
+    const r = (url: string, raw_content: string) => ({ url, title: "t", raw_content, published_date: null });
+    const antigaTexto = CHECAGEM.replace(CHECAGEM_TITULO, `${CHECAGEM_TITULO}\n10/01/2029`);
+    const recenteTexto = CHECAGEM.replace(CHECAGEM_TITULO, `${CHECAGEM_TITULO}\n14.mar.2030`);
+    const { candidates, dropped } = candidatesFromSearch(
+      [
+        r("https://aosfatos.org/noticias/checagem-antiga", antigaTexto),
+        r("https://aosfatos.org/noticias/checagem-recente", recenteTexto),
+        r("https://aosfatos.org/noticias/checagem-sem-data", CHECAGEM),
+      ],
+      "2030-02-01",
+    );
+    // sem data nenhuma não segue (home, seção e lista nunca têm data)
+    expect(dropped).toEqual({ antiga: 1, sem_data: 1 });
+    expect(candidates.map((c) => [c.url, c.publishedAt])).toEqual([["https://aosfatos.org/noticias/checagem-recente", "2030-03-14"]]);
+  });
+
+  it("[RF15] web-finds: checagem de agência sem data ⇒ documento sem data, não L1", async () => {
+    const url = "https://aosfatos.org/noticias/e-falso-que-a-inflacao-chegou-a-40";
+    const db = webFindsDb([find(url, CHECAGEM, { title: `${CHECAGEM_TITULO} - Aos Fatos`, source_name: "Aos Fatos" })]);
+    await drain(testCtx(db).ctx, { kind: "web-finds", limit: 10 });
+    expect(db.rows("kb_factchecks")).toEqual([]);
+    expect(db.rows("kb_documents")).toHaveLength(1);
+    expect(db.rows("kb_documents")[0]).toMatchObject({ url, origin: "web", published_at: null, title: CHECAGEM_TITULO });
+    expect(db.rows("kb_web_finds")[0]).toMatchObject({ status: "done", note: "documento" });
+  });
+});
+
+describe("[RF15] documento lido pela Tavily não substitui o que já está na base", () => {
+  it("[RF15] etapa document e comando documents: download recusado + documento existente ⇒ mantém e avisa; sem documento ⇒ grava", async () => {
+    const existe = "https://doc-bloqueado.test/2030/03/14/programa";
+    const novo = "https://doc-bloqueado.test/2030/03/14/plano";
+    fakeFetch({
+      [existe]: () => new Response("Access Denied", { status: 403 }),
+      [novo]: () => new Response("Access Denied", { status: 403 }),
+      [TAVILY_EXTRACT]: (init) =>
+        Response.json({ results: [{ url: (jsonBody(init).urls as string[])[0], title: "Página parcial", raw_content: NOTICIA }] }),
+    });
+    const curado: Row = { id: "doc-curado", url: existe, title: "Programa de governo", body: "texto inteiro baixado antes", doc_type: "programa" };
+    const db = new FakeDb({ kb_documents: [curado] });
+    const { ctx, logs, warns } = testCtx(db);
+
+    await runStep(
+      ctx,
+      { kind: "document", url: existe, title: "Programa de governo", doc_type: "programa", person: null, published_at: null },
+      { deadline: Date.now() + 60_000 },
+    );
+    expect(db.rows("kb_documents")).toEqual([curado]);
+    expect(warns.join("\n")).toContain(`${existe}: download recusado; documento existente mantido`);
+
+    const dir = mkdtempSync(join(tmpdir(), "kb-docs-"));
+    try {
+      const manifest = join(dir, "documents.yaml");
+      writeFileSync(
+        manifest,
+        [
+          "documents:",
+          `  - { url: "${existe}", title: "Programa de governo", doc_type: programa }`,
+          `  - { url: "${novo}", title: "Plano de obras", doc_type: programa }`,
+        ].join("\n"),
+      );
+      await runDocuments(ctx, { manifest });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+    expect(db.rows("kb_documents").find((d) => d.url === existe)).toEqual(curado);
+    expect(db.rows("kb_chunks").some((c) => c.document_id === "doc-curado")).toBe(false);
+    expect(db.rows("kb_documents").find((d) => d.url === novo)).toMatchObject({ title: "Plano de obras", published_at: "2030-03-14" });
+    expect(String(db.rows("kb_documents").find((d) => d.url === novo)!.body)).toContain("rio Fictício");
+    expect(logs).toContain('documentos: {"skipped":1,"written":1}');
+    expect(warns.filter((w) => w.includes("documento existente mantido"))).toHaveLength(2);
+  });
+});
+
+describe("[RF15] título e selo", () => {
+  it("[RF15] título do UOL com data: tira data e nome do site em laço", () => {
+    const uol = "https://noticias.uol.com.br/confere/ultimas-noticias/2030/03/14/e-falso.htm";
+    expect(cleanPageTitle("É falso que a ponte de Vila Imaginária caiu - 20/10/2026 - UOL Confere", uol)).toBe(
+      "É falso que a ponte de Vila Imaginária caiu",
+    );
+    expect(cleanPageTitle("É falso que a ponte de Vila Imaginária caiu - 20/10/2026", uol)).toBe("É falso que a ponte de Vila Imaginária caiu");
+    // parte do título que não é data nem site fica
+    expect(cleanPageTitle("Inflação sobe em março - entenda - 20/10/2026 - UOL Confere", uol)).toBe("Inflação sobe em março - entenda");
+  });
+
+  it("[RF15] vários rótulos com selos diferentes ⇒ sem selo único: não vira L1, vira documento da agência (com a data do texto)", async () => {
+    const url = "https://aosfatos.org/noticias/checamos-as-falas-do-prefeito-de-vila-imaginaria";
+    const db = new FakeDb();
+    const { ctx, logs } = testCtx(db);
+    await processCandidates(ctx, [withPage(url, "Checamos as falas do prefeito de Vila Imaginária sobre a economia - Aos Fatos", DUAS_FALAS)], {});
+    expect(db.rows("kb_factchecks")).toEqual([]);
+    expect(db.rows("kb_documents")).toHaveLength(1);
+    expect(db.rows("kb_documents")[0]).toMatchObject({
+      url,
+      title: "Checamos as falas do prefeito de Vila Imaginária sobre a economia",
+      published_at: "2030-03-15T00:00:00.000Z",
+    });
+    expect(summaryOf(logs)).toContain('"virou_documento":1');
   });
 });
