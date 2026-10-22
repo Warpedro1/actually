@@ -89,6 +89,18 @@ export function buildVerifyMessage(input: VerifyInput): string {
   ].filter(Boolean).join("\n\n");
 }
 
+/**
+ * Corta o resumo em fim de palavra, sem deixar número ou cifrão pela metade no final:
+ * "abaixo de R$ 1…" (de "R$ 10,3 trilhões") viraria um número que nenhuma fonte diz.
+ */
+export function truncateSummary(summary: string, max: number): string {
+  let cut = summary.slice(0, max - 1);
+  const space = cut.lastIndexOf(" ");
+  if (space > max * 0.6) cut = cut.slice(0, space);
+  cut = cut.replace(/(?:\s*(?:R\$|US\$))?\s*[\d.,%]*$/u, "").replace(/[\s,;:–—-]+$/u, "");
+  return `${cut}…`;
+}
+
 export function inconclusive(reason: string): ModelVerdict {
   return { verdict: "inconclusivo", confidence: 0, correction: "", summary: "", citations: [], forced_reason: reason };
 }
@@ -97,7 +109,7 @@ export function inconclusive(reason: string): ModelVerdict {
 export function sanitizeVerdict(out: VerifyOutput, evidenceCount: number): ModelVerdict {
   const conf = Number.isFinite(out.confidence) ? Math.min(1, Math.max(0, out.confidence)) : 0;
   let summary = out.summary.trim().replace(/\s+/g, " ");
-  if (summary.length > SUMMARY_MAX_CHARS) summary = `${summary.slice(0, SUMMARY_MAX_CHARS - 1).trimEnd()}…`;
+  if (summary.length > SUMMARY_MAX_CHARS) summary = truncateSummary(summary, SUMMARY_MAX_CHARS);
   return {
     verdict: out.verdict,
     confidence: conf,

@@ -81,6 +81,12 @@ const MEDIATOR_RE = /^(mediacao|mediador|mediadora|moderacao|moderador|moderador
 
 const today = (deps: PipelineDeps) => new Date(deps.now()).toISOString().slice(0, 10);
 
+/** "2026-10-18T..." → "18/10/2026" (como a correção costuma escrever a data); ilegível ⇒ null. */
+function brDate(iso: string): string | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : null;
+}
+
 function formatContext(segments: Pick<Segment, "speaker_label" | "text">[]): string {
   return segments.map((s) => `[${s.speaker_label ?? "?"}] ${s.text}`).join("\n");
 }
@@ -197,8 +203,14 @@ export async function assessClaim(
   // "[s1-4f9a12:S0]", que viraria número); com unidade, a reformulação também vale
   // ("7 e meio por 100" → 7,5%)
   const said = { refuted: [claim.text_original, segmentText, sameSpeakerContext], refutedWithUnit: [claim.text_normalized] };
-  const numsCorrection = numbersSupported(model.correction, ev.verifiedTexts, said);
-  const numsSummary = numbersSupported(model.summary, ev.verifiedTexts, said);
+  // a data de publicação de uma fonte verificada e a data da fala também valem na correção
+  // ("segundo a Lupa, em 18/10/2026, ...") — estão no cabeçalho da evidência, não no trecho
+  const dates = [today(deps), ...ev.records.filter((r) => r.quote_verified && r.published_at).map((r) => r.published_at!)]
+    .map(brDate)
+    .filter((d): d is string => d !== null);
+  const numberSources = [...ev.verifiedTexts, ...dates];
+  const numsCorrection = numbersSupported(model.correction, numberSources, said);
+  const numsSummary = numbersSupported(model.summary, numberSources, said);
   const nums = {
     ok: numsCorrection.ok && numsSummary.ok,
     unsupported: [...numsCorrection.unsupported, ...numsSummary.unsupported],

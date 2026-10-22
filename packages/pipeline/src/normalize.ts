@@ -24,9 +24,10 @@ export function claimHash(textNormalized: string): string {
 
 const MULTIPLIERS: [RegExp, number][] = [
   [/^mil$/, 1e3],
-  [/^milh(?:ão|ao|ões|oes)$/, 1e6],
-  [/^bilh(?:ão|ao|ões|oes)$/, 1e9],
-  [/^trilh(?:ão|ao|ões|oes)$/, 1e12],
+  // abreviações do resumo do alerta e da imprensa: "R$ 547 mi", "R$ 3,5 bi", "R$ 10 tri"
+  [/^(?:milh(?:ão|ao|ões|oes)|mi)$/, 1e6],
+  [/^(?:bilh(?:ão|ao|ões|oes)|bi)$/, 1e9],
+  [/^(?:trilh(?:ão|ao|ões|oes)|tri)$/, 1e12],
 ];
 
 const WORD_NUMBERS: Record<string, number> = {
@@ -71,7 +72,7 @@ export function parseNumericLiteral(lit: string): number | null {
   return Number.isFinite(v) ? v : null;
 }
 
-const MULT_RE = "mil|milh(?:ão|ao|ões|oes)|bilh(?:ão|ao|ões|oes)|trilh(?:ão|ao|ões|oes)";
+const MULT_RE = "mil|milh(?:ão|ao|ões|oes)|bilh(?:ão|ao|ões|oes)|trilh(?:ão|ao|ões|oes)|mi|bi|tri";
 const UNIT_RE = "%|por\\s+cento|pontos?\\s+percentua(?:l|is)|p\\.\\s?p\\.?|km²|km2|quil[ôo]metros\\s+quadrados|hectares|reais|d[óo]lares";
 const QUAL_RE = "quase|cerca\\s+de|mais\\s+de|menos\\s+de|aproximadamente|uns|umas|em\\s+torno\\s+de|perto\\s+de";
 const WORD_RE = Object.keys(WORD_NUMBERS).sort((a, b) => b.length - a.length).join("|");

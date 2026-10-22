@@ -14,7 +14,7 @@ import { baseIsStrong } from "../src/retrieve/index";
 import { accentsLost } from "../src/retrieve/web";
 import { scoreDecision, type ScoreInput } from "../src/score";
 import type { EvidenceRecord } from "../src/types";
-import { VERIFY_SYSTEM } from "../src/verify";
+import { truncateSummary, VERIFY_SYSTEM } from "../src/verify";
 import { fakeAnthropic, fakeRerank, makeDeps, MemoryStore, type FakeReply } from "./helpers";
 
 type ClaimOut = ExtractionOutput["claims"][number];
@@ -348,5 +348,52 @@ describe("[RF15] [RF07] documento que a base aprendeu da web pesa como web", () 
         published_at: null, quote_similarity: 1, weak: true }],
     });
     expect(r.components).toMatchObject({ used_web: true, threshold: 0.8 });
+  });
+});
+
+describe("[RF05] números da correção: abreviações, datas da fonte e resumo cortado (ensaio de 21/10)", () => {
+  it("\"R$ 547 mi\", \"R$ 3,5 bi\" e \"R$ 10 tri\" são milhões, bilhões e trilhões; \"5 minutos\" não", () => {
+    expect(extractNumbers("R$ 547 mi")[0]).toMatchObject({ value: 547e6, unit: "R$" });
+    expect(extractNumbers("cerca de R$ 3,5 bi")[0]).toMatchObject({ value: 3.5e9, unit: "R$" });
+    expect(extractNumbers("R$ 10 tri")[0]).toMatchObject({ value: 10e12 });
+    expect(extractNumbers("em 5 minutos")[0]).toMatchObject({ value: 5 });
+    expect(numbersSupported("Foram pagos R$ 3,5 bi a aposentados.", ["o INSS pagou R$ 3,5 bilhões aos aposentados"]).ok).toBe(true);
+  });
+
+  it("resumo cortado não termina em número ou cifrão pela metade", () => {
+    const long = "Dados do Tesouro mostram dívida federal de R$ 8,84 trilhões em fev/2026, com projeção de até R$ 10,3 trilhões no fim do ano";
+    const cut = truncateSummary(long, 110);
+    expect(cut.endsWith("…")).toBe(true);
+    expect(cut).not.toMatch(/R\$\s*[\d.,]*…$/);
+    expect(cut.length).toBeLessThanOrEqual(110);
+    expect(numbersSupported(cut, ["dívida de R$ 8,84 trilhões em fev/2026"]).ok).toBe(true);
+  });
+
+  it("data de publicação da fonte verificada vale na correção (\"segundo a Lupa, em 18/10/2026\")", async () => {
+    const store = new MemoryStore({ series: [], values: [] });
+    const seg = store.addSegment("O careca do INSS foi do governo Lula.", { speaker_label: "s1-x:S4" });
+    const anthropic = fakeAnthropic({
+      extract: () => ({ output: { claims: [claim("O careca do INSS foi do governo Lula.", "O Careca do INSS fez parte do governo Lula.", { tipo: "fato" })] } }),
+      verify: () => ({
+        output: {
+          rationale: "r", verdict: "contradito", confidence: 0.95,
+          correction: "Segundo a Lupa, em 18/10/2026, o Careca do INSS não fez parte do governo Lula.",
+          summary: "Checagem de 18/10/2026: o Careca do INSS não integrou o governo.",
+          citations: [{ evidence_index: 1, quote: "o Careca do INSS não fez parte do governo Lula" }],
+        },
+      }),
+    });
+    const deps = makeDeps({
+      store, anthropic,
+      webSearch: async () => [{
+        url: "https://www.agencialupa.org/verificacao/2026/10/18/careca-do-inss", title: "Careca do INSS", content: "x",
+        raw_content: "É falso que o Careca do INSS integrou o governo: o Careca do INSS não fez parte do governo Lula, segundo documentos.",
+        published_date: "2026-10-18", score: 1,
+      }],
+    });
+    await createPipeline(deps).runPipeline(seg.id);
+    expect(store.verifications).toHaveLength(1);
+    expect(store.verifications[0]!.verdict).toBe("contradito");
+    expect(store.verifications[0]!.score_components).not.toMatchObject({ silence_reason: "numero_sem_fonte" });
   });
 });
