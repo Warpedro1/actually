@@ -285,9 +285,10 @@ function exactOnly(n: ClaimNumber): boolean {
 
 function sameNumber(n: ClaimNumber, k: ClaimNumber): boolean {
   if (n.unit && k.unit && n.unit !== k.unit) return false; // 2% não é 2 p.p.
-  // número com unidade na correção só casa com o mesmo número COM unidade: "30 municípios"
-  // ou "COP30" na fonte não sustentam "caiu 30%"
-  if (n.unit && !k.unit) return false;
+  // percentual na correção só casa com percentual: "30 municípios" ou "COP30" na fonte não
+  // sustentam "caiu 30%". Moeda fica de fora: a série do L2 escreve "1.518 R$" e o número
+  // vem sem unidade.
+  if ((n.unit === "%" || n.unit === "p.p.") && !k.unit) return false;
   if (k.value === n.value) return true;
   if (exactOnly(n)) return false;
   return Math.abs(k.value - n.value) <= Math.max(0.05, Math.abs(k.value) * 0.01);

@@ -185,6 +185,8 @@ describe("[RF05] números: correção só com número da fonte; negado só se o 
     // número com unidade na correção não casa com o mesmo número sem unidade na fonte
     expect(numbersSupported("O desmatamento caiu 30%.", ["Em 30 municípios o desmatamento caiu."]).ok).toBe(false);
     expect(numbersSupported("O desmatamento caiu 30%.", ["a área desmatada caiu 30% em 2025"]).ok).toBe(true);
+    // moeda continua casando com o valor da série do L2 (unidade depois do número)
+    expect(numbersSupported("O salário mínimo é de R$ 1.518.", ["jan/2026 = 1.518 R$"]).ok).toBe(true);
   });
 
   it("ano negado na correção só vale se estiver na fala literal, não só na reformulação (ensaio 2: \"2003\")", () => {
