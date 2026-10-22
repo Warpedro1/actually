@@ -181,23 +181,25 @@ const NAMED_PERIODS: readonly [RegExp, readonly (readonly [number, number])[]][]
 /**
  * Anos que a normalização (ou o período/indicador/referência) trouxe e que a fala, o
  * segmento e o contexto não dizem. Ano dito por extenso de 2 dígitos ("de 88") vale;
- * período nomeado ("no governo do seu pai") autoriza os anos do período; "ano passado"/
- * "hoje" — só na fala e no trecho atual (`near`), não no contexto de outro falante —
- * autorizam o ano da data e os vizinhos; "últimos N anos", a janela. Nos campos de
- * período (`periodFields`: indicador, referência temporal, eleição) vale também 1 ano
- * de folga em volta de um ano dito ("depois de 2010" → 2011).
+ * "ano passado"/"hoje" autorizam o ano da data e os vizinhos; "últimos N anos", a janela;
+ * período nomeado ("no governo do seu pai") autoriza os anos dele, mas só se dito NA
+ * PRÓPRIA AFIRMAÇÃO (`own`): no trecho ou no contexto, "quando eu cheguei" de outra frase
+ * licenciaria o "2003 a 2010" inventado para "cresceu 7 e meio" (ensaio 2). Nos campos de
+ * período (`periodFields`: indicador, referência temporal, eleição) vale também 1 ano de
+ * folga em volta de um ano dito ("depois de 2010" → 2011).
  */
 export function unlicensedYears(
   added: string[],
   sources: string,
   today: string,
-  opts: { near?: string; periodFields?: string[] } = {},
+  opts: { own?: string; periodFields?: string[] } = {},
 ): number[] {
   const src = fold(sources);
   const y0 = Number(today.slice(0, 4));
-  const relative = RELATIVE_TIME.test(fold(opts.near ?? sources));
+  const relative = RELATIVE_TIME.test(src);
   const windows = [...src.matchAll(/\bultimos (\d{1,2}) anos\b/g)].map((m) => Number(m[1]));
-  const named = NAMED_PERIODS.filter(([re]) => re.test(src)).flatMap(([, w]) => w);
+  const own = fold(opts.own ?? "");
+  const named = NAMED_PERIODS.filter(([re]) => re.test(own)).flatMap(([, w]) => w);
   const said = [...src.matchAll(YEAR_RE)].map((m) => Number(m[1]));
   const out = new Set<number>();
   const check = (text: string, period: boolean) => {
@@ -251,7 +253,10 @@ const KNOWN_NAME_WORDS = new Set(
     "inquerito mista assembleia legislativa distrito defensoria advocacia geral controladoria " +
     // expansões de sigla que o extrator escreve por extenso
     "sistema unico saude contas procuradoria rodoviaria microempreendedor individual agencia inteligencia " +
-    "desenvolvimento economico fundo garantia tempo servico consolidacao leis trabalho " +
+    "desenvolvimento economico fundo garantia tempo servico consolidacao leis trabalho beneficio prestacao " +
+    "continuada teto gastos arcabouco fiscal constitucional microempresa empresa pequeno porte " +
+    // prenomes de quem é citado pelo sobrenome ("o Moraes" → "Alexandre de Moraes"; o sobrenome segue exigido)
+    "alexandre donald sergio romeu ronaldo gleisi nikolas " +
     // siglas que o extrator escreve como estão ou expande
     "inss pf stf stj tse tcu cgu agu mpf pgr sus ibge ipea pt pl psdb mdb psol pdt psb pp pcc cv cpi cpmi pec mp bc onu fmi " +
     "ocde bndes fgts clt"
@@ -372,7 +377,7 @@ export function postprocessExtraction(
     const reference = toReference(c.reference);
     const indicator = toIndicator(c.indicator);
     const years = unlicensedYears([normalized], sources, today, {
-      near: `${original}\n${segmentText}`,
+      own: original,
       periodFields: [indicator?.period ?? "", c.time_reference ?? "", reference?.year ? String(reference.year) : ""],
     });
     if (years.length) {

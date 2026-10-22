@@ -283,11 +283,6 @@ function exactOnly(n: ClaimNumber): boolean {
   return n.unit === null && Number.isInteger(n.value) && !/\d,\d|mil|milh|bilh|trilh/i.test(n.raw);
 }
 
-/** Inteiro de 4 dígitos entre 1900 e 2100 sem unidade: provavelmente um ano. */
-function looksLikeYear(n: ClaimNumber): boolean {
-  return n.unit === null && Number.isInteger(n.value) && n.value >= 1900 && n.value <= 2100 && /^\d{4}$/.test(n.raw.trim());
-}
-
 function sameNumber(n: ClaimNumber, k: ClaimNumber): boolean {
   if (n.unit && k.unit && n.unit !== k.unit) return false; // 2% não é 2 p.p.
   if (k.value === n.value) return true;
@@ -314,15 +309,14 @@ export function numbersSupported(
   opts: {
     /** Fala literal (trecho original, segmento, falas anteriores do mesmo falante): vale para qualquer número negado. */
     refuted?: string[];
-    /** Afirmação reformulada: vale número com unidade ("7,5%" de "7 e meio por 100") ou que não pareça ano. */
+    /** Afirmação reformulada: só vale para número com unidade ("7,5%" de "7 e meio por 100"). */
     refutedWithUnit?: string[];
   } = {},
 ): { ok: boolean; unsupported: string[] } {
   const known = sources.flatMap((s) => extractNumbers(s));
   const said = [
     ...(opts.refuted ?? []).flatMap((s) => extractNumbers(s)),
-    // sem unidade só se não parecer ano ("uma década" → "10 anos" vale; "2003" inventado, não)
-    ...(opts.refutedWithUnit ?? []).flatMap((s) => extractNumbers(s)).filter((n) => n.unit !== null || !looksLikeYear(n)),
+    ...(opts.refutedWithUnit ?? []).flatMap((s) => extractNumbers(s)).filter((n) => n.unit !== null),
   ];
   const unsupported: string[] = [];
   let pos = 0;

@@ -65,10 +65,11 @@ describe("[RF02] fidelidade: ano que a fala não diz derruba a afirmação", () 
     expect(unlicensedYears([], "em 2010", TODAY, { periodFields: ["2011"] })).toEqual([]);
   });
 
-  it("\"hoje\" no contexto de outro falante não autoriza o ano atual; na fala ou no trecho, sim", () => {
-    const c = claim("começaram a debater a maioridade penal", "Governo e oposição começaram a debater a redução da maioridade penal em 2026.");
-    expect(run(c, c.text_original, "[S0] hoje vamos falar de segurança").dropped).toBe("normalizacao_acrescenta_ano");
-    expect(run(c, `Hoje, ${c.text_original}`).out).toHaveLength(1);
+  it("período nomeado só vale dito na própria afirmação, não em outra frase do trecho ou do contexto (Band, seg 36)", () => {
+    const seg = "Quando eu cheguei na presidência devia 30000000000 para o FMI. E a economia cresceu 7 e meio por 100.";
+    const c = claim("E a economia cresceu 7 e meio por 100.", "A economia brasileira cresceu 7,5% durante o primeiro governo Lula (2003 a 2010).");
+    expect(run(c, seg).dropped).toBe("normalizacao_acrescenta_ano");
+    expect(run(c, c.text_original, "[S2] no meu governo foi assim").dropped).toBe("normalizacao_acrescenta_ano");
   });
 
   it("\"ao ano\"/\"em média\" que a fala não diz cai (ensaio 1: \"cresceu 7 e meio\" virou \"7,5% ao ano no governo Lula\")", () => {
@@ -163,6 +164,13 @@ describe("[RF05] números: correção só com número da fonte; negado só se o 
     expect(extractNumbers("R$1.000")[0]).toMatchObject({ value: 1000 });
     expect(extractNumbers("de 2015-2023").map((n) => n.value)).toEqual([2015, 2023]);
     expect(numbersSupported("Segundo o g1, a pena vai a 40 anos.", ["pena de 20 a 40 anos"]).ok).toBe(true);
+    // código colado em letra é número (tribunal, conferência); nunca recomeça no meio de outro
+    expect(extractNumbers("Lula foi condenado pelo TRF4.").map((n) => n.value)).toEqual([4]);
+    expect(numbersSupported("Lula foi condenado pelo TRF1 em 2018.", ["condenado pelo TRF4 em janeiro de 2018"]).ok).toBe(false);
+    expect(extractNumbers("escala 4x1").map((n) => n.value)).toEqual([4, 1]);
+    expect(extractNumbers("Segundo o G1 e o Brasil247")).toEqual([]);
+    expect(extractNumbers("Lei nº14.601/2023").map((n) => n.value)).toEqual([14601, 2023]);
+    expect(extractNumbers("taxa de desocupação7,8%")[0]).toMatchObject({ value: 7.8, unit: "%" });
   });
 
   it("ano negado na correção só vale se estiver na fala literal, não só na reformulação (ensaio 2: \"2003\")", () => {
@@ -176,10 +184,6 @@ describe("[RF05] números: correção só com número da fonte; negado só se o 
     // número dito pelo falante continua valendo negado ("não 80")
     expect(numbersSupported("A pena máxima é de 60 anos, não 80.", ["até 60 anos de prisão"], { refuted: ["vão ficar até 80 anos presos"] }).ok)
       .toBe(true);
-    // sem unidade e sem cara de ano, a reformulação vale ("uma década" → "10 anos" → "não 10")
-    expect(numbersSupported("O PT governou 13 anos seguidos, não 10.", ["governou por 13 anos seguidos"], {
-      refuted: ["o PT governou por uma década"], refutedWithUnit: ["O PT governou o Brasil por 10 anos."],
-    }).ok).toBe(true);
   });
 
   it("número que a mediação ou o adversário disse não vale negado na correção do candidato", async () => {
