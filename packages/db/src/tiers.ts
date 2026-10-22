@@ -41,6 +41,7 @@ export const SOURCE_TIERS: SourceTierRow[] = [
   { domain: "datasus.gov.br", name: "DataSUS", tier: 1, kind: "oficial" },
   { domain: "forumseguranca.org.br", name: "Fórum Brasileiro de Segurança Pública", tier: 1, kind: "academico" },
   // Checagem profissional
+  { domain: "agencialupa.org", name: "Agência Lupa", tier: 1, kind: "checagem" },
   { domain: "lupa.uol.com.br", name: "Agência Lupa", tier: 1, kind: "checagem" },
   { domain: "aosfatos.org", name: "Aos Fatos", tier: 1, kind: "checagem" },
   { domain: "estadao.com.br/estadao-verifica", name: "Estadão Verifica", tier: 1, kind: "checagem" },

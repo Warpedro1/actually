@@ -58,10 +58,12 @@ export function candidatesFromSearch(
     const page = r.raw_content ? pageFromText({ url, title: r.title, text: r.raw_content, publishedAt: r.published_date }) : null;
     const date = page ? page.publishedAt : r.published_date || dateFromUrl(url);
     const dateMs = date ? Date.parse(date) : NaN;
-    // sem data nenhuma (URL, buscador ou começo do texto): não dá para saber se é recente
-    // nem se é a checagem (home, seção e lista nunca têm) — na dúvida, fica de fora
+    // sem data na URL, no buscador nem no texto da Tavily (Aos Fatos e Estadão não trazem):
+    // baixa a página direto, que tem a data no HTML (e o robots.txt é conferido no download).
+    // Se o download falhar, o texto da Tavily não vira checagem (sem data) e lista é recusada.
     if (!Number.isFinite(dateMs)) {
-      drop("sem_data");
+      drop("sem_data_baixar");
+      candidates.push({ url, publishedAt: null });
       continue;
     }
     if (Number.isFinite(sinceMs) && dateMs < sinceMs) {

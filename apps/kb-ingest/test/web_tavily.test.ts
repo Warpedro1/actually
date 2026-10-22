@@ -431,10 +431,14 @@ describe("[RF15] etapa factchecks-tavily (checagens recentes das agências)", ()
       ],
       "2030-02-01",
     );
-    expect(candidates.map((c) => c.url)).toEqual(["https://noticias.uol.com.br/confere/ultimas-noticias/2030/03/14/e-falso.htm"]);
+    expect(candidates.map((c) => c.url)).toEqual([
+      "https://noticias.uol.com.br/confere/ultimas-noticias/2030/03/14/e-falso.htm",
+      "https://checamos.afp.com/doc.afp.com.DEF456",
+    ]);
     expect(candidates[0]).toMatchObject({ publishedAt: "2030-03-14", page: { publishedAt: "2030-03-14", claimReviews: [] } });
-    // sem data na URL, no buscador nem no texto: fica de fora
-    expect(dropped).toEqual({ fora_da_agencia: 1, antiga: 1, sem_data: 1 });
+    // sem data na URL, no buscador nem no texto: segue SEM o texto da Tavily (baixa direto, data do HTML)
+    expect(candidates[1]!.page).toBeUndefined();
+    expect(dropped).toEqual({ fora_da_agencia: 1, antiga: 1, sem_data_baixar: 1 });
   });
 
   it("[RF15] busca uma vez, não baixa as páginas: checagem com selo ⇒ L1, matéria com várias falas ⇒ documento, já na base ⇒ pula", async () => {
@@ -531,6 +535,12 @@ describe("[RF15] página de lista (home, seção, tag) nunca vira documento", ()
     expect(mostlyHeadlines(LISTA)).toBe(true);
     // selos, falas citadas, data e assinatura não contam: matéria com várias falas não é lista
     for (const text of [CHECAGEM, NOTICIA, MATERIA_VARIAS_FALAS, DUAS_FALAS]) expect(mostlyHeadlines(text)).toBe(false);
+    // matéria com muitos links curtos de "relacionadas" (UOL): conta caractere, não linha
+    const relacionadas = Array.from({ length: 20 }, (_, i) => `Veja como votou o deputado número ${i} na reforma`).join("\n");
+    const paragrafos = Array.from({ length: 5 }, () =>
+      "EXAGERADO. O candidato estava falando de quando encerrou o segundo mandato. Embora acerte ao afirmar que a economia cresceu 7,5% em 2010, o total de empregos criados nos oito anos foi inferior ao citado, segundo a Rais, que registrou 15,4 milhões de vagas formais a mais no período.",
+    ).join("\n");
+    expect(mostlyHeadlines(`${relacionadas}\n${paragrafos}`)).toBe(false);
     expect(isListingPage("https://lupa.uol.com.br/jornalismo/2030/03/15/especial", LISTA)).toBe(true);
   });
 
@@ -665,7 +675,7 @@ describe("[RF15] checagem L1 precisa de data", () => {
     expect(summaryOf(logs)).toContain('"virou_documento":1');
   });
 
-  it("[RF15] factchecks-tavily: sem data no buscador nem na URL ⇒ data do texto; anterior a `since` ⇒ antiga; sem data ⇒ fora", () => {
+  it("[RF15] factchecks-tavily: sem data no buscador nem na URL ⇒ data do texto; anterior a `since` ⇒ antiga; sem data ⇒ baixa direto", () => {
     const r = (url: string, raw_content: string) => ({ url, title: "t", raw_content, published_date: null });
     const antigaTexto = CHECAGEM.replace(CHECAGEM_TITULO, `${CHECAGEM_TITULO}\n10/01/2029`);
     const recenteTexto = CHECAGEM.replace(CHECAGEM_TITULO, `${CHECAGEM_TITULO}\n14.mar.2030`);
@@ -677,9 +687,12 @@ describe("[RF15] checagem L1 precisa de data", () => {
       ],
       "2030-02-01",
     );
-    // sem data nenhuma não segue (home, seção e lista nunca têm data)
-    expect(dropped).toEqual({ antiga: 1, sem_data: 1 });
-    expect(candidates.map((c) => [c.url, c.publishedAt])).toEqual([["https://aosfatos.org/noticias/checagem-recente", "2030-03-14"]]);
+    // sem data nenhuma: segue para download direto, sem o texto da Tavily
+    expect(dropped).toEqual({ antiga: 1, sem_data_baixar: 1 });
+    expect(candidates.map((c) => [c.url, c.publishedAt, Boolean(c.page)])).toEqual([
+      ["https://aosfatos.org/noticias/checagem-recente", "2030-03-14", true],
+      ["https://aosfatos.org/noticias/checagem-sem-data", null, false],
+    ]);
   });
 
   it("[RF15] web-finds: checagem de agência sem data ⇒ documento sem data, não L1", async () => {

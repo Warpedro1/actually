@@ -51,6 +51,7 @@ Sites de governo só são nível 1 nos endereços listados abaixo, de órgãos q
 | Tier | Fonte | Domínio | Tipo |
 | --- | --- | --- | --- |
 | 1 | AFP Checamos | `checamos.afp.com` | checagem |
+| 1 | Agência Lupa | `agencialupa.org` | checagem |
 | 1 | Agência Lupa | `lupa.uol.com.br` | checagem |
 | 1 | ANP | `anp.gov.br` | oficial |
 | 1 | Aos Fatos | `aosfatos.org` | checagem |
@@ -98,7 +99,7 @@ Sites de governo só são nível 1 nos endereços listados abaixo, de órgãos q
 | 3 | UOL | `uol.com.br` | imprensa |
 | 4 | Governo (gov.br) | `gov.br` | oficial |
 
-Total: 47 domínios — tier 1 (Dado oficial primário ou checagem profissional): 27; tier 2 (Imprensa de referência ou academia): 14; tier 3 (Imprensa geral): 5; tier 4 (Qualquer outra fonte): 1. Domínio fora da lista = tier 4.
+Total: 48 domínios — tier 1 (Dado oficial primário ou checagem profissional): 28; tier 2 (Imprensa de referência ou academia): 14; tier 3 (Imprensa geral): 5; tier 4 (Qualquer outra fonte): 1. Domínio fora da lista = tier 4.
 
 <!-- tiers:end -->
 

@@ -239,13 +239,15 @@ function isNeutralLine(line: string): boolean {
  * nenhum lado (a matéria com várias falas tem fala e selo para cada fala checada).
  */
 export function mostlyHeadlines(text: string): boolean {
+  // pesa por caracteres, não por linha: matéria de verdade tem parágrafos longos, mesmo com
+  // muitos links curtos de "relacionadas" em volta (UOL); lista é quase só manchete
   let counted = 0;
   let headlines = 0;
   for (const raw of text.split("\n")) {
     const line = raw.trim();
     if (!line || isNeutralLine(line)) continue;
-    counted++;
-    if (looksLikeHeadline(line)) headlines++;
+    counted += line.length;
+    if (looksLikeHeadline(line)) headlines += line.length;
   }
   return headlines * 2 > counted;
 }
