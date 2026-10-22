@@ -91,8 +91,9 @@ export interface EvidenceCandidate {
   /** L2: comparação determinística. A citação é o próprio evidence_text (quote_verified=true). */
   comparison?: IndicatorComparison;
   /**
-   * Evidência da base com relevância baixa, que entrou junto com a web (base fraca):
-   * pode ser citada, mas não conta como camada independente nem tira o acréscimo da web.
+   * Evidência da base com relevância baixa, que entrou junto com a web (base fraca), ou
+   * documento que a base aprendeu da própria busca web (origin 'web'): pode ser citada, mas
+   * não conta como camada independente, não tira o acréscimo da web e não deixa a base "forte".
    */
   weak?: boolean;
 }

@@ -33,5 +33,8 @@ export async function retrieveDocuments(
     title: r.title,
     text: r.text,
     relevance,
+    // documento que a base aprendeu da busca web (origin 'web') pesa como web: não deixa a
+    // base "forte", não conta como camada independente e não tira o acréscimo da web no limiar
+    ...(r.origin === "web" ? { weak: true } : {}),
   }));
 }

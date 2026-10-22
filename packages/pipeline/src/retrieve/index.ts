@@ -48,7 +48,7 @@ async function runLayer(
 export function baseIsStrong(candidates: EvidenceCandidate[], comparison: IndicatorComparison | null): boolean {
   if (comparison && comparison.status !== "no_data") return true;
   return candidates.some(
-    (c) => (c.layer === "L1" || c.layer === "L3") && c.relevance >= WEB_SKIP_MIN_RELEVANCE[c.layer],
+    (c) => (c.layer === "L1" || c.layer === "L3") && !c.weak && c.relevance >= WEB_SKIP_MIN_RELEVANCE[c.layer],
   );
 }
 

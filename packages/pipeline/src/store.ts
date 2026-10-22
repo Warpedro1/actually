@@ -276,13 +276,19 @@ export function supabaseStore(sb: Sb): PipelineStore {
     },
 
     async matchChunks(embedding, text, count, person) {
-      const rows = check(
+      const rows = (check(
         await sb.rpc("match_chunks", {
           query_embedding: toPgVector(embedding), query_text: text, match_count: count, filter_person: person,
         }),
         "match_chunks",
-      );
-      return (rows ?? []) as ChunkMatch[];
+      ) ?? []) as ChunkMatch[];
+      if (!rows.length) return rows;
+      // a RPC não devolve a origem do documento: o que veio da web pesa como web (retrieve/documents.ts)
+      const ids = [...new Set(rows.map((r) => r.document_id))];
+      const { data, error } = await sb.from("kb_documents").select("id, origin").in("id", ids);
+      // sem conseguir ler a origem, trata tudo como web: só sobe o limiar (na dúvida, mais exigência)
+      const origin = new Map(error ? ids.map((id) => [id, "web"]) : ((data ?? []) as { id: string; origin: string | null }[]).map((d) => [d.id, d.origin]));
+      return rows.map((r) => ({ ...r, origin: origin.get(r.document_id) ?? null }));
     },
 
     async findIndicator(q, count) {

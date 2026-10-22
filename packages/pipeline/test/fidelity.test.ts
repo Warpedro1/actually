@@ -9,11 +9,13 @@ import {
 import { createPipeline } from "../src/index";
 import { extractNumbers } from "../src/normalize";
 import { numbersSupported } from "../src/quoteCheck";
+import { retrieveDocuments } from "../src/retrieve/documents";
+import { baseIsStrong } from "../src/retrieve/index";
 import { accentsLost } from "../src/retrieve/web";
 import { scoreDecision, type ScoreInput } from "../src/score";
 import type { EvidenceRecord } from "../src/types";
 import { VERIFY_SYSTEM } from "../src/verify";
-import { fakeAnthropic, makeDeps, MemoryStore, type FakeReply } from "./helpers";
+import { fakeAnthropic, fakeRerank, makeDeps, MemoryStore, type FakeReply } from "./helpers";
 
 type ClaimOut = ExtractionOutput["claims"][number];
 const claim = (original: string, normalized: string, over: Partial<ClaimOut> = {}): ClaimOut => ({
@@ -54,15 +56,19 @@ describe("[RF02] fidelidade: ano que a fala não diz derruba a afirmação", () 
     expect(run(claim("no meu governo o PIB cresceu", "O PIB cresceu no governo Lula (2003 a 2010).")).out).toHaveLength(1);
     expect(run(claim("quando eu cheguei devia 30 bilhões ao FMI", "Em 2003, o Brasil devia US$ 30 bilhões ao FMI.")).out).toHaveLength(1);
     expect(run(claim("na pandemia morreram 700 mil", "Na pandemia de covid-19, entre 2020 e 2022, morreram 700 mil pessoas.")).out).toHaveLength(1);
-    // ensaio 2: "depois que eu deixei" + 2010 dito no trecho ⇒ período 2011..2026 vale
-    const seg = "Em 2010 a economia cresceu 7,5%. Depois que eu deixei a presidente ele só voltou a crescer acima de 3 por 100.";
+    // ensaio 2: "depois que eu deixei" (2010/2011) + "hoje" no trecho anterior ⇒ período 2011..2026 vale
+    const seg = "Hoje a economia cresce. Depois que eu deixei a presidente ele só voltou a crescer acima de 3 por 100.";
     const c = claim("Depois que eu deixei a presidente ele só voltou a crescer acima de 3 por 100.", "O PIB do Brasil só voltou a crescer acima de 3% depois que Lula voltou.", {
       tipo: "estatistica", indicator: { query: "PIB", period: "2011..2026", claimed_value: 3, unit: "%", kind: "level" },
     });
     expect(run(c, seg).out).toHaveLength(1);
-    // folga de 1 ano em volta de ano dito só vale nos campos de período, não no texto
-    expect(unlicensedYears(["em 2011"], "em 2010", TODAY)).toEqual([2011]);
-    expect(unlicensedYears([], "em 2010", TODAY, { periodFields: ["2011"] })).toEqual([]);
+    // ano solto no meio do período nomeado continua exigindo ter sido dito
+    expect(unlicensedYears(["em 2025"], "no meu governo o desemprego caiu", TODAY, { own: "no meu governo o desemprego caiu" }))
+      .toEqual([2025]);
+    // "depois de 2010" → 2011 só nos campos de período e só com o conector
+    expect(unlicensedYears(["em 2011"], "depois de 2010", TODAY)).toEqual([2011]);
+    expect(unlicensedYears([], "depois de 2010", TODAY, { periodFields: ["2011"] })).toEqual([]);
+    expect(unlicensedYears([], "em 2022 estava em 9%", TODAY, { periodFields: ["2023"] })).toEqual([2023]);
   });
 
   it("período nomeado só vale dito na própria afirmação, não em outra frase do trecho ou do contexto (Band, seg 36)", () => {
@@ -78,6 +84,10 @@ describe("[RF02] fidelidade: ano que a fala não diz derruba a afirmação", () 
     expect(run(claim("a economia cresceu 4% ao ano no meu governo", "A economia brasileira cresceu 4% ao ano durante o governo Lula.")).out)
       .toHaveLength(1);
     expect(addsRate("O salário médio é de R$ 3 mil.", "o salário médio é 3 mil")).toBe(false);
+    // "classe média" no trecho não autoriza "ao ano"; "todo ano" e juros, sim
+    expect(addsRate("A economia cresceu 7,5% ao ano.", "cresceu 7 e meio e 40 milhões entraram na classe média")).toBe(true);
+    expect(addsRate("Morrem 40 mil brasileiros assassinados por ano.", "morrem 40 mil assassinados todo ano")).toBe(false);
+    expect(addsRate("A taxa Selic está em 15% ao ano.", "os juros estão em 15%")).toBe(false);
   });
 
   it("\"em 2026\" inventado (maioridade penal) cai; \"ano passado\"/\"hoje\" autorizam o ano da data e vizinhos", () => {
@@ -111,6 +121,7 @@ describe("[RF02] fidelidade: pergunta, hipótese, eleição sem ano/turno e nome
     // "1" do Deepgram como artigo não é número
     expect(isHedged("talvez ele tenha 1 conta lá fora")).toBe(true);
     expect(isHedged("pode ser 1 milhão de reais")).toBe(false);
+    expect(isHedged("talvez 1 terço dos jovens esteja sem estudar")).toBe(false);
     expect(isOpenQuestion("Vocês sabem qual foi a bancada que insistiu para fazer 1 emendinha?")).toBe(true);
     expect(isOpenQuestion("Quem cortou 1 por cento do orçamento?")).toBe(false);
     expect(run(claim("o dinheiro pode ser do aposentado", "O dinheiro de Lulinha vem de aposentados.")).dropped).toBe("hipotese");
@@ -171,6 +182,9 @@ describe("[RF05] números: correção só com número da fonte; negado só se o 
     expect(extractNumbers("Segundo o G1 e o Brasil247")).toEqual([]);
     expect(extractNumbers("Lei nº14.601/2023").map((n) => n.value)).toEqual([14601, 2023]);
     expect(extractNumbers("taxa de desocupação7,8%")[0]).toMatchObject({ value: 7.8, unit: "%" });
+    // número com unidade na correção não casa com o mesmo número sem unidade na fonte
+    expect(numbersSupported("O desmatamento caiu 30%.", ["Em 30 municípios o desmatamento caiu."]).ok).toBe(false);
+    expect(numbersSupported("O desmatamento caiu 30%.", ["a área desmatada caiu 30% em 2025"]).ok).toBe(true);
   });
 
   it("ano negado na correção só vale se estiver na fala literal, não só na reformulação (ensaio 2: \"2003\")", () => {
@@ -306,5 +320,31 @@ describe("[RF09] [RF02] mediação não é checada (mapa de falantes confirmado)
     const seg = store.addSegment("O desemprego em 2023 foi de 12%.", { speaker_label: "SPEAKER_0" });
     await pipeline.runPipeline(seg.id);
     expect(anthropic.calls.length).toBeGreaterThan(0);
+  });
+});
+
+describe("[RF15] [RF07] documento que a base aprendeu da web pesa como web", () => {
+  const chunk = (origin: string | null) => ({
+    chunk_id: 1, document_id: "d1", url: "https://g1.globo.com/x", title: "PNAD", doc_type: "noticia" as const, person: null,
+    source_name: "g1", tier: 2 as const, published_at: null, text: "a taxa de desocupação foi de 7,8% em 2023", similarity: 0.9,
+    rrf_score: 1, origin,
+  });
+  const store = (origin: string | null) => ({ matchChunks: async () => [chunk(origin)] }) as never;
+
+  it("origin 'web' ⇒ evidência fraca: não deixa a base forte e o limiar leva o acréscimo da web", async () => {
+    const [web] = await retrieveDocuments("desemprego 2023", [0.1], store("web"), fakeRerank(), () => {});
+    const [curated] = await retrieveDocuments("desemprego 2023", [0.1], store(null), fakeRerank(), () => {});
+    expect(web).toMatchObject({ layer: "L3", weak: true });
+    expect(curated!.weak).toBeUndefined();
+    expect(baseIsStrong([{ ...web!, relevance: 0.95 }], null)).toBe(false);
+    expect(baseIsStrong([{ ...curated!, relevance: 0.95 }], null)).toBe(true);
+    const r = scoreDecision({
+      verdict: "impreciso", model_confidence: 0.72, citations_total: 1, citations_verified: 1, comparison: null, forced_reason: null,
+      correction: "A taxa foi de 7,8% em 2023.", correction_numbers_ok: true, kind: "estatistica",
+      settings: { t_red: 0.85, t_yellow: 0.75, web_penalty: 0.05 },
+      evidence: [{ layer: "L3", evidence_type: "document", url: web!.url, source_name: "g1", source_tier: 2, quote: "x", quote_verified: true,
+        published_at: null, quote_similarity: 1, weak: true }],
+    });
+    expect(r.components).toMatchObject({ used_web: true, threshold: 0.8 });
   });
 });

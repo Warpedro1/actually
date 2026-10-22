@@ -356,6 +356,8 @@ export interface ChunkMatch {
   chunk_id: number; document_id: string; url: string; title: string; doc_type: DocType;
   person: string | null; source_name: string; tier: SourceTier; published_at: string | null;
   text: string; similarity: number; rrf_score: number;
+  /** kb_documents.origin (lido à parte; a RPC não devolve): 'web' = veio da busca web. */
+  origin?: string | null;
 }
 
 export interface VerifiedClaimMatch {

@@ -140,7 +140,7 @@ const fold = (t: string) => t.normalize("NFD").replace(/\p{M}/gu, "").toLowerCas
  * nem "por cento" não conta.
  */
 function hasNumber(text: string): boolean {
-  return /\d/.test(text.replace(/\b1º?\s+(?!(?:mil|milh|bilh|trilh|por\b))(?=\p{Ll})/gu, ""));
+  return /\d/.test(text.replace(/\b1º?\s+(?!(?:mil|milh|bilh|trilh|por\b|ter[cç]|quart|quint|ponto|d[ií]git|p\.?p))(?=\p{Ll})/gu, ""));
 }
 
 /** Pergunta sem núcleo afirmativo: termina em "?", tem pronome interrogativo e nenhum número. */
@@ -161,22 +161,30 @@ const YEAR_RE = /\b(19[5-9]\d|20[0-4]\d)\b/g;
 
 /**
  * Períodos que a fala nomeia sem dizer o ano ("no governo do seu pai", "quando eu cheguei",
- * "na pandemia"): o prompt manda resolvê-los pelo contexto, então os anos do período valem
- * (com 1 ano de folga nas pontas: "quando eu deixei" = 2010/2011). Mandatos oficiais.
+ * "na pandemia"): o prompt manda resolvê-los pelo contexto, então valem os anos que
+ * delimitam o período (início e fim: "2019 a 2022"; "quando eu cheguei" = 2003/2023;
+ * "quando eu deixei" = 2010/2011). Ano solto no meio ("em 2025, no governo Lula") continua
+ * precisando ter sido dito. Mandatos oficiais.
  */
-const NAMED_PERIODS: readonly [RegExp, readonly (readonly [number, number])[]][] = [
-  [/\b(governo|gestao|mandato) (do seu pai|do pai dele|bolsonaro|do bolsonaro|jair bolsonaro|do jair|anterior|passado)\b/, [[2019, 2022]]],
+const NAMED_PERIODS: readonly [RegExp, readonly number[]][] = [
+  [/\b(governo|gestao|mandato) (do seu pai|do pai dele|bolsonaro|do bolsonaro|jair bolsonaro|do jair|anterior|passado)\b/, [2019, 2022]],
   [
-    /\b(meu governo|meus governos|meu mandato|meus mandatos|nosso governo|nossos governos|governo lula|governos lula|governo do lula|governos do pt|governos petistas)\b|\b(quando|depois que|antes de|desde que) eu (cheguei|assumi|tomei posse|deixei|sai|voltei)\b/,
-    [[2003, 2010], [2023, 2026]],
+    /\b(meu governo|meus governos|meu mandato|meus mandatos|nosso governo|nossos governos|governo lula|governos lula|governo do lula|governos do pt|governos petistas)\b/,
+    [2003, 2010, 2023, 2026],
   ],
-  [/\b(atual governo|governo atual|esse governo|este governo|terceiro mandato)\b/, [[2023, 2026]]],
-  [/\bgoverno (dilma|da dilma)\b/, [[2011, 2016]]],
-  [/\bgoverno (temer|do temer)\b/, [[2016, 2018]]],
-  [/\bgoverno (fhc|fernando henrique|do fernando henrique)\b/, [[1995, 2002]]],
-  [/\b(pandemia|covid)\b/, [[2020, 2022]]],
-  [/\b8 de janeiro\b/, [[2023, 2023]]],
+  [/\b(quando|desde que) eu (cheguei|assumi|tomei posse|voltei)\b/, [2003, 2023]],
+  [/\b(quando|depois que|antes de) eu (deixei|sai)\b/, [2010, 2011]],
+  [/\b(atual governo|governo atual|esse governo|este governo|terceiro mandato)\b/, [2023, 2026]],
+  [/\bgoverno (dilma|da dilma)\b/, [2011, 2016]],
+  [/\bgoverno (temer|do temer)\b/, [2016, 2018]],
+  [/\bgoverno (fhc|fernando henrique|do fernando henrique)\b/, [1995, 2002]],
+  [/\b(pandemia|covid)\b/, [2020, 2022]],
+  [/\b8 de janeiro\b/, [2023]],
 ];
+
+// "depois de 2010" → 2011; "antes de 2003" → 2002 (só nos campos de período)
+const AFTER_YEAR = /\b(?:depois de|apos|desde|a partir de)\s+(?:o ano de\s+)?(19[5-9]\d|20[0-4]\d)\b/g;
+const BEFORE_YEAR = /\b(?:antes de|ate)\s+(?:o ano de\s+)?(19[5-9]\d|20[0-4]\d)\b/g;
 
 /**
  * Anos que a normalização (ou o período/indicador/referência) trouxe e que a fala, o
@@ -185,8 +193,8 @@ const NAMED_PERIODS: readonly [RegExp, readonly (readonly [number, number])[]][]
  * período nomeado ("no governo do seu pai") autoriza os anos dele, mas só se dito NA
  * PRÓPRIA AFIRMAÇÃO (`own`): no trecho ou no contexto, "quando eu cheguei" de outra frase
  * licenciaria o "2003 a 2010" inventado para "cresceu 7 e meio" (ensaio 2). Nos campos de
- * período (`periodFields`: indicador, referência temporal, eleição) vale também 1 ano de
- * folga em volta de um ano dito ("depois de 2010" → 2011).
+ * período (`periodFields`: indicador, referência temporal, eleição) vale também o ano
+ * seguinte a "depois de/desde/a partir de AAAA" e o anterior a "antes de/até AAAA".
  */
 export function unlicensedYears(
   added: string[],
@@ -199,8 +207,12 @@ export function unlicensedYears(
   const relative = RELATIVE_TIME.test(src);
   const windows = [...src.matchAll(/\bultimos (\d{1,2}) anos\b/g)].map((m) => Number(m[1]));
   const own = fold(opts.own ?? "");
-  const named = NAMED_PERIODS.filter(([re]) => re.test(own)).flatMap(([, w]) => w);
+  const named = NAMED_PERIODS.filter(([re]) => re.test(own)).flatMap(([, years]) => years);
   const said = [...src.matchAll(YEAR_RE)].map((m) => Number(m[1]));
+  const relational = [
+    ...[...src.matchAll(AFTER_YEAR)].map((m) => Number(m[1]) + 1),
+    ...[...src.matchAll(BEFORE_YEAR)].map((m) => Number(m[1]) - 1),
+  ];
   const out = new Set<number>();
   const check = (text: string, period: boolean) => {
     for (const m of text.matchAll(YEAR_RE)) {
@@ -210,8 +222,8 @@ export function unlicensedYears(
       if (new RegExp(`\\b(de|em|anos|ano)\\s+${yy}\\b`).test(src)) continue;
       if (relative && Math.abs(y - y0) <= 1) continue;
       if (windows.some((n) => y >= y0 - n && y <= y0)) continue;
-      if (named.some(([a, b]) => y >= a - 1 && y <= b + 1)) continue;
-      if (period && said.some((s) => Math.abs(s - y) <= 1)) continue;
+      if (named.includes(y)) continue;
+      if (period && relational.includes(y)) continue;
       out.add(y);
     }
   };
@@ -221,12 +233,18 @@ export function unlicensedYears(
 }
 
 // Taxa por período ("ao ano", "em média") muda a afirmação: "cresceu 7,5%" (num ano) não é
-// "cresceu 7,5% ao ano" (média de um governo inteiro). Só vale se a fala disser.
+// "cresceu 7,5% ao ano" (média de um governo inteiro). Só vale se a fala disser — como taxa:
+// "classe média", "ensino médio" ou "relatório" soltos não contam.
 const RATE_ADDED = /\b(ao ano|por ano|anualmente|em media|media anual|ao mes|por mes)\b/;
-const RATE_SAID = /\b(ao ano|por ano|anual|anualmente|media|medio|ao mes|por mes|mensal)\b/;
+const RATE_SAID =
+  /\b(ao ano|por ano|anualmente|a cada ano|cada ano|todo ano|todos os anos|ao mes|por mes|mensalmente|todo mes|todos os meses|em media|na media|media (de|anual|mensal)|anual|anuais|mensal|mensais)\b/;
+// juros (Selic, CDI...) se dizem "ao ano" por convenção: não é escopo acrescentado
+const RATE_IS_UNIT = /\b(selic|juros|cdi|taxa basica)\b/;
 /** A normalização acrescentou taxa anual/média que a fala (e o trecho) não diz. */
-export function addsRate(normalized: string, said: string): boolean {
-  return RATE_ADDED.test(fold(normalized)) && !RATE_SAID.test(fold(said));
+export function addsRate(normalized: string, said: string, indicatorQuery: string | null = null): boolean {
+  const n = fold(normalized);
+  if (RATE_IS_UNIT.test(n) || RATE_IS_UNIT.test(fold(indicatorQuery ?? ""))) return false;
+  return RATE_ADDED.test(n) && !RATE_SAID.test(fold(said));
 }
 
 /** Eleição citada precisa ter ano e turno ditos (fala, segmento ou contexto). */
@@ -384,7 +402,7 @@ export function postprocessExtraction(
       drop("normalizacao_acrescenta_ano", { years });
       continue;
     }
-    if (addsRate(normalized, `${original}\n${segmentText}`)) {
+    if (addsRate(normalized, `${original}\n${segmentText}`, indicator?.query ?? null)) {
       drop("escopo_acrescentado");
       continue;
     }
