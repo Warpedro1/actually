@@ -1,6 +1,6 @@
 // Score final + regras duras. FUNÇÃO PURA: tudo que decide se um alerta sai
 // está aqui, testável sem rede. Na dúvida, silêncio.
-import type { DebateSettings, KbLayer, SourceTier, Verdict } from "@actually/db";
+import { isAgencyCheck, type DebateSettings, type KbLayer, type SourceTier, type Verdict } from "@actually/db";
 import { KIND_RULES, RED_REVIEW_BAND, RED_REVIEW_MIN_CONFIDENCE } from "./config";
 import type { AlertLevel } from "./index";
 import type { ClaimKind, EvidenceRecord, IndicatorComparison } from "./types";
@@ -104,6 +104,11 @@ export function scoreDecision(input: ScoreInput): ScoreResult {
 
   // web: toda a evidência verificada veio da L4
   const usedWeb = verified.length > 0 && verified.every((e) => e.layer === "L4" || e.weak);
+  // checagem de agência (nível 1) com citação verificada, achada pela web ou entrada fraca junto
+  // com ela (mesma relevância mínima da L4): o acréscimo da web cobre a busca aberta, não a fonte,
+  // e não é somado. As regras duras abaixo (nível do vermelho, nível 4, faixa de revisão) não mudam
+  const agencyCheck = usedWeb && verified.some((e) => e.source_tier === 1 && isAgencyCheck(e.url));
+  const webPenalty = usedWeb && !agencyCheck ? input.settings.web_penalty : 0;
   const kind: ClaimKind = input.kind ?? "fato";
   const rules = KIND_RULES[kind];
   const verdictLevel: AlertLevel | null = input.verdict === "contradito" ? "red" : input.verdict === "impreciso" ? "yellow" : null;
@@ -112,7 +117,7 @@ export function scoreDecision(input: ScoreInput): ScoreResult {
   const level: AlertLevel | null = capped ? "yellow" : verdictLevel;
   const threshold = level
     ? (level === "red" ? input.settings.t_red : input.settings.t_yellow) +
-      (usedWeb ? input.settings.web_penalty : 0) +
+      webPenalty +
       rules.extra_threshold
     : null;
 
@@ -123,6 +128,7 @@ export function scoreDecision(input: ScoreInput): ScoreResult {
     quote_fraction: quoteFraction,
     verified_evidence: verified.length,
     used_web: usedWeb,
+    ...(agencyCheck ? { web_penalty_waived: true } : {}),
     kind,
     ...(capped ? { level_capped: true } : {}),
     ...(best ? { best_tier: best.source_tier, best_layer: best.layer } : {}),

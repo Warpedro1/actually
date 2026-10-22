@@ -62,7 +62,7 @@ Textos longos, divididos em trechos com embeddings (Voyage) e índice de texto, 
 
 - **Tavily**, chamada só quando L1–L3 não são conclusivas.
 - `include_domains` = domínios **tier 1 e 2** de `SOURCE_TIERS` (`webSearchDomains()`); resultados de outros domínios são descartados.
-- A evidência web paga `web_penalty` no threshold e passa pela mesma conferência de citação (o trecho precisa existir na página baixada).
+- A evidência web paga `web_penalty` no threshold (menos a checagem de agência nível 1 com citação verificada) e passa pela mesma conferência de citação (o trecho precisa existir na página baixada).
 
 ## Apify na construção da base
 

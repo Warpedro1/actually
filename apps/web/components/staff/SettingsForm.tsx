@@ -30,7 +30,7 @@ const BOOLS: { key: BoolKey; label: string; help: string }[] = [
 const NUMS: { key: NumKey; label: string; help: string; min: number; max: number; step: number; unit?: string }[] = [
   { key: "t_red", label: "Limiar dos vermelhos (t_red)", help: "Score final mínimo para emitir 🔴. Mais alto = menos alertas, mais precisos.", min: 0, max: 1, step: 0.01 },
   { key: "t_yellow", label: "Limiar dos amarelos (t_yellow)", help: "Score final mínimo para emitir 🟡.", min: 0, max: 1, step: 0.01 },
-  { key: "web_penalty", label: "Penalidade da busca web", help: "Somada ao limiar quando a melhor evidência veio da web (camada L4).", min: 0, max: 0.5, step: 0.01 },
+  { key: "web_penalty", label: "Penalidade da busca web", help: "Somada ao limiar quando a melhor evidência veio da web (camada L4); não vale para checagem de agência (nível 1) com trecho conferido.", min: 0, max: 0.5, step: 0.01 },
   { key: "dedup_similarity", label: "Similaridade da trava de repetição", help: "Afirmações com similaridade acima disto (e mesmos números) reusam o veredito anterior.", min: 0.5, max: 1, step: 0.01 },
   { key: "context_window_s", label: "Janela de contexto", help: "Segundos de transcrição anteriores enviados junto para a extração.", min: 0, max: 600, step: 5, unit: "s" },
   { key: "failover_after_s", label: "Failover da captura", help: "Sem heartbeat do agente ativo por este tempo, o banco promove o standby.", min: 3, max: 120, step: 1, unit: "s" },

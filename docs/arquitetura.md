@@ -108,7 +108,7 @@ Cada verificação grava `latency_ms` por etapa; o `/admin` e o `eval latency-re
 - `final_score` combina confiança do modelo, tier da fonte, concordância entre camadas e citação verificada.
 - **Vermelho** (contradito pelas fontes): `final_score ≥ t_red` **e** evidência de fonte **tier ≤ 2** com citação verificada.
 - **Amarelo** (impreciso): `final_score ≥ t_yellow` e citação verificada.
-- Se a melhor evidência veio da web (L4), soma-se `web_penalty` ao threshold.
+- Se a melhor evidência veio da web (L4), soma-se `web_penalty` ao threshold — exceto quando há citação verificada de checagem de agência (nível 1, tipo `checagem` em `SOURCE_TIERS`), vinda da web ou entrada fraca junto com ela.
 - `confirmado` e `inconclusivo` nunca viram alerta; ficam só no log.
 - Defaults: `t_red = 0,85`, `t_yellow = 0,75`, `web_penalty = 0,05`; calibrados com `eval` (ver `eval/README.md`).
 
@@ -119,7 +119,7 @@ Cada verificação grava `latency_ms` por etapa; o `/admin` e o `eval latency-re
 | **L1** — checagens | `kb_factchecks` | Checagens publicadas (agências, Google Fact Check Tools) | híbrida: HNSW (vetor) + GIN (texto), fundidas por RRF (`match_factchecks`) |
 | **L2** — indicadores | `indicator_series`, `indicator_values` | Séries oficiais (BCB SGS, IBGE SIDRA, INPE…) com aliases | `find_indicator` (trigram sem acento) + SQL por período; comparação numérica em código |
 | **L3** — documentos | `kb_documents`, `kb_chunks` | Debates, programas de governo, entrevistas, votações, discursos | híbrida (`match_chunks`), filtro opcional por pessoa |
-| **L4** — web | — | Busca ao vivo (Tavily) restrita a domínios tier 1–2 | só se L1–L3 não forem conclusivos; paga `web_penalty` |
+| **L4** — web | — | Busca ao vivo (Tavily) restrita a domínios tier 1–2 | só se L1–L3 não forem conclusivos; paga `web_penalty` (menos checagem de agência). Começa junto com L1–L3; camada da base que estoura o prazo enquanto a L4 roda ainda pode chegar até a L4 terminar |
 
 Catálogo completo em [fontes.md](fontes.md). Tiers em `packages/db/src/tiers.ts` (`SOURCE_TIERS`).
 

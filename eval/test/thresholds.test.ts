@@ -15,6 +15,14 @@ describe("decideAlert", () => {
     expect(decideAlert(decision({ final_score: 0.88, layer: "L4" }), T)).toBeNull();
     expect(decideAlert(decision({ final_score: 0.9, layer: "L4" }), T)).toBe("red");
   });
+  it("[RF07] checagem de agência (nível 1) com citação verificada não paga a penalidade da web (espelho de score.ts)", () => {
+    const agency = { url: "https://noticias.uol.com.br/confere/ultimas-noticias/2022/09/12/x.htm", source_name: "UOL Confere", source_tier: 1 as const, quote: "trecho", quote_verified: true };
+    expect(decideAlert(decision({ final_score: 0.86, layer: "L4", evidence: [agency] }), T)).toBe("red");
+    expect(decideAlert(decision({ verdict: "impreciso", final_score: 0.76, layer: "L4", evidence: [agency] }), T)).toBe("yellow");
+    // citação da agência não conferida: a penalidade volta
+    const unverified = [{ ...agency, quote_verified: false }, { url: "https://g1.globo.com/x", source_name: "g1", source_tier: 2 as const, quote: "x", quote_verified: true }];
+    expect(decideAlert(decision({ final_score: 0.86, layer: "L4", evidence: unverified }), T)).toBeNull();
+  });
   it("confirmado/inconclusivo nunca alertam", () => {
     expect(decideAlert(decision({ verdict: "confirmado", final_score: 1 }), T)).toBeNull();
     expect(decideAlert(decision({ verdict: "inconclusivo", final_score: 1 }), T)).toBeNull();

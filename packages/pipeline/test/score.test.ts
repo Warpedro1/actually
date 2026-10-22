@@ -193,3 +193,86 @@ describe("[RF07] base fraca + web: a evidência fraca não infla o score", () =>
       .toMatchObject({ alert: null, silence_reason: "camadas_em_conflito" });
   });
 });
+
+describe("[RF07] [RF04] checagem de agência achada pela web não paga o acréscimo da web", () => {
+  // casos do ensaio de 18/10 (Band): a checagem da agência sobre a mesma fala veio com a web
+  const uolConfere = ev({
+    layer: "L4", evidence_type: "web", source_name: "UOL Confere", source_tier: 1,
+    url: "https://noticias.uol.com.br/confere/ultimas-noticias/2022/09/12/lula-e-inocente-foi-absolvido-pela-onu-e-pelo-stf-entenda.htm",
+  });
+  const g1 = ev({ layer: "L4", evidence_type: "web", source_name: "g1", source_tier: 2, url: "https://g1.globo.com/politica/noticia/2025/09/04/x.ghtml" });
+  const estadao = ev({ layer: "L4", evidence_type: "web", source_name: "Estadão", source_tier: 2, url: "https://www.estadao.com.br/politica/vorcaro-diz-em-audio" });
+  const withPenalty = DEFAULT_SETTINGS.t_yellow + DEFAULT_SETTINGS.web_penalty;
+
+  it("agência nível 1 da web: o limiar é o da base, sem web_penalty", () => {
+    // 0,5·0,72 + 0,2·1 + 0,2·0,5 + 0,1·1 = 0,76: passa em 0,75, não em 0,80
+    const r = scoreDecision(base({ verdict: "impreciso", model_confidence: 0.72, evidence: [uolConfere] }));
+    expect(r).toMatchObject({ alert: "yellow", silence_reason: null });
+    expect(r.components).toMatchObject({ used_web: true, web_penalty_waived: true, best_layer: "L4" });
+    expect(r.components.threshold).toBeCloseTo(DEFAULT_SETTINGS.t_yellow);
+  });
+
+  it("a mesma checagem que entrou fraca junto com a web também não paga (t≈1491, R$ 30 milhões)", () => {
+    // acusação: UOL Confere na L3 fraca + Estadão na web ⇒ 0,77; com o acréscimo, o limiar era 0,80
+    const weakAgency = ev({
+      layer: "L3", source_name: "UOL Confere", source_tier: 1, weak: true,
+      url: "https://noticias.uol.com.br/confere/ultimas-noticias/2026/10/19/debate-band-checagem-flavio-lula.ghtm",
+    });
+    const input = { verdict: "impreciso" as const, kind: "acusacao" as const, model_confidence: 0.8, citations_total: 2, citations_verified: 2 };
+    const r = scoreDecision(base({ ...input, evidence: [weakAgency, estadao] }));
+    expect(r.final_score).toBeCloseTo(0.77, 4);
+    // acusação continua passando pelo editor; a melhor fonte (forte) segue sendo a da web
+    expect(r).toMatchObject({ alert: "yellow", review: true });
+    expect(r.components).toMatchObject({ web_penalty_waived: true, best_layer: "L4", best_tier: 2 });
+    expect(r.components.threshold).toBeCloseTo(DEFAULT_SETTINGS.t_yellow);
+    // sem a checagem da agência, o acréscimo volta
+    const alone = scoreDecision(base({ ...input, evidence: [estadao], citations_total: 1, citations_verified: 1 }));
+    expect(alone).toMatchObject({ alert: null, silence_reason: "abaixo_do_threshold" });
+    expect(alone.components.threshold).toBeCloseTo(withPenalty);
+  });
+
+  it("não vale para fonte oficial ou imprensa da web, nível gravado diferente de 1 nem citação não conferida", () => {
+    const c = { verdict: "impreciso" as const, model_confidence: 0.72 };
+    const cases = [
+      ev({ layer: "L4", evidence_type: "web", url: "https://www.ibge.gov.br/explica/desemprego.php" }),
+      ev({ layer: "L4", evidence_type: "web", source_tier: 2, url: "https://g1.globo.com/economia/noticia/x.ghtml" }),
+      // endereço de agência com nível gravado diferente de 1: na dúvida, o acréscimo fica
+      { ...uolConfere, source_tier: 2 as const },
+      // fora do caminho da agência é o UOL (nível 3), mesmo que a evidência diga nível 1
+      ev({ layer: "L4", evidence_type: "web", source_tier: 1, url: "https://noticias.uol.com.br/politica/x.htm" }),
+    ];
+    for (const e of cases) {
+      const r = scoreDecision(base({ ...c, evidence: [e] }));
+      expect(r.components.web_penalty_waived, e.url).toBeUndefined();
+      expect(r.components.threshold, e.url).toBeCloseTo(withPenalty);
+    }
+    const unverified = scoreDecision(base({
+      ...c, evidence: [{ ...uolConfere, quote_verified: false }, g1], citations_total: 2, citations_verified: 1,
+    }));
+    expect(unverified.components.web_penalty_waived).toBeUndefined();
+    expect(unverified.components.threshold).toBeCloseTo(withPenalty);
+  });
+
+  it("regras duras não mudam: vermelho de acusação abaixo do limiar continua em silêncio (t≈2128, condenado pelo STF)", () => {
+    // 0,5·0,82 + 0,2·1 + 0,2·0,5 + 0,1·1 = 0,81: o limiar cai de 0,90 para 0,85, e 0,81 ainda não passa
+    const r = scoreDecision(base({
+      kind: "acusacao", model_confidence: 0.82, evidence: [uolConfere, g1], citations_total: 2, citations_verified: 2,
+    }));
+    expect(r.final_score).toBeCloseTo(0.81, 4);
+    expect(r).toMatchObject({ alert: null, silence_reason: "abaixo_do_threshold", review: false });
+    expect(r.components).toMatchObject({ web_penalty_waived: true });
+    expect(r.components.threshold).toBeCloseTo(DEFAULT_SETTINGS.t_red);
+  });
+
+  it("vermelho de fato logo abaixo do limiar vai ao editor (faixa de revisão), nunca direto ao público", () => {
+    // 0,80: sem o acréscimo, fica na faixa 0,80–0,85 do vermelho
+    const r = scoreDecision(base({ model_confidence: 0.8, evidence: [uolConfere] }));
+    expect(r).toMatchObject({ alert: "red", review: true, components: { review_band: true, web_penalty_waived: true } });
+  });
+
+  it("nível 4 continua sem sustentar alerta (conteúdo patrocinado da web)", () => {
+    const sponsored = ev({ layer: "L4", evidence_type: "web", source_tier: 4, url: "https://bluestudio.estadao.com.br/x" });
+    const r = scoreDecision(base({ verdict: "impreciso", model_confidence: 1, evidence: [sponsored] }));
+    expect(r).toMatchObject({ alert: null, silence_reason: "fonte_tier_4" });
+  });
+});

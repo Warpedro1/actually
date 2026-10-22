@@ -1,6 +1,7 @@
 // Re-decisão offline de alertas a partir de decisões já salvas (sem chamar modelos).
 // Espelha as regras de packages/pipeline/score.ts. Se o pipeline passar a exportar
 // sua própria função de decisão, troque `decideAlert` por ela.
+import { isAgencyCheck } from "@actually/db";
 import type { ClaimDecision } from "@actually/pipeline";
 import type { DecisionRecord } from "./dataset";
 import { maxAlert, precisionRecall, ratio, type Predicted } from "./metrics";
@@ -34,7 +35,9 @@ export function hasRedGradeEvidence(d: Pick<ClaimDecision, "evidence">): boolean
 export function decideAlert(d: DecisionCore, t: Thresholds): Predicted {
   if (d.verdict !== "contradito" && d.verdict !== "impreciso") return null;
   if (!hasVerifiedEvidence(d)) return null;
-  const penalty = d.layer === "L4" ? t.web_penalty : 0;
+  // checagem de agência (nível 1) com citação verificada não paga o acréscimo da web (score.ts)
+  const agency = d.evidence.some((e) => e.quote_verified && e.source_tier === 1 && isAgencyCheck(e.url));
+  const penalty = d.layer === "L4" && !agency ? t.web_penalty : 0;
   if (d.verdict === "contradito") {
     if (!hasRedGradeEvidence(d)) return null;
     return d.final_score >= t.t_red + penalty ? "red" : null;

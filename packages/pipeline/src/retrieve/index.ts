@@ -1,6 +1,7 @@
 // Orquestra a recuperação: L1–L3 em paralelo (cada uma com seu timeout). A L4
 // (web) começa junto e só é aguardada quando a base vem fraca (sem evidência,
-// ou só com evidência de relevância baixa): aí entra como complemento.
+// ou só com evidência de relevância baixa): aí entra como complemento. Camada da
+// base que estoura o prazo enquanto a L4 ainda roda pode chegar até a L4 terminar.
 import type { KbLayer } from "@actually/db";
 import { TIMEOUTS_MS, WEB_SKIP_MIN_RELEVANCE } from "../config";
 import type { PipelineDeps } from "../deps";
@@ -12,23 +13,54 @@ import { retrieveIndicator } from "./indicators";
 import { retrieveReference } from "./reference";
 import { retrieveWeb } from "./web";
 
+interface LayerDone<X> {
+  outcome: LayerOutcome;
+  extra: X | null;
+  /** Erro da própria camada (o aviso "layer_failed" sai uma vez, de quem usa o resultado). */
+  failure?: Record<string, unknown>;
+}
+
+interface LayerRun<X> extends LayerDone<X> {
+  /**
+   * Só com `keepLate`: a camada estourou o prazo e este é o resultado que ainda pode chegar
+   * (nunca rejeita). retrieveAll decide se espera por ele — base fraca com a L4 ainda
+   * rodando — ou o descarta inteiro; o aviso do prazo estourado fica com quem decide.
+   */
+  late: Promise<LayerDone<X>> | null;
+}
+
 /**
  * Roda a camada com timeout. O que ela produz (candidatos e, na L2, a comparação) só
  * vale se chegou dentro do prazo: viaja no valor resolvido, nunca por variável externa
- * — um resultado que chega depois do timeout é descartado inteiro.
+ * — um resultado que chega depois do timeout é descartado inteiro (ou, com `keepLate`,
+ * devolvido em `late` para quem pode esperar mais).
  */
 async function runLayerWith<X>(
   layer: KbLayer,
   deps: PipelineDeps,
   fn: () => Promise<{ candidates: EvidenceCandidate[]; extra: X | null }>,
-): Promise<{ outcome: LayerOutcome; extra: X | null }> {
+  keepLate = false,
+): Promise<LayerRun<X>> {
   const t0 = deps.now();
+  const settled: Promise<LayerDone<X>> = Promise.resolve()
+    .then(fn)
+    .then(
+      (r) => ({ outcome: { layer, candidates: r.candidates, latency_ms: deps.now() - t0 }, extra: r.extra }),
+      (err: unknown) => {
+        const failure = errorFields(err);
+        return { outcome: { layer, candidates: [], latency_ms: deps.now() - t0, error: failure.error as string }, extra: null, failure };
+      },
+    );
   try {
-    const r = await withTimeout(fn(), TIMEOUTS_MS[layer], `retrieve_${layer}`);
-    return { outcome: { layer, candidates: r.candidates, latency_ms: deps.now() - t0 }, extra: r.extra };
+    const r = await withTimeout(settled, TIMEOUTS_MS[layer], `retrieve_${layer}`);
+    if (r.failure) deps.logger("warn", "layer_failed", { layer, ...r.failure });
+    return { ...r, late: null };
   } catch (err) {
-    deps.logger("warn", "layer_failed", { layer, ...errorFields(err) });
-    return { outcome: { layer, candidates: [], latency_ms: deps.now() - t0, error: errorFields(err).error as string }, extra: null };
+    const failure = errorFields(err);
+    const outcome = { layer, candidates: [], latency_ms: deps.now() - t0, error: failure.error as string };
+    if (keepLate) return { outcome, extra: null, failure, late: settled };
+    deps.logger("warn", "layer_failed", { layer, ...failure });
+    return { outcome, extra: null, failure, late: null };
   }
 }
 
@@ -39,6 +71,33 @@ async function runLayer(
 ): Promise<LayerOutcome> {
   const r = await runLayerWith<never>(layer, deps, async () => ({ candidates: await fn(), extra: null }));
   return r.outcome;
+}
+
+/**
+ * Base fraca com camada que estourou o prazo e a L4 ainda rodando: sem a camada, a
+ * recuperação esperaria a L4 de qualquer jeito, então a camada pode chegar até a L4
+ * terminar (no máximo TIMEOUTS_MS.L4, o prazo da própria L4) sem aumentar a latência.
+ * O que chega depois disso é descartado inteiro.
+ */
+async function awaitLate<X>(runs: LayerRun<X>[], web: Promise<LayerOutcome>, deps: PipelineDeps): Promise<LayerRun<X>[]> {
+  const webDone = web.then(() => null);
+  return Promise.all(runs.map(async (r) => {
+    if (!r.late) return r;
+    const got = await Promise.race([r.late, webDone]);
+    const used = got ?? r;
+    if (used.failure) deps.logger("warn", "layer_failed", { layer: used.outcome.layer, ...used.failure });
+    else deps.logger("info", "layer_late", { layer: used.outcome.layer, latency_ms: used.outcome.latency_ms });
+    return { ...used, late: null };
+  }));
+}
+
+/** Base forte ou L4 já encerrada: o que estourou o prazo é descartado, como sempre. */
+function dropLate<X>(runs: LayerRun<X>[], deps: PipelineDeps): LayerRun<X>[] {
+  return runs.map((r) => {
+    if (!r.late) return r;
+    deps.logger("warn", "layer_failed", { layer: r.outcome.layer, ...r.failure });
+    return { ...r, late: null };
+  });
 }
 
 /**
@@ -69,35 +128,45 @@ export async function retrieveAll(
   // runLayer nunca rejeita e tem timeout: se não for aguardada, termina sozinha.
   const search = deps.webSearch;
   const web = search ? runLayer("L4", deps, () => retrieveWeb(measureQuery, search, deps.rerank)) : null;
+  // com a L4 rodando, a camada da base que estoura o prazo ainda pode chegar (awaitLate)
+  const keepLate = web !== null;
 
-  const tasks: Promise<LayerOutcome>[] = [];
+  const tasks: Promise<LayerRun<IndicatorComparison>>[] = [];
   if (embedding) {
-    tasks.push(runLayer("L1", deps, () => retrieveFactchecks(query, embedding, deps.store, deps.rerank, deps.logger)));
+    tasks.push(runLayerWith<IndicatorComparison>("L1", deps, async () => ({
+      candidates: await retrieveFactchecks(query, embedding, deps.store, deps.rerank, deps.logger), extra: null,
+    }), keepLate));
   }
   // a comparação L2 só existe junto com a camada L2 concluída no prazo. Fato de
   // referência (mandatos, eleições) e indicador são comparados em código; a
   // referência tem prioridade (a fala sobre "anos no poder" não é série econômica)
-  let l2: Promise<{ outcome: LayerOutcome; extra: IndicatorComparison | null }> | null = null;
   const reference = claim.reference;
   const indicator = claim.indicator;
   if (reference) {
     const asOf = new Date(deps.now()).toISOString().slice(0, 10);
-    l2 = runLayerWith("L2", deps, async () => {
+    tasks.push(runLayerWith("L2", deps, async () => {
       const r = await retrieveReference(reference, deps.store, asOf);
       return { candidates: r.candidate ? [r.candidate] : [], extra: r.comparison };
-    });
+    }, keepLate));
   } else if (indicator) {
-    l2 = runLayerWith("L2", deps, async () => {
+    tasks.push(runLayerWith("L2", deps, async () => {
       const r = await retrieveIndicator(indicator, deps.store);
       return { candidates: r.candidate ? [r.candidate] : [], extra: r.comparison };
-    });
+    }, keepLate));
   }
-  if (l2) tasks.push(l2.then((r) => r.outcome));
   if (embedding) {
-    tasks.push(runLayer("L3", deps, () => retrieveDocuments(measureQuery, embedding, deps.store, deps.rerank, deps.logger)));
+    tasks.push(runLayerWith<IndicatorComparison>("L3", deps, async () => ({
+      candidates: await retrieveDocuments(measureQuery, embedding, deps.store, deps.rerank, deps.logger), extra: null,
+    }), keepLate));
   }
-  const layers = await Promise.all(tasks);
-  const comparison = l2 ? (await l2).extra : null;
+  const onTime = await Promise.all(tasks);
+  const comparisonOf = (rs: LayerRun<IndicatorComparison>[]) => rs.find((r) => r.outcome.layer === "L2")?.extra ?? null;
+  // base fraca no prazo com a L4 rodando: o que estourou o prazo ainda pode chegar até o fim
+  // da L4. Base forte no prazo: nada muda (não espera a camada lenta)
+  const strongOnTime = baseIsStrong(onTime.flatMap((r) => r.outcome.candidates), comparisonOf(onTime));
+  const runs = web && !strongOnTime ? await awaitLate(onTime, web, deps) : dropLate(onTime, deps);
+  const layers = runs.map((r) => r.outcome);
+  const comparison = comparisonOf(runs);
 
   let candidates = layers.flatMap((l) => l.candidates);
   let usedWeb = false;

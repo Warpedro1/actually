@@ -163,7 +163,8 @@ export default function MetodologiaPage() {
             Amarelo (impreciso): pontuação final mínima de <strong>{pct(s.t_yellow)}</strong>.
           </li>
           <li>
-            Evidência vinda da busca na web: o limiar sobe <strong>{Math.round(s.web_penalty * 100)} pontos</strong>.
+            Evidência vinda da busca na web: o limiar sobe <strong>{Math.round(s.web_penalty * 100)} pontos</strong>,
+            exceto quando a fonte citada é uma checagem de agência profissional (nível 1) com o trecho conferido.
           </li>
         </ul>
         <p className="text-sm text-muted">

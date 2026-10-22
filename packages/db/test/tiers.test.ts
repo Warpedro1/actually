@@ -3,7 +3,7 @@
 // nunca pode virar tier 1–2 — nem sustentar vermelho, nem entrar na busca web (L4).
 // Dado primário federal continua tier 1, mas só por domínio/caminho específico.
 import { describe, expect, it } from "vitest";
-import { SOURCE_TIERS, lookupSource, tierForUrl, webSearchDomains } from "../src/tiers";
+import { SOURCE_TIERS, isAgencyCheck, lookupSource, tierForUrl, webSearchDomains } from "../src/tiers";
 
 const UFS = [
   "ac", "al", "am", "ap", "ba", "ce", "df", "es", "go", "ma", "mg", "ms", "mt", "pa",
@@ -32,7 +32,11 @@ function randomLabel(rand: () => number): string {
 }
 
 /** Caminhos que tentam imitar dado primário ou comunicação. */
-const PATHS = ["/", "/noticias/2026/10/governo-anuncia", "/ccivil_03/leis/l8069.htm", "/secom/pt-br/assuntos/noticias/x", "/dados/serie.csv"];
+const PATHS = [
+  "/", "/noticias/2026/10/governo-anuncia", "/ccivil_03/leis/l8069.htm", "/secom/pt-br/assuntos/noticias/x", "/dados/serie.csv",
+  // caminhos que são nível 1 só em www.gov.br (gov.br/anp, gov.br/tesouronacional)
+  "/anp/pt-br/precos", "/tesouronacional/pt-br/x",
+];
 
 /** Hosts de dado primário federal listados explicitamente em SOURCE_TIERS (tier ≤ 2, sob gov.br). */
 const listedFederalHosts = new Set(
@@ -54,6 +58,10 @@ describe("[RNF04] tiers: comunicação de governo é parte interessada, nunca ti
       "https://www2.planalto.gov.br/acompanhe-o-planalto/noticias/2022/x",
       "https://www.planalto.gov.br/",
       "https://agenciagov.ebc.com.br/noticias/202610/x",
+      // caminho casa por segmento inteiro: gov.br/anp não cobre a ANPD nem /anp-qualquer-coisa
+      "https://www.gov.br/anpd/pt-br/assuntos/noticias/2026/x",
+      "https://www.gov.br/anp-noticias/x",
+      "https://www.gov.br/tesouronacional-falso/x",
     ];
     for (const url of urls) expect(tierForUrl(url), url).toBeGreaterThan(2);
   });
@@ -101,7 +109,8 @@ describe("[RNF04] tiers: comunicação de governo é parte interessada, nunca ti
   it("nenhuma entrada tier 1–2 é gov.br genérico, estadual/municipal ou caminho de comunicação", () => {
     for (const t of SOURCE_TIERS.filter((r) => r.tier <= 2)) {
       const [host, ...rest] = t.domain.split("/");
-      expect(host, t.domain).not.toBe("gov.br");
+      // em gov.br, só com o caminho de um órgão de dado primário (gov.br/anp), nunca o domínio inteiro
+      if (host === "gov.br") expect(rest.join("/"), t.domain).toMatch(/^(anp|tesouronacional)$/);
       expect(host, t.domain).not.toMatch(ufHost);
       expect(rest.join("/"), t.domain).not.toMatch(/noticia|imprensa|secom|acompanhe/i);
     }
@@ -124,9 +133,48 @@ describe("[RF07] tiers: dado primário federal continua tier 1 por domínio/cami
       "https://datasus.saude.gov.br/informacoes-de-saude-tabnet/",
       "http://tabnet.datasus.gov.br/cgi/tabcgi.exe?sim/cnv/obt10uf.def",
       "https://www.anp.gov.br/precos",
+      // órgãos que passaram a publicar em www.gov.br/<órgão>
+      "https://www.gov.br/anp/pt-br/assuntos/precos-e-defesa-da-concorrencia/precos/levantamento-de-precos-de-combustiveis-ultimas-semanas-pesquisadas",
+      "https://www.gov.br/anp",
+      "https://www.gov.br/tesouronacional/pt-br/divida-publica-federal/estatisticas-e-relatorios",
     ];
     for (const url of urls) expect(tierForUrl(url), url).toBe(1);
     expect(lookupSource("https://www.planalto.gov.br/ccivil_03/leis/l8069.htm")?.name).toBe("Planalto (legislação)");
+    expect(lookupSource("https://www.gov.br/anp/pt-br/x")?.name).toBe("ANP");
+    expect(lookupSource("https://www.gov.br/tesouronacional/pt-br/x")?.name).toBe("Tesouro Nacional");
+  });
+});
+
+describe("[RF07] tiers: conteúdo patrocinado e arquivos de terceiros não herdam o nível do jornal", () => {
+  it("estúdio de conteúdo de marca do Estadão é nível 4; o Estadão e o Estadão Verifica não mudam", () => {
+    expect(tierForUrl("https://bluestudio.estadao.com.br/einstein-promove-maior-forum-de-qualidade-e-seguranca-em-saude-da-america-latina")).toBe(4);
+    expect(tierForUrl("https://www.estadao.com.br/politica/x")).toBe(2);
+    expect(tierForUrl("https://www.estadao.com.br/estadao-verifica/x")).toBe(1);
+  });
+
+  it("PDFs hospedados pelo Poder360 (static.poder360.com.br) são nível 3; as reportagens seguem nível 2", () => {
+    expect(tierForUrl("https://static.poder360.com.br/2026/08/programa-de-governo.pdf")).toBe(3);
+    expect(tierForUrl("https://static.poder360.com.br/uploads/2025/02/mensagem-ao-congresso.pdf")).toBe(3);
+    expect(tierForUrl("https://www.poder360.com.br/poder-economia/divida-publica-federal/")).toBe(2);
+  });
+
+  it("caminho de agência casa só por segmento inteiro", () => {
+    expect(tierForUrl("https://noticias.uol.com.br/confere/ultimas-noticias/2026/10/19/x.htm")).toBe(1);
+    expect(tierForUrl("https://noticias.uol.com.br/confere")).toBe(1);
+    expect(tierForUrl("https://noticias.uol.com.br/conferencia/x.htm")).toBe(3);
+    expect(tierForUrl("https://g1.globo.com/fato-ou-fake-especial/x")).toBe(2);
+  });
+});
+
+describe("[RF07] tiers: checagem de agência (dispensa o acréscimo da web no limiar)", () => {
+  it("só página de agência de checagem nível 1", () => {
+    expect(isAgencyCheck("https://www.aosfatos.org/noticias/falso-filho-lula-video-agredindo-mulher")).toBe(true);
+    expect(isAgencyCheck("https://noticias.uol.com.br/confere/ultimas-noticias/2022/09/12/x.htm")).toBe(true);
+    expect(isAgencyCheck("https://www.estadao.com.br/estadao-verifica/x")).toBe(true);
+    expect(isAgencyCheck("https://www.estadao.com.br/politica/x")).toBe(false);
+    expect(isAgencyCheck("https://www.ibge.gov.br/x")).toBe(false);
+    expect(isAgencyCheck("https://exemplo.com/checagem")).toBe(false);
+    expect(isAgencyCheck("não é url")).toBe(false);
   });
 });
 
@@ -142,5 +190,14 @@ describe("[RF03] tiers: busca web (L4) só com domínios tier 1–2", () => {
     for (const d of webSearchDomains()) {
       expect(SOURCE_TIERS.some((t) => t.tier <= 2 && t.domain.split("/")[0] === d), d).toBe(true);
     }
+  });
+
+  it("caminho nível 1 sob domínio de nível pior (gov.br/anp) não leva o domínio inteiro para a busca", () => {
+    const domains = webSearchDomains();
+    for (const d of domains) expect(tierForUrl(`https://${d}/`) <= 2 || !SOURCE_TIERS.some((t) => t.domain === d), d).toBe(true);
+    // os caminhos sob domínio sem entrada própria continuam (legislação do Planalto, agências)
+    expect(domains).toEqual(expect.arrayContaining(["planalto.gov.br", "estadao.com.br", "noticias.uol.com.br", "g1.globo.com"]));
+    expect(domains).not.toContain("bluestudio.estadao.com.br");
+    expect(domains).not.toContain("static.poder360.com.br");
   });
 });

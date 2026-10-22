@@ -44,7 +44,9 @@ Não publicamos “verdadeiro”: o silêncio do sistema **não** significa que 
 
 Cada fonte tem um nível (tier). **Alerta vermelho exige fonte de nível 1, 2 ou 3 com citação conferida**; o nível 4 nunca sustenta alerta. O nível pesa na pontuação (1 vale 1; 2, 0,85; 3, 0,6), então uma fonte de nível 3 sozinha quase nunca alcança o limiar do vermelho: na prática precisa de duas camadas que concordem. Acusação é mais restrita: vermelho só com nível 1, amarelo até o nível 2, e sempre passa pelo editor.
 
-Sites de governo só são nível 1 nos endereços listados abaixo, de órgãos que publicam **dado primário** (estatísticas, contas públicas, legislação), como IBGE, Banco Central, Tesouro, Portal da Transparência, a legislação do Planalto (`planalto.gov.br/ccivil_03`), INPE, DataSUS e ANP. **Comunicação de governo** — notícias e notas do governo federal (Secom, Planalto, ministérios em `gov.br`), de governos estaduais e de prefeituras — é parte interessada no debate, já que um dos candidatos é o atual governo: fica no nível 4, nunca sustenta alerta sozinha e não entra na busca na web.
+Sites de governo só são nível 1 nos endereços listados abaixo, de órgãos que publicam **dado primário** (estatísticas, contas públicas, legislação), como IBGE, Banco Central, Tesouro, Portal da Transparência, a legislação do Planalto (`planalto.gov.br/ccivil_03`), INPE, DataSUS e ANP — inclusive nos endereços do portal `gov.br` para onde a ANP e o Tesouro mudaram (`gov.br/anp`, `gov.br/tesouronacional`). **Comunicação de governo** — notícias e notas do governo federal (Secom, Planalto, ministérios em `gov.br`), de governos estaduais e de prefeituras — é parte interessada no debate, já que um dos candidatos é o atual governo: fica no nível 4, nunca sustenta alerta sozinha e não entra na busca na web.
+
+**Conteúdo patrocinado** publicado no site de um jornal (estúdios de conteúdo de marca, como o Blue Studio do Estadão) é publicidade: nível 4. Arquivos de terceiros apenas hospedados por um jornal — como os PDFs de programas de governo e de documentos oficiais em `static.poder360.com.br` — não herdam o nível do jornal: nível 3.
 
 <!-- tiers:begin (gerado por `pnpm --filter @actually/eval tiers-table`; não edite à mão) -->
 
@@ -54,6 +56,7 @@ Sites de governo só são nível 1 nos endereços listados abaixo, de órgãos q
 | 1 | Agência Lupa | `agencialupa.org` | checagem |
 | 1 | Agência Lupa | `lupa.uol.com.br` | checagem |
 | 1 | ANP | `anp.gov.br` | oficial |
+| 1 | ANP | `gov.br/anp` | oficial |
 | 1 | Aos Fatos | `aosfatos.org` | checagem |
 | 1 | Banco Central | `bcb.gov.br` | oficial |
 | 1 | Biblioteca da Presidência da República | `biblioteca.presidencia.gov.br` | oficial |
@@ -74,6 +77,7 @@ Sites de governo só são nível 1 nos endereços listados abaixo, de órgãos q
 | 1 | Senado Federal | `senado.leg.br` | oficial |
 | 1 | STF | `stf.jus.br` | oficial |
 | 1 | STJ | `stj.jus.br` | oficial |
+| 1 | Tesouro Nacional | `gov.br/tesouronacional` | oficial |
 | 1 | Tesouro Nacional | `tesouro.gov.br` | oficial |
 | 1 | Tesouro Nacional | `tesourotransparente.gov.br` | oficial |
 | 1 | TSE | `tse.jus.br` | oficial |
@@ -96,10 +100,12 @@ Sites de governo só são nível 1 nos endereços listados abaixo, de órgãos q
 | 3 | Exame | `exame.com` | imprensa |
 | 3 | InfoMoney | `infomoney.com.br` | imprensa |
 | 3 | Metrópoles | `metropoles.com` | imprensa |
+| 3 | Poder360 (arquivos de terceiros) | `static.poder360.com.br` | outro |
 | 3 | UOL | `uol.com.br` | imprensa |
+| 4 | Estadão Blue Studio (patrocinado) | `bluestudio.estadao.com.br` | outro |
 | 4 | Governo (gov.br) | `gov.br` | oficial |
 
-Total: 48 domínios — tier 1 (Dado oficial primário ou checagem profissional): 28; tier 2 (Imprensa de referência ou academia): 14; tier 3 (Imprensa geral): 5; tier 4 (Qualquer outra fonte): 1. Domínio fora da lista = tier 4.
+Total: 52 domínios — tier 1 (Dado oficial primário ou checagem profissional): 30; tier 2 (Imprensa de referência ou academia): 14; tier 3 (Imprensa geral): 6; tier 4 (Qualquer outra fonte): 2. Domínio fora da lista = tier 4.
 
 <!-- tiers:end -->
 
@@ -111,7 +117,7 @@ A lista completa de bases consultadas está em `docs/fontes.md`.
 |---|---|---|
 | Mínimo para vermelho | 0,85 | Índice de confiança mínimo para “Contradito pelas fontes”. |
 | Mínimo para amarelo | 0,75 | Índice mínimo para “Impreciso”. |
-| Acréscimo para fontes da web | +0,05 | Quando a evidência veio da busca web, o mínimo sobe. |
+| Acréscimo para fontes da web | +0,05 | Quando a evidência veio da busca web, o mínimo sobe — exceto quando a fonte citada é uma checagem de agência profissional (nível 1) com o trecho conferido: o acréscimo compensa a busca aberta, não a qualidade da fonte. |
 | Acréscimo para opinião e previsão | +0,10 | Opinião com base mensurável e previsão exigem mais confiança e nunca viram vermelho. |
 
 Os valores foram calibrados com um conjunto de afirmações rotuladas por pessoas a partir do debate de 18 de outubro, para que **pelo menos 90% dos alertas vermelhos estejam corretos** nesse conjunto. Os valores em vigor no dia do debate serão publicados aqui.
