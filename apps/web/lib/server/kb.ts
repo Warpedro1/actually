@@ -134,20 +134,24 @@ export async function createJob(
  * Depois de um trecho que gravou páginas na fila da web (kb_web_finds): garante uma
  * tarefa "capturas-web" e pede um executor se ninguém estiver rodando. Duas chamadas
  * ao mesmo tempo podem criar duas tarefas — inofensivo: a RPC da fila nunca entrega a
- * mesma página duas vezes. Nunca lança: a base aprender com a web é complemento.
+ * mesma página duas vezes. Se houver tarefa de OUTRO tipo pendente (ex.: carga completa
+ * que parou), só enfileira: o executor pega a mais antiga de qualquer tipo, e a checagem
+ * ao vivo não pode acordar uma carga pesada no meio do debate. Nunca lança.
  */
 export async function kickWebFinds(db: SupabaseClient, origin: string): Promise<void> {
   try {
     const { data, error } = await db
       .from("kb_jobs")
-      .select("status, lease_until")
-      .eq("preset", "capturas-web")
+      .select("preset, status, lease_until")
       .in("status", ["queued", "running"])
-      .limit(5);
+      .limit(50);
     if (error) throw new Error(`kb_jobs: ${error.message}`);
-    const jobs = (data ?? []) as Pick<KbJob, "status" | "lease_until">[];
-    if (!jobs.length) await createJob(db, { preset: "capturas-web" }, null, new Date(), "pela checagem ao vivo");
-    else if (!needsRunner(jobs)) return;
+    const pending = (data ?? []) as Pick<KbJob, "preset" | "status" | "lease_until">[];
+    const mine = pending.filter((j) => j.preset === "capturas-web");
+    const others = pending.length > mine.length;
+    if (!mine.length) await createJob(db, { preset: "capturas-web" }, null, new Date(), "pela checagem ao vivo");
+    else if (!needsRunner(mine)) return;
+    if (others) return;
     await chainRun(origin);
   } catch (e) {
     console.error("[kb] fila da web:", e);

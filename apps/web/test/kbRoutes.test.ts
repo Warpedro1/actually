@@ -260,16 +260,32 @@ describe("[RF15] a base aprende com a web: disparo da fila", () => {
 
     // já rodando com lease válido: nada
     fetchMock.mockClear();
-    useDb({ kb_jobs: () => ok([{ status: "running", lease_until: new Date(Date.now() + 60_000).toISOString() }]) });
+    useDb({ kb_jobs: () => ok([{ preset: "capturas-web", status: "running", lease_until: new Date(Date.now() + 60_000).toISOString() }]) });
     await kickWebFinds(state.db as never, origin);
     expect(fetchMock).not.toHaveBeenCalled();
     expect(calls.some((c) => c.ops.some((o) => o.op === "insert"))).toBe(false);
 
     // na fila sem executor: só pede executor
-    useDb({ kb_jobs: () => ok([{ status: "queued", lease_until: null }]) });
+    useDb({ kb_jobs: () => ok([{ preset: "capturas-web", status: "queued", lease_until: null }]) });
     await kickWebFinds(state.db as never, origin);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(calls.some((c) => c.ops.some((o) => o.op === "insert"))).toBe(false);
+
+    // carga de outro tipo pendente (ex.: carga completa parada): só enfileira, não acorda o executor
+    inserted = null;
+    useDb({
+      kb_jobs: (q) => {
+        if (q.ops.some((o) => o.op === "insert")) {
+          inserted = argOf(q, "insert");
+          return ok({ id: JOB });
+        }
+        return ok([{ preset: "carga-completa", status: "queued", lease_until: null }]);
+      },
+    });
+    fetchMock.mockClear();
+    await kickWebFinds(state.db as never, origin);
+    expect(inserted).toMatchObject({ preset: "capturas-web" });
+    expect(fetchMock).not.toHaveBeenCalled();
 
     // banco fora: loga e segue
     const err = vi.spyOn(console, "error").mockImplementation(() => {});
