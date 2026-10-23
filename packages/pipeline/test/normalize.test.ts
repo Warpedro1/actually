@@ -33,6 +33,17 @@ describe("números pt-BR", () => {
     expect(parsePtBrNumber("6,5 por cento")).toMatchObject({ value: 6.5, unit: "%" });
   });
 
+  it("\"e meio\" vale meia unidade da escala dita (ensaio da Band: \"cresceu 7 e meio\")", () => {
+    expect(parsePtBrNumber("7 e meio")).toEqual({ value: 7.5, unit: null, raw: "7 e meio" });
+    expect(parsePtBrNumber("2 e meia")).toMatchObject({ value: 2.5 });
+    expect(parsePtBrNumber("3 bilhões e meio")).toMatchObject({ value: 3_500_000_000 });
+    expect(parsePtBrNumber("R$ 3 bi e meio")).toMatchObject({ value: 3_500_000_000, unit: "R$" });
+    // número grande já em dígitos: a escala não está dita, somar 0,5 bilhão seria chute
+    expect(parsePtBrNumber("3000000000 e meio")).toMatchObject({ value: 3_000_000_000 });
+    // "meio milhão" (sem número antes) continua valendo pelo dicionário de palavras
+    expect(parsePtBrNumber("meio milhão")).toMatchObject({ value: 500_000 });
+  });
+
   it("quase 10 milhões (qualificador fica no raw)", () => {
     expect(parsePtBrNumber("quase 10 milhões")).toEqual({ value: 10_000_000, unit: null, raw: "quase 10 milhões" });
   });

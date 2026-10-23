@@ -85,6 +85,8 @@ const NUMBER_RE = new RegExp(
   // número ("g1", "R7", "Poder360", "Brasil247") não é número; "TRF4", "COP28", "nº14" são
   `(?:(?<!\\p{N})(?<!\\p{N}[.,])(?<!(?<!\\p{L})(?:g|r|poder|brasil))(\\d[\\d.,]*\\d|\\d)|\\b(${WORD_RE})\\b(?=\\s+(?:${MULT_RE}|por\\s+cento)\\b))` +
   `(?:\\s*(${MULT_RE})\\b)?` +
+  // "e meio"/"e meia" soma metade da escala: "7 e meio" = 7,5; "3 bilhões e meio" = 3,5 bi
+  `(\\s+e\\s+mei[oa])?` +
   `(?:\\s*(?:de\\s+)?(${UNIT_RE}))?`,
   "giu",
 );
@@ -98,7 +100,7 @@ interface NumberMatch extends ClaimNumber {
 
 function* numberMatches(text: string): Generator<NumberMatch> {
   for (const m of text.matchAll(NUMBER_RE)) {
-    const [raw, qualifier, currency, lit, word, mult, unitRaw] = m;
+    const [raw, qualifier, currency, lit, word, mult, half, unitRaw] = m;
     let base: number | null = null;
     if (lit) base = parseNumericLiteral(lit);
     else if (word) base = WORD_NUMBERS[word.toLowerCase()] ?? null;
@@ -106,7 +108,11 @@ function* numberMatches(text: string): Generator<NumberMatch> {
     // "reais"/"dólares" depois do número valem como unidade; cifrão antes também
     const unit = canonicalUnit(currency ?? unitRaw ?? null);
     // trailing "." ou "," capturado pelo literal (fim de frase) já foi rejeitado pelo \d final
-    const value = roundSig(base * multiplierOf(mult));
+    // "e meio" vale meia unidade da escala dita ("3 bilhões e meio"); sem escala, meio inteiro
+    // ("7 e meio" = 7,5, forma falada de 7,5%). Número grande escrito em dígitos pela
+    // transcrição ("3000000000 e meio") fica fora: a escala não está dita e seria chute.
+    const halfStep = half && base < 1000 ? 0.5 : 0;
+    const value = roundSig((base + halfStep) * multiplierOf(mult));
     yield { value, unit, raw: raw.trim(), index: m.index ?? 0, length: raw.length, qualifier: qualifier ?? null };
   }
 }
