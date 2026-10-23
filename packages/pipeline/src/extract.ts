@@ -29,7 +29,7 @@ export const ExtractionSchema = z.object({
       measurable: z
         .string()
         .nullable()
-        .describe("Só para opiniao_mensuravel e previsao: o dado ou a projeção pública que mede a fala. null nos outros tipos."),
+        .describe("Só para opiniao_mensuravel: o dado público que mede a fala. null nos outros tipos."),
       numbers: z.array(
         z.object({
           value: z.number().describe("Valor numérico absoluto (\"1,5 milhão\" → 1500000; \"6%\" → 6)."),
@@ -74,7 +74,7 @@ Você recebe a transcrição automática dos últimos segundos (<contexto>) e a 
 - "estatistica": número, percentual, valor ou indicador.
 - "acusacao": situação judicial ou policial de uma pessoa ou partido (preso, condenado, réu, denunciado, investigado, indiciado, inelegível, absolvido, processo anulado ou arquivado) ou escândalo concreto. Só a parte factual: "ele foi condenado por corrupção" entra; "ele é ladrão" é opinião.
 - "opiniao_mensuravel": juízo de valor ou exagero cuja essência um dado público mede. Ex.: "os estados fracassaram na segurança" (taxas de homicídio por estado); "a indústria brasileira está sucateada" (produção industrial). Preencha "measurable" com o dado que mede a fala. Fala em 2ª pessoa dirigida ao eleitor ("você não consegue mais comprar carne", "o seu salário não paga o mercado") NÃO vira afirmação nacional: é "opiniao".
-- "previsao": previsão ou projeção sobre o futuro que dá para comparar com projeções publicadas (Banco Central/Focus, IFI, Tesouro, FMI, agências de rating). Ex.: "o Brasil vai crescer 3% no ano que vem". Preencha "measurable" com a projeção a consultar.
+- "previsao": previsão ou projeção sobre o futuro, de quem quer que seja ("o Brasil vai crescer 3% no ano que vem", "a inflação vai explodir"). Não dá para checar o que ainda não aconteceu; marque assim e o sistema descarta.
 - "promessa": compromisso do próprio falante sobre o que vai fazer ("vou construir 500 mil vagas"). Não dá para medir; marque assim e o sistema descarta.
 - "opiniao": juízo de valor sem base mensurável, ataque pessoal ou adjetivo ("ele é incompetente", "passa a mão na cabeça de bandido"). Marque assim e o sistema descarta.
 
@@ -90,7 +90,7 @@ QUEM FALA: o atributo pessoa de <fala_atual> diz quem fala. "Eu", "meu", "nós" 
 
 Para cada afirmação:
 - text_original: trecho LITERAL da fala atual (copie exatamente como transcrito).
-- text_normalized: frase autossuficiente em português, com sujeito e tempo explícitos. Em opinião e previsão, mantenha o sentido literal da fala (a métrica vai em "measurable", não no texto). Resolva "isso", "ele", "lá", "no meu governo", "no governo dele", "ano passado" usando o contexto e a data do debate. Se o falante não puder ser identificado com segurança, NÃO atribua o governo a ninguém — descarte a afirmação se ela depender disso.
+- text_normalized: frase autossuficiente em português, com sujeito e tempo explícitos. Em opinião mensurável, mantenha o sentido literal da fala (a métrica vai em "measurable", não no texto). Resolva "isso", "ele", "lá", "no meu governo", "no governo dele", "ano passado" usando o contexto e a data do debate. Se o falante não puder ser identificado com segurança, NÃO atribua o governo a ninguém — descarte a afirmação se ela depender disso.
 - FIDELIDADE: a afirmação normalizada diz exatamente o que a fala diz. Nunca acrescente período, ano, "e não X", escopo, causa, pessoa, nome ou situação jurídica que não estejam na fala atual ou no contexto. ANO e DATA só entram se estiverem na própria fala atual: período que só aparece no contexto fica em time_reference, nunca dentro da afirmação. Mantenha o verbo dito ("fugido" não vira "foragido"; "foi do seu governo" não vira "foi vinculado ao governo"). "Seu irmão", "seu filho", "seu pai" são parentes do interlocutor, nunca o próprio interlocutor. "Eles" só se resolve se o contexto disser quem são.
 - Uma afirmação = um fato. Separe frases com dois fatos em duas afirmações; lista de fatos ("recorde de X, recorde de Y, recorde de Z") vira uma afirmação por item. Se o trecho mistura opinião ou previsão com uma estatística, a estatística também sai.
 - transcricao_duvidosa: true quando o núcleo da afirmação tem palavra sem sentido ("nunca foi no Fusca", "secretário do ferro"), substantivo faltando ("a maior de terras indígenas"), unidade impossível ("27 mil metros" falando de médicos) ou número embaralhado ("90 e por 100"). Não conserte nem adivinhe: marque true (o sistema descarta).
@@ -584,8 +584,8 @@ export function windowAsTotal(ref: ReferenceRef | null, said: string): Reference
   return since || ref.window_years === ref.claimed_value ? { ...ref, window_years: null } : ref;
 }
 
-/** Opinião e previsão só são julgáveis com o dado que as mede. */
-const NEEDS_MEASURE: readonly ClaimKind[] = ["opiniao_mensuravel", "previsao"];
+/** Opinião mensurável só é julgável com o dado que a mede. */
+const NEEDS_MEASURE: readonly ClaimKind[] = ["opiniao_mensuravel"];
 
 const REFERENCE_TYPES: ReferenceRef["type"][] = ["tempo_no_poder", "eleicao"];
 const REFERENCE_UNITS: ReferenceRef["unit"][] = ["anos", "votos", "%"];

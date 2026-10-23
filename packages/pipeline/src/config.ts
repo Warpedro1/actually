@@ -59,7 +59,7 @@ export const WEB_FIND_MAX_CHARS = 200_000;
 
 /**
  * Regras por tipo de fala (score.ts):
- * - max_level: nível máximo do alerta (opinião e previsão nunca são vermelhas);
+ * - max_level: nível máximo do alerta (opinião mensurável nunca é vermelha);
  * - extra_threshold: soma ao threshold do nível (exige mais certeza);
  * - max_tier: qualquer alerta só com fonte deste nível ou melhor (o nível 4 nunca vale);
  * - red_max_tier: vermelho só com fonte deste nível ou melhor;
@@ -79,7 +79,6 @@ export const KIND_RULES = {
   estatistica: { max_level: "red", extra_threshold: 0, max_tier: 3, red_max_tier: 3, force_review: false },
   acusacao: { max_level: "red", extra_threshold: 0, max_tier: 3, red_max_tier: 3, force_review: true },
   opiniao_mensuravel: { max_level: "yellow", extra_threshold: 0.1, max_tier: 2, red_max_tier: 2, force_review: false },
-  previsao: { max_level: "yellow", extra_threshold: 0.1, max_tier: 2, red_max_tier: 2, force_review: false },
 } as const;
 
 /**

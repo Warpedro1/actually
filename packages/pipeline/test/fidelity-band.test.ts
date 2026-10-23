@@ -138,10 +138,14 @@ describe("[RF02] promessa reescrita como fato, opinião ou previsão cai", () =>
     expect(run(claim("Aquele mesmo atendimento com tecnologia, com médicos, com hora marcada, sem fila, que tem na rede privada, eu quero levar para o SUS.",
       "O atendimento do Hospital Albert Einstein, com tecnologia, médicos, hora marcada e sem fila, é o mesmo atendimento que existe na rede privada.",
       { tipo: "opiniao_mensuravel", measurable: "tempo de espera no SUS" }), sus, FLAVIO).dropped).toBe("promessa");
-    // t≈4504: "comigo o presidente ... vai despencar" virou previsão (e ainda trocou para "governo Lula")
+    // t≈4504: "comigo o presidente ... vai despencar" virou previsão (e ainda trocou para "governo
+    // Lula"). Previsão saiu dos tipos checáveis, então cai já no tipo, antes da trava de promessa.
     const juros = "Para ajudar você que quer sair dessa situação difícil. E pode ter certeza de 1 forma muito rápida comigo o presidente a taxa de juros despencando, a sua dívida vai despencar junto.";
     expect(run(claim("a taxa de juros despencando, a sua dívida vai despencar junto", "Com o governo Lula, a taxa de juros vai despencar e as dívidas dos endividados vão cair junto.",
-      { tipo: "previsao", measurable: "projeção da Selic (Focus)" }), juros, FLAVIO).dropped).toBe("promessa");
+      { tipo: "previsao", measurable: "projeção da Selic (Focus)" }), juros, FLAVIO).dropped).toBe("previsao");
+    // a mesma fala rotulada como estatística continua caindo como promessa
+    expect(run(claim("a taxa de juros despencando, a sua dívida vai despencar junto", "Com o governo Lula, a taxa de juros vai despencar e as dívidas dos endividados vão cair junto.",
+      { tipo: "estatistica" }), juros, FLAVIO).dropped).toBe("promessa");
     // t≈1447: "não vai ter mais roubalheira ... no governo Bolsonaro" (Flávio) reescrito no passado
     const inss = "o Brasil elegeu agora 1 congresso nacional muito mais à direita Lula, e não vai ter mais roubalheira de velhinho no no governo Bolsonaro, e no seu governo está tendo";
     expect(run(claim("não vai ter mais roubalheira de velhinho no no governo Bolsonaro", "Não houve mais roubalheira contra aposentados no governo Bolsonaro.", { tipo: "acusacao" }), inss, FLAVIO).dropped)
@@ -158,7 +162,7 @@ describe("[RF02] promessa reescrita como fato, opinião ou previsão cai", () =>
       .toHaveLength(1);
   });
 
-  it("contraexemplos: previsão sem mandato do falante, lei com efeito futuro, fala de condução e passado passam", () => {
+  it("contraexemplos: futuro sem mandato do falante, lei com efeito futuro, fala de condução e passado passam", () => {
     expect(isPromise("o Brasil vai crescer 3% no ano que vem", "o Brasil vai crescer 3% no ano que vem")).toBe(false);
     expect(isPromise("quem ganha até 5 mil não vai pagar imposto de renda", "a partir de janeiro, quem ganha até 5 mil não vai pagar imposto de renda")).toBe(false);
     expect(isPromise("o desemprego caiu para 5,6%", "eu vou te dizer uma coisa: o desemprego caiu para 5,6%")).toBe(false);
@@ -167,9 +171,10 @@ describe("[RF02] promessa reescrita como fato, opinião ou previsão cai", () =>
     expect(isPromise("no meu governo o desemprego caiu para 6,6%", "no meu governo o desemprego caiu para 6,6%", ["lula"])).toBe(false);
     // "governo Bolsonaro" no futuro só é promessa na boca do Flávio
     expect(isPromise("não vai ter mais roubalheira no governo Bolsonaro", "não vai ter mais roubalheira no governo Bolsonaro", ["lula"])).toBe(false);
-    expect(run(claim("o Brasil vai crescer 3% no ano que vem", "O PIB do Brasil vai crescer 3% em 2027.", {
-      tipo: "previsao", measurable: "projeções do PIB para 2027 (Focus)", time_reference: null,
-    }), "o Brasil vai crescer 3% no ano que vem", LULA).out).toHaveLength(1);
+    // lei com efeito futuro é fato, não promessa do falante: passa a trava e continua checável
+    expect(run(claim("quem ganha até 5 mil não vai pagar imposto de renda", "Quem ganha até R$ 5 mil não vai pagar imposto de renda.", {
+      tipo: "fato", time_reference: null,
+    }), "a partir de janeiro, quem ganha até 5 mil não vai pagar imposto de renda", LULA).out).toHaveLength(1);
   });
 });
 

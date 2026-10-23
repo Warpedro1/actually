@@ -15,8 +15,8 @@ Durante o debate presidencial de 23 de outubro de 2026, um sistema automatizado 
    - **fato** ou **estatística** (“o desemprego caiu para X%”, “a lei foi aprovada em 2023”) — regras gerais;
    - **acusação** (situação judicial de uma pessoa: condenado, réu, investigado, inelegível, processo anulado ou arquivado) — julgamos **só o fato processual**, com órgão e data, nunca culpa ou intenção; vermelho só com decisão judicial, documento oficial ou checagem profissional; e **todo** alerta de acusação passa por um editor antes de ser publicado;
    - **opinião com base mensurável** (“não tem mais carne na mesa do brasileiro”) — comparada com o dado que a mede; no máximo “Impreciso”, com exigência maior de confiança;
-   - **previsão** (“o país vai crescer 3% no ano que vem”) — comparada com projeções publicadas (Banco Central, IFI, Tesouro, FMI, agências de risco); no máximo “Impreciso”, com exigência maior de confiança;
-   - **promessas** e **opiniões sem base mensurável** (adjetivos, ataques pessoais) não são checadas, nem **perguntas**, **hipóteses** (“pode ser”, “talvez”) e falas da **mediação**.
+   - **previsões** (“o país vai crescer 3% no ano que vem”), **promessas** e **opiniões sem base mensurável** (adjetivos, ataques pessoais) não são checadas: não dá para verificar o que ainda não aconteceu, nem juízo de valor. Também ficam fora **hipóteses** (“pode ser”, “talvez”), **condicionais** (“se o PIB cresceu…”) e falas da **mediação**.
+   - **perguntas** não viram afirmação, mas o **fato que a pergunta pressupõe** vira (“caiu o roubo de celular?” → “o roubo de celulares não caiu”), e esse alerta sempre passa por um editor.
 
    A afirmação reescrita para a checagem não pode dizer mais do que a fala: se ela acrescenta um ano, um período, o turno de uma eleição ou um nome que ninguém disse, é descartada.
 3. **Repetição.** Se a mesma afirmação — com os mesmos números — já foi verificada neste debate, reutilizamos o resultado e indicamos “Repetido — já verificado às HH:MM”. Afirmações parecidas com números diferentes são verificadas de novo.
@@ -118,7 +118,7 @@ A lista completa de bases consultadas está em `docs/fontes.md`.
 | Mínimo para vermelho | 0,85 | Índice de confiança mínimo para “Contradito pelas fontes”. |
 | Mínimo para amarelo | 0,75 | Índice mínimo para “Impreciso”. |
 | Acréscimo para fontes da web | +0,05 | Quando a evidência veio da busca web, o mínimo sobe — exceto quando a fonte citada é uma checagem de agência profissional (nível 1) com o trecho conferido: o acréscimo compensa a busca aberta, não a qualidade da fonte. |
-| Acréscimo para opinião e previsão | +0,10 | Opinião com base mensurável e previsão exigem mais confiança e nunca viram vermelho. |
+| Acréscimo para opinião mensurável | +0,10 | Opinião com base mensurável exige mais confiança e nunca vira vermelho. |
 
 Os valores foram calibrados com um conjunto de afirmações rotuladas por pessoas a partir do debate de 18 de outubro, para que **pelo menos 90% dos alertas vermelhos estejam corretos** nesse conjunto. Os valores em vigor no dia do debate serão publicados aqui.
 

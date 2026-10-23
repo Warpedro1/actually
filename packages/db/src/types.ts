@@ -145,6 +145,8 @@ export interface RefElection {
   conferencia?: string;
 }
 
+// "previsao" fica na lista porque o banco já tem linhas assim (ensaio de 18/10) e o check da
+// migration 0011 continua aceitando; o pipeline não extrai mais esse tipo desde 23/10.
 export type ClaimKindDb = "fato" | "estatistica" | "acusacao" | "opiniao_mensuravel" | "previsao";
 
 export interface Claim {
@@ -159,7 +161,7 @@ export interface Claim {
   topic: string | null;
   /** fato | estatistica | acusacao | opiniao_mensuravel | previsao (migration 0011). */
   kind: ClaimKindDb;
-  /** Opinião/previsão: o dado ou a projeção que mede a fala. */
+  /** Opinião mensurável: o dado que mede a fala. */
   measurable: string | null;
   indicator: IndicatorRef | null;
   embedding: number[] | string | null;

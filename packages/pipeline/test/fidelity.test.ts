@@ -266,11 +266,11 @@ describe("[RF03] busca web: página com o texto corrompido não vira evidência"
 });
 
 describe("[RF03] verificador: projeto não contradiz lei; nuance não é impreciso; julga a fala original", () => {
-  it("regras 4, 13 e 14 no prompt", () => {
+  it("regras 4, 12 e 13 no prompt", () => {
     expect(VERIFY_SYSTEM).toMatch(/Nuance que não muda a essência/);
     expect(VERIFY_SYSTEM).toMatch(/checagem de nível 1 da MESMA fala diz que o falante acerta/);
-    expect(VERIFY_SYSTEM).toMatch(/13\. Projeto em tramitação .* não contradiz afirmação sobre lei aprovada ou sancionada/);
-    expect(VERIFY_SYSTEM).toMatch(/14\. Julgue o que o falante disse \("Trecho original da fala"\)/);
+    expect(VERIFY_SYSTEM).toMatch(/12\. Projeto em tramitação .* não contradiz afirmação sobre lei aprovada ou sancionada/);
+    expect(VERIFY_SYSTEM).toMatch(/13\. Julgue o que o falante disse \("Trecho original da fala"\)/);
   });
 });
 

@@ -40,11 +40,10 @@ Regras:
 7. "summary": até 140 caracteres, neutro, sem adjetivos, sem nomear o candidato.
 8. "confidence": calibrada — 0,9+ só quando a evidência é direta, oficial e sobre exatamente o mesmo fato e período.
 9. Tipo "opinião mensurável": julgue se os dados que medem o ponto indicado em "O que medir" contradizem a fala de forma clara. Exagero retórico com fundo verdadeiro não é impreciso. Sem dado direto sobre exatamente isso, "inconclusivo". Nunca "contradito": use "impreciso" quando os dados mostram o contrário.
-10. Tipo "previsão": compare com as projeções publicadas nas evidências (Banco Central/Focus, IFI, Tesouro, FMI, agências de rating...). "impreciso" só se a fala diverge claramente de todas as projeções citadas; projeções divergentes entre si ou ausentes, "inconclusivo". Nunca "contradito". A correção diz quem projetou e quando.
-11. Tipo "acusação": julgue só fatos processuais — denunciado, réu, condenado, absolvido, anulado, arquivado, prescrito, investigado, indiciado, inelegível — com órgão e data. Nunca julgue culpa nem intenção. Anulação não é absolvição; investigação não é condenação. A situação processual muda com o tempo: vale a evidência mais recente, e um texto mais antigo não contradiz uma afirmação sobre a situação atual (sem evidência recente, "inconclusivo"). A correção cita o órgão e a data da decisão.
-12. Não é evidência do fato, mesmo que esteja no texto: (a) o boato ou post que uma checagem reproduz para desmentir; (b) fala, acusação ou alegação de candidato, defesa, partido ou parte, relatada pela matéria; (c) voto vencido; (d) manchete de outra matéria ("Leia mais", "Leia também"). Nunca cite esses trechos em "quote".
-13. Projeto em tramitação (aprovado em comissão ou em uma só Casa) não contradiz afirmação sobre lei aprovada ou sancionada: sem o texto final da lei, "inconclusivo".
-14. Julgue o que o falante disse ("Trecho original da fala"). Se a afirmação reformulada acrescentou período, escopo ou detalhe que a fala original não diz, julgue a leitura mais favorável ao falante.`;
+10. Tipo "acusação": julgue só fatos processuais — denunciado, réu, condenado, absolvido, anulado, arquivado, prescrito, investigado, indiciado, inelegível — com órgão e data. Nunca julgue culpa nem intenção. Anulação não é absolvição; investigação não é condenação. A situação processual muda com o tempo: vale a evidência mais recente, e um texto mais antigo não contradiz uma afirmação sobre a situação atual (sem evidência recente, "inconclusivo"). A correção cita o órgão e a data da decisão.
+11. Não é evidência do fato, mesmo que esteja no texto: (a) o boato ou post que uma checagem reproduz para desmentir; (b) fala, acusação ou alegação de candidato, defesa, partido ou parte, relatada pela matéria; (c) voto vencido; (d) manchete de outra matéria ("Leia mais", "Leia também"). Nunca cite esses trechos em "quote".
+12. Projeto em tramitação (aprovado em comissão ou em uma só Casa) não contradiz afirmação sobre lei aprovada ou sancionada: sem o texto final da lei, "inconclusivo".
+13. Julgue o que o falante disse ("Trecho original da fala"). Se a afirmação reformulada acrescentou período, escopo ou detalhe que a fala original não diz, julgue a leitura mais favorável ao falante.`;
 
 function evidenceBlock(c: EvidenceCandidate, i: number): string {
   const kind = { L1: "checagem publicada", L2: "indicador oficial (série)", L3: "documento", L4: "página web" }[c.layer];
@@ -62,7 +61,7 @@ export interface VerifyInput {
   claim_normalized: string;
   claim_original: string;
   kind?: ClaimKind;
-  /** Opinião/previsão: o dado ou a projeção que mede a fala. */
+  /** Opinião mensurável: o dado que mede a fala. */
   measurable?: string | null;
   context: string;
   today: string;
@@ -72,9 +71,8 @@ export interface VerifyInput {
 const KIND_LABEL: Record<ClaimKind, string> = {
   fato: "fato",
   estatistica: "estatística",
-  acusacao: "acusação (regra 11)",
+  acusacao: "acusação (regra 10)",
   opiniao_mensuravel: "opinião mensurável (regra 9)",
-  previsao: "previsão (regra 10)",
 };
 
 export function buildVerifyMessage(input: VerifyInput): string {

@@ -336,11 +336,11 @@ describe("[RF02] [RF04] tipos de fala", () => {
     expect(b.store.claims[0]).toMatchObject({ kind: "opiniao_mensuravel", measurable: com.measurable });
   });
 
-  it("[RF03] opinião/previsão: a web procura o dado que mede a fala, e o verificador recebe o tipo", async () => {
+  it("[RF03] opinião mensurável: a web procura o dado que mede a fala, e o verificador recebe o tipo", async () => {
     const queries: string[] = [];
     const webSearch: WebSearchFn = async (q) => (queries.push(q), [WEB_RESULT]);
-    const prev = claimOut("o Brasil vai crescer 3% no ano que vem", "O Brasil vai crescer 3% em 2027.", null, {
-      tipo: "previsao", measurable: "projeções de crescimento do PIB do Brasil para 2027 (Focus, FMI)",
+    const prev = claimOut("a indústria brasileira está sucateada", "A indústria brasileira está sucateada.", null, {
+      tipo: "opiniao_mensuravel", measurable: "produção industrial do Brasil em 2025 e 2026 (IBGE)",
     });
     let verifyMsg = "";
     const store = new MemoryStore({}, { require_red_approval: false });
@@ -348,9 +348,9 @@ describe("[RF02] [RF04] tipos de fala", () => {
       store, webSearch,
       anthropic: fakeAnthropic({ extract: extracting(prev), verify: (u) => ((verifyMsg = u), verdict({ verdict: "inconclusivo", confidence: 0.2 })) }),
     });
-    await createPipeline(deps).runPipeline(store.addSegment("E o Brasil vai crescer 3% no ano que vem.").id);
+    await createPipeline(deps).runPipeline(store.addSegment("A indústria brasileira está sucateada.").id);
     expect(queries).toEqual([prev.measurable]);
-    expect(verifyMsg).toContain("Tipo da fala: previsão");
+    expect(verifyMsg).toContain("Tipo da fala: opinião mensurável");
     expect(verifyMsg).toContain(`O que medir: ${prev.measurable}`);
   });
 
@@ -758,8 +758,9 @@ describe("[RF02] [RF08] trava de tipo em código", () => {
   it("[RF02] tipo com acento ou fora da lista não vira \"fato\": a fala é descartada", async () => {
     const { toKind } = await import("../src/extract");
     expect(toKind("acusação")).toBe("acusacao");
-    expect(toKind("Previsão")).toBe("previsao");
     expect(toKind("opinião mensurável")).toBe("opiniao_mensuravel");
+    // previsão saiu dos tipos checáveis: o modelo marca, o código descarta
+    expect(toKind("Previsão")).toBeNull();
     expect(toKind("promessa")).toBeNull();
     expect(toKind("comentario")).toBeNull();
   });
@@ -776,18 +777,18 @@ describe("[RF02] [RF08] trava de tipo em código", () => {
 });
 
 describe("[RF03] [RF05] regras do verificador contra citação de trecho que não é evidência", () => {
-  it("regra 12: boato reproduzido, fala de parte, voto vencido e manchete de outra matéria não sustentam veredito", () => {
-    const r12 = VERIFY_SYSTEM.slice(VERIFY_SYSTEM.indexOf("12. "));
-    expect(r12).toMatch(/boato ou post que uma checagem reproduz/);
-    expect(r12).toMatch(/fala, acusação ou alegação de candidato, defesa, partido ou parte/);
-    expect(r12).toMatch(/voto vencido/);
-    expect(r12).toMatch(/manchete de outra matéria/);
-    expect(r12).toMatch(/Nunca cite esses trechos em "quote"/);
+  it("regra 11: boato reproduzido, fala de parte, voto vencido e manchete de outra matéria não sustentam veredito", () => {
+    const r11 = VERIFY_SYSTEM.slice(VERIFY_SYSTEM.indexOf("11. "), VERIFY_SYSTEM.indexOf("12. "));
+    expect(r11).toMatch(/boato ou post que uma checagem reproduz/);
+    expect(r11).toMatch(/fala, acusação ou alegação de candidato, defesa, partido ou parte/);
+    expect(r11).toMatch(/voto vencido/);
+    expect(r11).toMatch(/manchete de outra matéria/);
+    expect(r11).toMatch(/Nunca cite esses trechos em "quote"/);
   });
 
-  it("regra 11: situação processual mais recente vale; texto antigo não contradiz a situação atual", () => {
-    const r11 = VERIFY_SYSTEM.slice(VERIFY_SYSTEM.indexOf("11. "), VERIFY_SYSTEM.indexOf("12. "));
-    expect(r11).toMatch(/vale a evidência mais recente/);
-    expect(r11).toMatch(/não contradiz uma afirmação sobre a situação atual/);
+  it("regra 10: situação processual mais recente vale; texto antigo não contradiz a situação atual", () => {
+    const r10 = VERIFY_SYSTEM.slice(VERIFY_SYSTEM.indexOf("10. "), VERIFY_SYSTEM.indexOf("11. "));
+    expect(r10).toMatch(/vale a evidência mais recente/);
+    expect(r10).toMatch(/não contradiz uma afirmação sobre a situação atual/);
   });
 });

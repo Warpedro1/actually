@@ -90,17 +90,17 @@ describe("[RF15] a base aprende com a web (fila kb_web_finds)", () => {
   });
 
   it("base fraca (web entrou na verificação): várias afirmações, uma linha por URL, com a busca usada", async () => {
-    const prev = claimOut("o Brasil vai crescer 3% no ano que vem", "O Brasil vai crescer 3% em 2027.", {
-      tipo: "previsao", measurable: "projeções de crescimento do PIB do Brasil para 2027 (Focus)",
+    const prev = claimOut("a indústria brasileira está sucateada", "A indústria brasileira está sucateada.", {
+      tipo: "opiniao_mensuravel", measurable: "produção industrial do Brasil em 2025 e 2026 (IBGE)",
     });
     const web: WebSearchFn = async (q) => (q === prev.measurable ? [FOLHA, ESTADAO] : [G1, FOLHA]);
     const { store, pipeline } = setup({ web, claims: [DOC_CLAIM, prev], verify: () => SILENT });
-    const res = await pipeline.runPipeline(store.addSegment(`${DOC_SEGMENT} E o Brasil vai crescer 3% no ano que vem.`).id);
+    const res = await pipeline.runPipeline(store.addSegment(`${DOC_SEGMENT} A indústria brasileira está sucateada.`).id);
 
     expect(res).toMatchObject({ claims: 2, alerts: 0, web_finds: 3 });
     expect(store.webFinds.map((w) => w.url).sort()).toEqual([ESTADAO.url, FOLHA.url, G1.url].sort());
     expect(store.webFinds.find((w) => w.url === G1.url)?.query).toBe(DOC_CLAIM.text_normalized);
-    // opinião/previsão: a busca é o dado que mede a fala
+    // opinião mensurável: a busca é o dado que mede a fala
     expect(store.webFinds.find((w) => w.url === ESTADAO.url)?.query).toBe(prev.measurable);
     // uma inserção por trecho
     expect(store.calls.filter((c) => c === "saveWebFinds")).toHaveLength(1);

@@ -14,10 +14,14 @@ export type Topic = (typeof TOPICS)[number];
  * opinião mensurável e previsão são julgadas com regras mais duras (só amarelo,
  * limite maior); acusação só no que é fato processual, com revisão humana.
  */
-export const CLAIM_KINDS = ["fato", "estatistica", "acusacao", "opiniao_mensuravel", "previsao"] as const;
+export const CLAIM_KINDS = ["fato", "estatistica", "acusacao", "opiniao_mensuravel"] as const;
 export type ClaimKind = (typeof CLAIM_KINDS)[number];
-/** Tipos que o extrator marca para o código descartar. */
-export const DROPPED_KINDS = ["promessa", "opiniao"] as const;
+/**
+ * Tipos que o extrator marca para o código descartar. Previsão saiu dos tipos checáveis por
+ * decisão do usuário (23/10): no ensaio completo foram 5 afirmações, todas inconclusivas e
+ * nenhum alerta — comparar fala com projeção publicada não sustentava veredito.
+ */
+export const DROPPED_KINDS = ["promessa", "opiniao", "previsao"] as const;
 
 /**
  * Afirmação sobre fato de referência (conta feita em código):

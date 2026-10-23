@@ -135,25 +135,26 @@ describe("[RF02] [RF04] regras por tipo de fala", () => {
     expect(scoreDecision(base({ kind: "estatistica" }))).toMatchObject({ alert: "red", review: false });
   });
 
-  it("opinião mensurável e previsão nunca são vermelhas: contradito vira amarelo, com limite maior", () => {
-    for (const kind of ["opiniao_mensuravel", "previsao"] as const) {
-      const r = scoreDecision(base({ kind }));
-      expect(r).toMatchObject({ alert: "yellow", review: false });
-      expect(r.components).toMatchObject({ kind, level_capped: true, threshold: DEFAULT_SETTINGS.t_yellow + 0.1 });
-    }
+  it("opinião mensurável nunca é vermelha: contradito vira amarelo, com limite maior", () => {
+    const r = scoreDecision(base({ kind: "opiniao_mensuravel" }));
+    expect(r).toMatchObject({ alert: "yellow", review: false });
+    expect(r.components).toMatchObject({
+      kind: "opiniao_mensuravel", level_capped: true, threshold: DEFAULT_SETTINGS.t_yellow + 0.1,
+    });
   });
 
-  it("opinião/previsão: score que passaria num fato fica em silêncio (limite +0,1)", () => {
+  it("opinião mensurável: score que passaria num fato fica em silêncio (limite +0,1)", () => {
     // 0,5·0,7 + 0,2·1 + 0,2·0,5 + 0,1·1 = 0,75 ⇒ fato amarelo (0,75); opinião exige 0,85
     const input = { verdict: "impreciso" as const, model_confidence: 0.7 };
     expect(scoreDecision(base({ ...input, kind: "fato" }))).toMatchObject({ alert: "yellow" });
     expect(scoreDecision(base({ ...input, kind: "opiniao_mensuravel" }))).toMatchObject({ alert: null, silence_reason: "abaixo_do_threshold" });
   });
 
-  it("opinião/previsão só com fonte de nível 1–2, mesmo em amarelo", () => {
+  it("opinião mensurável só com fonte de nível 1–2, mesmo em amarelo", () => {
     const tier3 = [ev({ source_tier: 3 })];
     expect(scoreDecision(base({ verdict: "impreciso", evidence: tier3, kind: "fato" }))).toMatchObject({ alert: "yellow" });
-    expect(scoreDecision(base({ verdict: "impreciso", evidence: tier3, kind: "previsao" }))).toMatchObject({ alert: null, silence_reason: "tipo_exige_tier_2" });
+    expect(scoreDecision(base({ verdict: "impreciso", evidence: tier3, kind: "opiniao_mensuravel" })))
+      .toMatchObject({ alert: null, silence_reason: "tipo_exige_tier_2" });
   });
 
   it("acusação aceita nível 1, 2 e 3, e sempre passa pelo editor — nível 4 nunca", () => {
