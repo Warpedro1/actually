@@ -1,8 +1,18 @@
-# actually
+# actually — live fact-checking for the 2026 Brazilian presidential debate
 
-Checagem de fatos ao vivo para o debate presidencial de 2026. O sistema escuta a transmissão, extrai afirmações checáveis, verifica contra uma base pré-carregada e a web, e emite **alertas curtos, sempre com fonte**.
+Listens to a live broadcast, extracts checkable claims, verifies them against a pre-loaded knowledge base and the web, and publishes **short alerts — always with a source**. Priorities, in order: **precision > latency > coverage**. When in doubt, stay silent.
 
-Prioridades: **precisão > latência > cobertura**. Na dúvida, silêncio.
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white) ![Next.js](https://img.shields.io/badge/Next.js-000?logo=nextdotjs) ![Supabase](https://img.shields.io/badge/Supabase-Postgres%20%2B%20pgvector-3FCF8E?logo=supabase&logoColor=white) ![Anthropic](https://img.shields.io/badge/LLM-Anthropic-D97757) ![tests](https://img.shields.io/badge/tests-839%20vitest-brightgreen)
+
+- **Capture agent** runs outside serverless (a 2-hour stream doesn't fit a function): audio → Deepgram streaming STT with diarization → short segments over HTTP, remotely started/stopped from the admin panel.
+- **Pipeline** (`packages/pipeline`): filter → claim extraction → repetition lock → parallel retrieval — L1 published fact-checks, L2 official indicator series (BCB, IBGE) compared numerically in code, L3 documents with hybrid search (HNSW vector + full-text fused by RRF), L4 live web search restricted to tier 1–2 domains with a confidence penalty → verification → citation → score.
+- **Guarantees in the database**: Postgres trigger + RLS make it impossible to publish a correction without a verified source; alerts are append-only.
+- **Human in the loop**: editors approve or reject alerts in `/editor`, with criteria for switching approval on/off during the event.
+- **Evaluation**: labeled set measuring red/yellow precision, false-alarm rate, silence rate, per-speaker neutrality and p50/p95 latency; threshold sweep without calling models.
+
+Full architecture (with diagram) in [docs/arquitetura.md](docs/arquitetura.md). Documentation below is in Portuguese.
+
+---
 
 ## Estrutura
 
