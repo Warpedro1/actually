@@ -51,6 +51,11 @@ export interface ExtractedClaim {
   /** Fato de referência (mandatos, eleições), quando a fala é sobre isso. */
   reference: ReferenceRef | null;
   time_reference: string | null;
+  /**
+   * A afirmação sempre passa pelo editor, qualquer que seja o tipo: hoje, o fato pressuposto
+   * por uma pergunta ("caiu o roubo de celular?"), que é mais arriscado que uma fala direta.
+   */
+  force_review?: boolean;
   /** Auditoria: tipo que o modelo deu e a regra em código que o mudou (se houve). */
   kind_model?: string;
   kind_rule?: string;

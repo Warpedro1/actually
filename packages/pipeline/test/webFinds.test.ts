@@ -15,7 +15,7 @@ import {
 type ClaimOut = ExtractionOutput["claims"][number];
 const claimOut = (original: string, normalized: string, over: Partial<Pick<ClaimOut, "tipo" | "measurable">> = {}): ClaimOut => ({
   text_original: original, text_normalized: normalized, topic: "saude", tipo: "fato", measurable: null, numbers: [],
-  indicator: null, reference: null, time_reference: null, ...over,
+  indicator: null, reference: null, time_reference: null, transcricao_duvidosa: false, ...over,
 });
 const extracting = (...claims: ClaimOut[]) => (): FakeReply<ExtractionOutput> => ({ output: { claims } });
 

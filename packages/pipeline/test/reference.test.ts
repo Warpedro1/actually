@@ -129,7 +129,7 @@ describe("[RF03] [RF05] fato de referência no pipeline", () => {
       claims: [{
         text_original: "governamos o Brasil em 20 dos últimos 24 anos",
         text_normalized: "O PT governou o Brasil em 20 dos últimos 24 anos.",
-        topic: "outro", tipo: "fato", measurable: null, numbers: [], indicator: null, time_reference: null,
+        topic: "outro", tipo: "fato", measurable: null, numbers: [], indicator: null, time_reference: null, transcricao_duvidosa: false,
         reference: { type: "tempo_no_poder", subject: "PT", window_years: 24, year: null, round: null, claimed_value: 20, unit: "anos", qualifier: "exato" },
       }],
     },

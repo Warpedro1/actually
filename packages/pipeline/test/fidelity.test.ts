@@ -3,7 +3,8 @@
 import type { DebateSettings } from "@actually/db";
 import { describe, expect, it } from "vitest";
 import {
-  addsRate, electionUnderspecified, inventedNames, isHedged, isOpenQuestion, postprocessExtraction, unlicensedYears,
+  addsRate, electionUnderspecified, inventedNames, isConditional, isHedged, isOpenQuestion, postprocessExtraction,
+  unlicensedYears,
   type ExtractionOutput,
 } from "../src/extract";
 import { createPipeline } from "../src/index";
@@ -20,7 +21,7 @@ import { fakeAnthropic, fakeRerank, makeDeps, MemoryStore, type FakeReply } from
 type ClaimOut = ExtractionOutput["claims"][number];
 const claim = (original: string, normalized: string, over: Partial<ClaimOut> = {}): ClaimOut => ({
   text_original: original, text_normalized: normalized, topic: "economia", tipo: "fato", measurable: null, numbers: [],
-  indicator: null, reference: null, time_reference: null, ...over,
+  indicator: null, reference: null, time_reference: null, transcricao_duvidosa: false, ...over,
 });
 const TODAY = "2026-10-21";
 function run(c: ClaimOut, segment = c.text_original, context = "") {
@@ -107,12 +108,33 @@ describe("[RF02] fidelidade: ano que a fala não diz derruba a afirmação", () 
 });
 
 describe("[RF02] fidelidade: pergunta, hipótese, eleição sem ano/turno e nome inventado", () => {
-  it("pergunta sem número cai; com número fica", () => {
+  it("pergunta sem fato pressuposto cai; com fato pressuposto fica, sempre com editor", () => {
     expect(isOpenQuestion("Por que que ele está fugido lá na Espanha?")).toBe(true);
     expect(isOpenQuestion("Você sabia que o desemprego é 6%?")).toBe(false);
     expect(isOpenQuestion("Ele está fugido.")).toBe(false);
     expect(run(claim("Por que que ele está fugido lá na Espanha?", "O filho de Lula está fugido na Espanha.", { tipo: "acusacao" })).dropped)
-      .toBe("pergunta");
+      .toBe("pergunta_sem_fato");
+    // "caiu o roubo de celular?" (ensaio da Band, fala do Flávio que o UOL Confere checou):
+    // pergunta sem pronome interrogativo, pressupõe que não caiu ⇒ entra marcada para o editor
+    const pressuposto = claim("Caiu o roubo de celular?", "O roubo de celulares não caiu.", { tipo: "estatistica" });
+    const r = run(pressuposto, "As propostas dele não fizeram efeito. Caiu o roubo de celular?");
+    expect(r.out).toHaveLength(1);
+    expect(r.out[0]!.force_review).toBe(true);
+    // o trecho extraído costuma vir sem o "?": a frase inteira do segmento é que decide
+    const semInterrogacao = claim("Caiu o roubo de celular", "O roubo de celulares não caiu.", { tipo: "estatistica" });
+    expect(run(semInterrogacao, "As propostas dele não fizeram efeito. Caiu o roubo de celular?").out[0]!.force_review).toBe(true);
+    // fala afirmativa não pede editor por este motivo
+    expect(run(claim("o roubo de celular não caiu", "O roubo de celulares não caiu.", { tipo: "estatistica" })).out[0]!.force_review)
+      .toBeUndefined();
+  });
+
+  it("condicional no começo da frase cai (hipótese, não fato)", () => {
+    expect(isConditional("Se o PIB cresceu 3%, por que o salário não sobe?")).toBe(true);
+    expect(isConditional("E se o PIB cresceu 3%, o salário deveria subir.")).toBe(true);
+    expect(isConditional("O PIB se tornou maior em 2010.")).toBe(false);
+    expect(isConditional("Ele se chama Vorcaro e cresceu 3%.")).toBe(false);
+    const c = claim("o PIB cresceu 3 por 100", "O PIB do Brasil cresceu 3%.", { tipo: "estatistica" });
+    expect(run(c, "Se o PIB cresceu 3 por 100, por que o salário não sobe?").dropped).toBe("condicional");
   });
 
   it("insinuação (\"pode ser\", \"talvez\") sem número cai", () => {

@@ -17,7 +17,7 @@ const claimOut = (
   over: Partial<Pick<ClaimOut, "tipo" | "measurable" | "reference">> = {},
 ): ClaimOut => ({
   text_original: original, text_normalized: normalized, topic: "economia", tipo: "fato", measurable: null, numbers: [],
-  indicator: indicator ? { ...indicator } : null, reference: null, time_reference: null, ...over,
+  indicator: indicator ? { ...indicator } : null, reference: null, time_reference: null, transcricao_duvidosa: false, ...over,
 });
 const extracting = (...claims: ClaimOut[]) => (): FakeReply<ExtractionOutput> => ({ output: { claims } });
 const verdict = (o: Partial<VerifyOutput>): FakeReply<VerifyOutput> => ({

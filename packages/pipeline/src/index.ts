@@ -78,6 +78,7 @@ export interface Assessment {
 
 /** Pessoa do mapa de falantes que é a mediação do debate (não é candidato). */
 const MEDIATOR_RE = /^(mediacao|mediador|mediadora|moderacao|moderador|moderadora|jornalista|apresentador|apresentadora)\b/;
+const isMediatorPerson = (person: string) => MEDIATOR_RE.test(person.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase());
 
 const today = (deps: PipelineDeps) => new Date(deps.now()).toISOString().slice(0, 10);
 
@@ -87,8 +88,14 @@ function brDate(iso: string): string | null {
   return m ? `${m[3]}/${m[2]}/${m[1]}` : null;
 }
 
-function formatContext(segments: Pick<Segment, "speaker_label" | "text">[]): string {
-  return segments.map((s) => `[${s.speaker_label ?? "?"}] ${s.text}`).join("\n");
+/** Transcrição anterior com quem falou: a pessoa do mapa quando houver ("[Lula] ..."), senão o rótulo. */
+function formatContext(
+  segments: Pick<Segment, "speaker_label" | "text">[],
+  people: Map<string, string> = new Map(),
+): string {
+  return segments
+    .map((s) => `[${(s.speaker_label && people.get(s.speaker_label)) ?? s.speaker_label ?? "?"}] ${s.text}`)
+    .join("\n");
 }
 
 /**
@@ -270,10 +277,23 @@ async function safeExtract(
   text: string,
   context: string,
   speaker: string | null,
+  people: { person: string | null; opponents: string[] } = { person: null, opponents: [] },
 ): Promise<ExtractedClaim[]> {
   try {
     return await withTimeout(
-      extractClaims(deps.anthropic, { text, context, speaker_label: speaker, today: today(deps) }, deps.logger, deps.usage),
+      extractClaims(
+        deps.anthropic,
+        {
+          text,
+          context,
+          speaker_label: speaker,
+          speaker_person: people.person,
+          opponents: people.opponents,
+          today: today(deps),
+        },
+        deps.logger,
+        deps.usage,
+      ),
       TIMEOUTS_MS.extract + 1_000,
       "extract",
     );
@@ -411,22 +431,29 @@ export function createPipeline(deps: PipelineDeps) {
   }
 
   /**
-   * O rótulo no mapa de falantes confirmado pelo editor: "mediacao", "mapeado" (candidato,
-   * Outro), "sem_mapa" (o debate já tem mapa, este rótulo não) ou "debate_sem_mapa". Falha
-   * ao ler o mapa ⇒ "debate_sem_mapa": segue como antes (a regra do prompt continua valendo).
+   * Mapa de falantes confirmado pelo editor (rótulo → pessoa). Falha ao ler ⇒ vazio: segue
+   * como debate sem mapa (a regra do prompt continua valendo e as travas de pessoa não agem).
    */
-  async function speakerStatus(debateId: string, label: string): Promise<"mediacao" | "mapeado" | "sem_mapa" | "debate_sem_mapa"> {
-    if (!store.getSpeakerMap) return "debate_sem_mapa";
+  async function speakerMap(debateId: string): Promise<Map<string, string>> {
+    if (!store.getSpeakerMap) return new Map();
     try {
       const rows = await withTimeout(store.getSpeakerMap(debateId), TIMEOUTS_MS.context, "speaker_map");
-      if (!rows.length) return "debate_sem_mapa";
-      const person = rows.find((r) => r.speaker_label === label)?.person;
-      if (person === undefined) return "sem_mapa";
-      return MEDIATOR_RE.test(person.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase()) ? "mediacao" : "mapeado";
+      return new Map(rows.map((r) => [r.speaker_label, r.person]));
     } catch (err) {
       logger("warn", "speaker_map_failed", errorFields(err));
-      return "debate_sem_mapa";
+      return new Map();
     }
+  }
+
+  /**
+   * Situação do rótulo neste mapa: "mediacao", "mapeado" (candidato, Outro), "sem_mapa" (o
+   * debate já tem mapa, este rótulo não) ou "debate_sem_mapa".
+   */
+  function speakerStatus(people: Map<string, string>, label: string): "mediacao" | "mapeado" | "sem_mapa" | "debate_sem_mapa" {
+    if (!people.size) return "debate_sem_mapa";
+    const person = people.get(label);
+    if (person === undefined) return "sem_mapa";
+    return isMediatorPerson(person) ? "mediacao" : "mapeado";
   }
 
   async function runSegment(segmentId: number): Promise<PipelineResult> {
@@ -451,8 +478,9 @@ export function createPipeline(deps: PipelineDeps) {
       return result(0, 0);
     }
 
+    const people = await speakerMap(segment.debate_id);
     if (segment.speaker_label) {
-      const speaker = await speakerStatus(segment.debate_id, segment.speaker_label);
+      const speaker = speakerStatus(people, segment.speaker_label);
       // fala de quem o editor mapeou como Mediação não é checada (pergunta, regra, dado citado)
       if (speaker === "mediacao") {
         logger("info", "extract_dropped", { segment_id: segmentId, reason: "mediacao", speaker_label: segment.speaker_label });
@@ -466,6 +494,12 @@ export function createPipeline(deps: PipelineDeps) {
         return result(0, 0);
       }
     }
+    // quem fala e o adversário (as outras pessoas do mapa que não são a mediação): o extrator
+    // resolve "você"/"ele" com isso e a trava de sujeito trocado confere (ensaio da Band)
+    const person = (segment.speaker_label && people.get(segment.speaker_label)) || null;
+    const opponents = person
+      ? [...new Set([...people.values()].filter((p) => p !== person && !isMediatorPerson(p)))]
+      : [];
 
     t = deps.now();
     const ctxSegments = await withTimeout(
@@ -476,14 +510,14 @@ export function createPipeline(deps: PipelineDeps) {
       logger("warn", "context_failed", { segment_id: segmentId, ...errorFields(err) });
       return [] as Segment[];
     });
-    const context = formatContext(ctxSegments);
+    const context = formatContext(ctxSegments, people);
     const sameSpeakerContext = segment.speaker_label
       ? ctxSegments.filter((s) => s.speaker_label === segment.speaker_label).map((s) => s.text).join("\n")
       : "";
     latency.context = deps.now() - t;
 
     t = deps.now();
-    const claims = await safeExtract(deps, segment.text, context, segment.speaker_label);
+    const claims = await safeExtract(deps, segment.text, context, segment.speaker_label, { person, opponents });
     latency.extract = deps.now() - t;
     if (!claims.length) {
       latency.e2e = sinceSpeech(segment);
