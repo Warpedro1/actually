@@ -66,7 +66,7 @@ async function open(path: string, opts: { accepted?: boolean; mobile?: boolean }
   if (opts.accepted) {
     await ctx.addInitScript(() => {
       try {
-        localStorage.setItem("actually:disclaimer", "v2");
+        localStorage.setItem("actually:disclaimer", "v3");
       } catch {
         // sem storage
       }
@@ -82,8 +82,12 @@ describe("[RF10] aviso jurídico bloqueante", () => {
     const { ctx, page } = await open("/ao-vivo/demo");
     const dialog = page.getByRole("dialog");
     await expect(dialog.isVisible()).resolves.toBe(true);
-    expect(await dialog.textContent()).toContain("Pode errar");
-    expect(await dialog.textContent()).toContain("verifique a fonte");
+    const aviso = (await dialog.textContent()) ?? "";
+    // as quatro coisas que o aviso tem de dizer (RF10), independente de como a frase começa
+    expect(aviso).toMatch(/pode errar/i);
+    expect(aviso).toMatch(/verifique a fonte/i);
+    expect(aviso).toMatch(/não tem vínculo com partidos/i);
+    expect(aviso).toMatch(/ausência de alerta não significa/i);
     // conteúdo atrás do modal fica inerte (não clicável nem focável)
     expect(await page.locator("[inert]").count()).toBeGreaterThan(0);
 

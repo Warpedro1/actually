@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { DISCLAIMER_TEXT, DISCLAIMER_VERSION } from "@/lib/disclaimer";
+import { DISCLAIMER_INTRO, DISCLAIMER_POINTS, DISCLAIMER_VERSION } from "@/lib/disclaimer";
 import { STORAGE_KEYS, storageGet, storageSet } from "@/lib/storage";
 
 /**
@@ -55,33 +55,37 @@ export function DisclaimerGate({ children }: { children: ReactNode }) {
           data-disclaimer-gate
           className="fixed inset-0 z-50 flex items-end justify-center bg-black/75 p-4 sm:items-center"
         >
+          {/* max-h + rolagem: o aviso é longo e o botão não pode sair da tela no celular */}
           <div
             role="dialog"
             aria-modal="true"
             aria-labelledby="disclaimer-title"
             aria-describedby="disclaimer-text"
-            className="w-full max-w-md rounded-xl border border-border bg-surface p-5 shadow-xl"
+            className="flex max-h-[92dvh] w-full max-w-md flex-col overflow-y-auto rounded-xl border border-border bg-surface p-5 shadow-xl"
           >
-            <p className="text-xs font-medium uppercase tracking-wide text-muted">Antes de continuar</p>
-            <h2 id="disclaimer-title" className="mt-1 text-lg font-semibold">
-              Aviso importante
+            <h2 id="disclaimer-title" className="text-lg font-semibold">
+              Antes de começar
             </h2>
-            <p id="disclaimer-text" className="mt-3 text-base leading-relaxed">
-              {DISCLAIMER_TEXT}
-            </p>
+            <div id="disclaimer-text" className="mt-3 space-y-3 text-sm leading-relaxed sm:text-base">
+              {DISCLAIMER_INTRO.map((p) => (
+                <p key={p}>{p}</p>
+              ))}
+              <ul className="list-disc space-y-2 pl-5">
+                {DISCLAIMER_POINTS.map((p) => (
+                  <li key={p}>{p}</li>
+                ))}
+              </ul>
+            </div>
             <p className="mt-3 text-sm text-muted">
-              Os alertas são gerados por um sistema automático a partir da transmissão, com as mesmas regras para
-              todos os participantes.{" "}
               <Link href="/metodologia" className="underline">
-                Entenda a metodologia
+                Como a checagem funciona, em detalhe
               </Link>
-              .
             </p>
             <button
               ref={buttonRef}
               type="button"
               onClick={accept}
-              className="mt-5 w-full rounded-lg bg-fg px-4 py-3 text-base font-semibold text-bg hover:opacity-90"
+              className="mt-5 w-full shrink-0 rounded-lg bg-fg px-4 py-3 text-base font-semibold text-bg hover:opacity-90"
             >
               Entendi, quero continuar
             </button>

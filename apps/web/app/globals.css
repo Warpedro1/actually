@@ -107,7 +107,7 @@ a {
 
 /* Aviso já aceito nesta máquina: o script do layout marca o <html> antes da
    pintura e o modal não pisca para quem volta. */
-html[data-disclaimer="v2"] [data-disclaimer-gate] {
+html[data-disclaimer="v3"] [data-disclaimer-gate] {
   display: none;
 }
 
