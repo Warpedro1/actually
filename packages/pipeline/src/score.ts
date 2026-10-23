@@ -149,7 +149,7 @@ export function scoreDecision(input: ScoreInput): ScoreResult {
   if (level === "red" && best.source_tier > rules.red_max_tier) {
     return silence(`vermelho_exige_tier_${rules.red_max_tier}`);
   }
-  // opinião, previsão e acusação exigem fonte melhor que fato/estatística, mesmo em amarelo
+  // opinião e previsão exigem fonte melhor que os outros tipos, mesmo em amarelo
   if (best.source_tier > rules.max_tier) return silence(`tipo_exige_tier_${rules.max_tier}`);
   if (!input.correction.trim()) return silence("sem_correcao");
   if (!input.correction_numbers_ok) return silence("numero_sem_fonte");

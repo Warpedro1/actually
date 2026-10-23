@@ -157,7 +157,7 @@ export default function MetodologiaPage() {
           <li>
             Vermelho (contradito): pontuação final mínima de <strong>{pct(s.t_red)}</strong>, fonte tier 1–3 e
             citação verificada. Como o tier pesa na pontuação, fonte tier 3 sozinha raramente alcança esse
-            mínimo. Em acusação, o vermelho exige tier 1 e passa sempre pelo editor.
+            mínimo. Acusação passa sempre pelo editor, com a aprovação de vermelhos ligada ou desligada.
           </li>
           <li>
             Amarelo (impreciso): pontuação final mínima de <strong>{pct(s.t_yellow)}</strong>.

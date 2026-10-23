@@ -156,14 +156,18 @@ describe("[RF02] [RF04] regras por tipo de fala", () => {
     expect(scoreDecision(base({ verdict: "impreciso", evidence: tier3, kind: "previsao" }))).toMatchObject({ alert: null, silence_reason: "tipo_exige_tier_2" });
   });
 
-  it("acusação: vermelho só com nível 1, amarelo só com nível 1–2, e sempre passa pelo editor", () => {
+  it("acusação aceita nível 1, 2 e 3, e sempre passa pelo editor — nível 4 nunca", () => {
     expect(scoreDecision(base({ kind: "acusacao" }))).toMatchObject({ alert: "red", review: true });
-    expect(scoreDecision(base({ kind: "acusacao", evidence: [ev({ source_tier: 2 })] })))
-      .toMatchObject({ alert: null, silence_reason: "vermelho_exige_tier_1" });
-    expect(scoreDecision(base({ kind: "acusacao", verdict: "impreciso", evidence: [ev({ source_tier: 2 })] })))
-      .toMatchObject({ alert: "yellow", review: true });
+    // nível 2: o peso (0,85) ainda chega ao limiar do vermelho com confiança alta
+    expect(scoreDecision(base({ kind: "acusacao", evidence: [ev({ source_tier: 2 })], model_confidence: 1 })))
+      .toMatchObject({ alert: "red", review: true });
     expect(scoreDecision(base({ kind: "acusacao", verdict: "impreciso", evidence: [ev({ source_tier: 3 })] })))
-      .toMatchObject({ alert: null, silence_reason: "tipo_exige_tier_2" });
+      .toMatchObject({ alert: "yellow", review: true });
+    // a regra de nível não barra mais o vermelho de acusação em nível 3; quem decide é o limiar
+    expect(scoreDecision(base({ kind: "acusacao", evidence: [ev({ source_tier: 3 })] })))
+      .toMatchObject({ alert: null, silence_reason: "abaixo_do_threshold", review: false });
+    expect(scoreDecision(base({ kind: "acusacao", evidence: [ev({ source_tier: 4 })] })))
+      .toMatchObject({ alert: null, silence_reason: "fonte_tier_4" });
   });
 
   it("silêncio nunca pede revisão", () => {
