@@ -10,9 +10,10 @@ export const TOPICS = [
 export type Topic = (typeof TOPICS)[number];
 
 /**
- * Tipo da fala. Promessa e opinião pura saem na extração (não há como medir);
- * opinião mensurável e previsão são julgadas com regras mais duras (só amarelo,
- * limite maior); acusação só no que é fato processual, com revisão humana.
+ * Tipo da fala. Promessa, opinião pura e previsão saem na extração (não há como
+ * medir); opinião mensurável é julgada com regras mais duras (só amarelo, limiar
+ * maior, fonte de nível 1–2); acusação só no que é fato processual, com revisão
+ * humana obrigatória.
  */
 export const CLAIM_KINDS = ["fato", "estatistica", "acusacao", "opiniao_mensuravel"] as const;
 export type ClaimKind = (typeof CLAIM_KINDS)[number];

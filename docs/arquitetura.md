@@ -50,7 +50,7 @@ flowchart TB
 | `packages/pipeline` | Dentro das funções da Vercel | O “cérebro”: checa e decide |
 | `packages/db` | Compartilhado | Tipos, contratos HTTP (zod), cliente Supabase, tiers de fontes |
 | Supabase | `sa-east-1` | Banco, Auth dos editores, Realtime |
-| `apps/kb-ingest` | Máquina da equipe, antes do debate | Carrega a base de conhecimento (L1–L3) |
+| `apps/kb-ingest` | Máquina da equipe (CLI) ou funções da Vercel (painel do /admin) | Carrega a base de conhecimento (L1–L3), antes **e durante** o debate: as páginas que a L4 traz entram na fila `kb_web_finds` e viram base pela etapa `web-finds` |
 | `eval` | Máquina da equipe | Precisão e latência sobre conjunto rotulado |
 
 ### Por que a captura fica fora da Vercel
@@ -92,7 +92,7 @@ fala termina ─► Deepgram finaliza ─► POST /api/ingest/segment ─► gra
  2 Extração atômica com contexto de 60 s (Haiku): afirmação autocontida, números, período, indicador, tópico
  3 Trava de repetição: hash igual OU similaridade ≥ 0,92 E mesmos números/períodos ──► reusa veredito, alerta “Repetido”
  4 Retrieval em paralelo: L1 checagens | L2 indicadores (SQL) | L3 documentos (híbrido vetor + texto, RRF)
-      └─ nada conclusivo? ─► L4 web (Tavily restrito a domínios tier 1–2)
+      └─ base fraca ou nada conclusivo? ─► L4 web (Tavily restrito a domínios tier 1–2), em paralelo
  5 Verificação (Sonnet, saída estruturada): veredito, correção de 1 linha, trecho citado, confiança
  6 Verificação programática da citação: o trecho precisa existir no texto da fonte (normalizado/fuzzy);
       L2: evidência gerada em código a partir do ponto da série, comparação numérica com tolerância
@@ -106,7 +106,7 @@ Cada verificação grava `latency_ms` por etapa; o `/admin` e o `eval latency-re
 ### Decisão do alerta (score)
 
 - `final_score` combina confiança do modelo, tier da fonte, concordância entre camadas e citação verificada.
-- **Vermelho** (contradito pelas fontes): `final_score ≥ t_red` **e** evidência de fonte **tier ≤ 2** com citação verificada.
+- **Vermelho** (contradito pelas fontes): `final_score ≥ t_red` **e** evidência de fonte com tier ≤ `KIND_RULES[kind].red_max_tier` (hoje **3** em fato, estatística e acusação; **2** em opinião mensurável, que além disso nunca passa de amarelo) e citação verificada. Como o tier pesa no score (peso 0,6 no nível 3), uma camada só de nível 3 chega no máximo a 0,82 — abaixo do `t_red` padrão: nível 3 vira vermelho com duas camadas concordando, ou com `t_red` menor.
 - **Amarelo** (impreciso): `final_score ≥ t_yellow` e citação verificada.
 - Se a melhor evidência veio da web (L4), soma-se `web_penalty` ao threshold — exceto quando há citação verificada de checagem de agência (nível 1, tipo `checagem` em `SOURCE_TIERS`), vinda da web ou entrada fraca junto com ela.
 - `confirmado` e `inconclusivo` nunca viram alerta; ficam só no log.
@@ -157,7 +157,7 @@ As regras que não podem falhar ficam no Postgres, não no prompt:
 | Daemon com controle remoto | O usuário pode não estar perto da máquina no dia; tudo se opera pelo /admin. |
 | Haiku no filtro/extração, Sonnet só na verificação | Filtro roda em todo segmento (barato e rápido); verificação roda poucas vezes (precisa ser boa). |
 | Regras duras no banco, não no prompt | Prompt pode falhar; trigger não. |
-| Vermelho exige tier ≤ 2 + citação verificada | Um vermelho errado é o pior erro possível; amarelo tem regra mais leve. |
+| Vermelho exige nível de fonte por tipo (`red_max_tier`) + citação verificada | Um vermelho errado é o pior erro possível. O limite é 3 em fato, estatística e acusação, e 2 em opinião mensurável; o peso do tier no score faz o nível 3 precisar de duas camadas concordando. |
 | HITL de vermelhos como chave | A decisão de usar depende de precisão e latência medidas. Ver [human-in-the-loop.md](human-in-the-loop.md). |
 | Sem nome do candidato por padrão | Diarização pode trocar falantes; atribuir errado é grave. Ver [atribuicao.md](atribuicao.md). |
 | Trava de repetição com números iguais | Candidatos repetem frases; reusar o veredito economiza latência e custo e garante consistência. “Desemprego 6%” ≠ “desemprego 8%”. |

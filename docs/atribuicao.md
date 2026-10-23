@@ -15,6 +15,13 @@ Atribuir uma afirmação falsa ao candidato errado é um erro grave — pior, em
 
 ### Como o editor mapeia
 
+- O painel do `/editor` agrupa os rótulos **por sessão de captura** (o prefixo `s1-…`, `s2-…`), da mais
+  recente para a mais antiga, com quantos trechos, quanto tempo de fala e a última frase de cada voz —
+  é por ela que se reconhece quem é quem. Rótulo com menos de 5 s de fala somados é tratado como
+  **fragmento** da diarização (“Ok.”, “Olá,”) e fica recolhido, ainda mapeável: no ensaio de 18/10 a
+  diarização devolveu 11 rótulos para 4 pessoas, e eram quase todos fragmentos. Quando a sessão mais
+  recente tem voz longa sem mapa e alguma sessão anterior já estava mapeada, o painel avisa que é
+  preciso remapear.
 - No início do debate (apresentação dos candidatos), o editor ouve as primeiras falas, confere o `speaker_label` delas na transcrição do `/editor` e grava o mapa.
 - **Remapear** (não só reconferir) após **toda** reconexão do capture agent ao Deepgram e **todo** failover para o standby: os segmentos passam a chegar com rótulos de uma sessão nova (`s2-…`, ou a marca do outro agente), que nunca herdam o mapa da sessão anterior — até o editor mapeá-los, os alertas saem como “Afirmação feita no debate”. A troca de sessão aparece no prefixo do rótulo (transcrição e mapeamento de speakers no `/editor`) e no contador de reconexões da máquina no `/admin`.
 - **Reconferir** em blocos com muitos apartes.
@@ -24,7 +31,10 @@ Atribuir uma afirmação falsa ao candidato errado é um erro grave — pior, em
 
 - Diarização erra em falas sobrepostas e em apartes curtos; um segmento pode conter dois falantes.
 - Após reconexão ou failover, a sessão nova do Deepgram tem outros rótulos. O mapa é por `(debate, speaker_label)` e o rótulo leva a sessão, então nada do mapa antigo vale para a sessão nova (o `S0` dela pode ser outra pessoa): sem remapear, a atribuição some (nunca fica errada por isso). Reconexões frequentes (rede instável) significam remapear a cada uma.
-- O mediador lendo uma pergunta com dados (“segundo o IBGE…”) pode gerar afirmação checável sem ser de candidato.
+- O mediador lendo uma pergunta com dados (“segundo o IBGE…”) pode gerar afirmação checável sem ser de
+  candidato. **Mapear a mediação explicitamente** (`→ mediação`) resolve: o pipeline reconhece a pessoa
+  como mediação e a fala dela não vira alerta. Enquanto a voz não tem mapa, uma fala que é só pergunta
+  não chega nem ao extrator.
 
 ## Alternativa para depois dos testes: HITL de atribuição
 

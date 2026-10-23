@@ -6,14 +6,14 @@
 
 Durante o debate presidencial de 23 de outubro de 2026, um sistema automatizado escuta a transmissão, identifica afirmações que podem ser checadas com dados — números, datas, fatos sobre leis, votações e programas — e as compara com fontes oficiais e checagens profissionais. Quando as fontes contradizem a afirmação, publicamos um alerta curto, **sempre com a fonte e o trecho que sustentam a correção**.
 
-**O sistema é automatizado e pode errar.** Cada alerta traz o link da fonte: verifique sempre.
+**Projeto em desenvolvimento.** O sistema é automatizado e pode errar. Cada alerta traz o link da fonte: verifique sempre.
 
 ## Como funciona
 
 1. **Transcrição.** O áudio da transmissão é transcrito automaticamente, em português, poucos segundos depois de cada fala.
 2. **Seleção.** Um modelo de linguagem separa o que dá para julgar com dados ou fontes públicas do que não dá, e classifica cada fala:
    - **fato** ou **estatística** (“o desemprego caiu para X%”, “a lei foi aprovada em 2023”) — regras gerais;
-   - **acusação** (situação judicial de uma pessoa: condenado, réu, investigado, inelegível, processo anulado ou arquivado) — julgamos **só o fato processual**, com órgão e data, nunca culpa ou intenção; vermelho só com decisão judicial, documento oficial ou checagem profissional; e **todo** alerta de acusação passa por um editor antes de ser publicado;
+   - **acusação** (situação judicial de uma pessoa: condenado, réu, investigado, inelegível, processo anulado ou arquivado) — julgamos **só o fato processual**, com órgão e data, nunca culpa ou intenção; o vermelho exige fonte de nível 1 a 3 com trecho conferido (decisão judicial, documento oficial, checagem profissional ou imprensa), e **todo** alerta de acusação passa por um editor antes de ser publicado, com a aprovação de vermelhos ligada ou desligada;
    - **opinião com base mensurável** (“não tem mais carne na mesa do brasileiro”) — comparada com o dado que a mede; no máximo “Impreciso”, com exigência maior de confiança;
    - **previsões** (“o país vai crescer 3% no ano que vem”), **promessas** e **opiniões sem base mensurável** (adjetivos, ataques pessoais) não são checadas: não dá para verificar o que ainda não aconteceu, nem juízo de valor. Também ficam fora **hipóteses** (“pode ser”, “talvez”), **condicionais** (“se o PIB cresceu…”) e falas da **mediação**.
    - **perguntas** não viram afirmação, mas o **fato que a pergunta pressupõe** vira (“caiu o roubo de celular?” → “o roubo de celulares não caiu”), e esse alerta sempre passa por um editor.
@@ -120,7 +120,7 @@ A lista completa de bases consultadas está em `docs/fontes.md`.
 | Acréscimo para fontes da web | +0,05 | Quando a evidência veio da busca web, o mínimo sobe — exceto quando a fonte citada é uma checagem de agência profissional (nível 1) com o trecho conferido: o acréscimo compensa a busca aberta, não a qualidade da fonte. |
 | Acréscimo para opinião mensurável | +0,10 | Opinião com base mensurável exige mais confiança e nunca vira vermelho. |
 
-Os valores foram calibrados com um conjunto de afirmações rotuladas por pessoas a partir do debate de 18 de outubro, para que **pelo menos 90% dos alertas vermelhos estejam corretos** nesse conjunto. Os valores em vigor no dia do debate serão publicados aqui.
+Os valores foram calibrados com um conjunto de afirmações rotuladas por pessoas a partir do debate de 18 de outubro, para que **pelo menos 90% dos alertas vermelhos estejam corretos** nesse conjunto. A tabela acima e a página pública mostram os **valores padrão**; a equipe pode ajustá-los por debate, sempre igualmente para todos os participantes, e qualquer ajuste relevante é informado na observação do próprio debate.
 
 Além dos limiares, há **regras fixas que nenhum ajuste muda**: nenhum alerta é publicado sem fonte com link e trecho conferido — essa regra é imposta pelo banco de dados, não apenas pelo programa.
 

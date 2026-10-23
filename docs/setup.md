@@ -46,7 +46,7 @@ Passo a passo para subir o ambiente do zero. Ordem: Supabase → chaves → Verc
 | `SUPABASE_DB_LIMIT_MB` | limite de banco do plano (500 no gratuito, 8192 no Pro) | só Vercel, opcional: barra do banco no painel *Uso das APIs* |
 | `APIFY_TOKEN` | console.apify.com → Settings → API & Integrations | kb-ingest (`apify-crawl`, `apify-youtube`, `apify-search`), na máquina ou no painel do /admin |
 | `INGEST_TOKEN` | gerar: `openssl rand -hex 32` | Vercel **e** máquinas de captura (mesmo valor) |
-| `CRON_SECRET` | gerar: `openssl rand -hex 32` | só Vercel: a carga pelo /admin continua sozinha entre rodadas e o cron diário se autentica com ele |
+| `CRON_SECRET` | gerar: `openssl rand -hex 32` | só Vercel: é com ele que a carga pelo /admin continua sozinha entre rodadas, e que a rota de atualização diária (`/api/kb/cron`) se autentica quando chamada |
 
 Conferir limites de taxa e saldo de cada serviço para ~2 h de debate + ensaios (Anthropic: tier com folga para Haiku contínuo; Deepgram: streaming simultâneo de 2 conexões — principal e standby).
 
@@ -105,8 +105,10 @@ Ver [fontes.md](fontes.md). Dois caminhos, que gravam a mesma coisa (cargas idem
 **Pelo /admin, sem a sua máquina** — seção *Base de conhecimento*. Cada botão vira uma tarefa na fila
 `kb_jobs`; funções da Vercel executam as etapas em rodadas de ~3 min e encadeiam a próxima sozinhas
 (precisa de `CRON_SECRET`). Pode fechar a página: o painel mostra progresso, log e o resumo da base
-quando reabrir. O cron diário (09:00 UTC, `vercel.json`) agenda a *atualização diária* (checagens dos
-últimos 3 dias + indicadores + embeddings) e retoma tarefas que pararam. Na Vercel: `VOYAGE_API_KEY`,
+quando reabrir. **Não há agendamento automático**: o cron diário saiu do `vercel.json`, então a
+*atualização diária* (checagens dos últimos 3 dias + indicadores + embeddings) e a retomada de tarefas
+paradas só acontecem quando alguém clica no /admin ou chama `/api/kb/cron` com o `CRON_SECRET`.
+Na Vercel: `VOYAGE_API_KEY`,
 `GOOGLE_FACTCHECK_API_KEY` (checagens do Google) e `APIFY_TOKEN` (sites das agências, busca e vídeos do
 YouTube). O `transcribe` com Deepgram continua só na CLI (precisa de arquivo de áudio).
 

@@ -73,8 +73,10 @@ export default function MetodologiaPage() {
           </li>
           <li>
             <strong>Filtro.</strong> Só seguem frases com afirmação checável (números, fatos, datas, votos, leis).
-            Opiniões, promessas, ataques pessoais, perguntas, hipóteses (“pode ser”, “talvez”) e falas da mediação
-            são ignorados.
+            Opiniões sem base mensurável, promessas, ataques pessoais, previsões (“vai crescer 3% no ano que vem”),
+            hipóteses (“pode ser”, “talvez”), condicionais (“se o PIB cresceu…”) e falas da mediação são ignorados.
+            Pergunta não vira afirmação, mas o <strong>fato que ela pressupõe</strong> vira (“caiu o roubo de
+            celular?” → “o roubo de celulares não caiu”) — e esse alerta sempre passa por um editor.
           </li>
           <li>
             <strong>Extração.</strong> Cada afirmação é isolada e reescrita de forma autocontida, usando o contexto do
@@ -134,7 +136,11 @@ export default function MetodologiaPage() {
       </Section>
 
       <Section id="tiers" title="Confiabilidade das fontes">
-        <p>Cada domínio tem um tier. Um alerta vermelho exige fonte de tier 1 ou 2 com trecho verificado.</p>
+        <p>
+          Cada domínio tem um tier. Um alerta vermelho exige fonte de tier 1 a 3 com trecho verificado — e como o
+          tier pesa na pontuação, fonte de tier 3 sozinha raramente alcança o mínimo (ver abaixo). Opinião com base
+          mensurável exige tier 1 ou 2 e nunca passa de amarelo.
+        </p>
         <div className="space-y-4">
           {byTier.map(({ tier, rows }) => (
             <div key={tier} className="rounded-xl border border-border bg-surface p-4">
@@ -180,8 +186,9 @@ export default function MetodologiaPage() {
           automaticamente por tempo esgotado. A mesma revisão pode ser ligada para os amarelos.
         </p>
         <p>
-          Um vermelho de fato ou estatística que fica logo abaixo do limiar (até 5 pontos) não é publicado
-          automaticamente: vai para o editor, com a revisão ligada ou não, e só sai se ele aprovar.
+          Três casos vão ao editor mesmo com a revisão desligada: <strong>acusação</strong> (situação judicial de
+          alguém), o <strong>fato pressuposto por uma pergunta</strong> e o vermelho de fato ou estatística que fica
+          logo abaixo do limiar (até 5 pontos). Nenhum deles sai sem aprovação.
         </p>
         <p>
           Independentemente da revisão, o banco de dados recusa publicar qualquer correção sem ao menos uma fonte com

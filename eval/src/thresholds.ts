@@ -1,8 +1,10 @@
 // Re-decisão offline de alertas a partir de decisões já salvas (sem chamar modelos).
-// Espelha as regras de packages/pipeline/score.ts. Se o pipeline passar a exportar
-// sua própria função de decisão, troque `decideAlert` por ela.
+// Espelha as regras de packages/pipeline/score.ts — inclusive as regras por tipo
+// de fala (KIND_RULES), que vêm do próprio pipeline para não divergirem quando
+// mudarem lá. Se o pipeline passar a exportar sua função de decisão, troque
+// `decideAlert` por ela.
 import { isAgencyCheck } from "@actually/db";
-import type { ClaimDecision } from "@actually/pipeline";
+import { KIND_RULES, RED_REVIEW_BAND, RED_REVIEW_MIN_CONFIDENCE, type ClaimDecision } from "@actually/pipeline";
 import type { DecisionRecord } from "./dataset";
 import { maxAlert, precisionRecall, ratio, type Predicted } from "./metrics";
 
@@ -12,37 +14,75 @@ export interface Thresholds {
   web_penalty: number;
 }
 
-type DecisionCore = Pick<ClaimDecision, "verdict" | "final_score" | "layer" | "evidence" | "alert">;
+type DecisionCore = Pick<
+  ClaimDecision,
+  "verdict" | "kind" | "model_confidence" | "final_score" | "layer" | "evidence" | "alert" | "silence_reason"
+>;
+
+const isHttp = (url: string) => /^https?:\/\//i.test(url);
+const usable = (e: DecisionCore["evidence"][number]) => e.quote_verified && isHttp(e.url) && e.quote.trim().length > 0;
 
 /** Regra dura de qualquer alerta: ≥1 evidência com URL e trecho verificado (trigger do banco). */
 export function hasVerifiedEvidence(d: Pick<ClaimDecision, "evidence">): boolean {
-  return d.evidence.some((e) => e.quote_verified && /^https?:\/\//i.test(e.url) && e.quote.trim().length > 0);
+  return d.evidence.some(usable);
 }
 
-/** Regra dura do vermelho: evidência verificada de fonte tier ≤ 2. */
-export function hasRedGradeEvidence(d: Pick<ClaimDecision, "evidence">): boolean {
-  return d.evidence.some(
-    (e) => e.quote_verified && e.source_tier <= 2 && /^https?:\/\//i.test(e.url) && e.quote.trim().length > 0,
-  );
+/** Melhor nível de fonte entre as evidências aproveitáveis (score.ts: `bestEvidence`). */
+export function bestTier(d: Pick<ClaimDecision, "evidence">): number | null {
+  const tiers = d.evidence.filter(usable).map((e) => e.source_tier);
+  return tiers.length ? Math.min(...tiers) : null;
 }
 
 /**
+ * Regra dura do vermelho: evidência verificada de nível aceitável para o tipo
+ * da fala (`KIND_RULES[kind].red_max_tier` — hoje 3 em fato, estatística e
+ * acusação; 2 em opinião mensurável). Ler do pipeline é o que evita a
+ * divergência que existia aqui: o limite estava fixo em 2.
+ */
+export function hasRedGradeEvidence(d: Pick<ClaimDecision, "evidence" | "kind">): boolean {
+  const tier = bestTier(d);
+  return tier !== null && tier <= KIND_RULES[d.kind ?? "fato"].red_max_tier;
+}
+
+/**
+ * Motivos de silêncio que não dependem de t_red/t_yellow: se o pipeline calou por
+ * um deles, nenhum limiar faz o alerta sair, e a re-decisão tem de calar também
+ * (há regras aqui que este módulo não tem como recalcular — conflito entre
+ * camadas, correção sem número com fonte, divergência do indicador).
+ */
+const thresholdSilence = new Set(["abaixo_do_threshold"]);
+
+/**
  * Decide o alerta de uma afirmação com outros thresholds. As regras duras
- * (citação verificada; tier ≤ 2 para vermelho) NÃO dependem do threshold:
- * nenhum valor de t_red/t_yellow faz passar uma afirmação que as viola.
- * Vermelho que falha só na regra de tier não é rebaixado a amarelo.
+ * (citação verificada, nível da fonte, nível máximo do tipo) NÃO dependem do
+ * threshold: nenhum valor de t_red/t_yellow faz passar uma afirmação que as
+ * viola. Vermelho que falha só na regra de nível não é rebaixado a amarelo.
  */
 export function decideAlert(d: DecisionCore, t: Thresholds): Predicted {
   if (d.verdict !== "contradito" && d.verdict !== "impreciso") return null;
+  if (d.alert === null && d.silence_reason && !thresholdSilence.has(d.silence_reason)) return null;
   if (!hasVerifiedEvidence(d)) return null;
+  const tier = bestTier(d);
+  if (tier === null || tier >= 4) return null;
+  const rules = KIND_RULES[d.kind ?? "fato"];
+  if (tier > rules.max_tier) return null;
   // checagem de agência (nível 1) com citação verificada não paga o acréscimo da web (score.ts)
   const agency = d.evidence.some((e) => e.quote_verified && e.source_tier === 1 && isAgencyCheck(e.url));
   const penalty = d.layer === "L4" && !agency ? t.web_penalty : 0;
-  if (d.verdict === "contradito") {
-    if (!hasRedGradeEvidence(d)) return null;
-    return d.final_score >= t.t_red + penalty ? "red" : null;
-  }
-  return d.final_score >= t.t_yellow + penalty ? "yellow" : null;
+  // opinião mensurável nunca vira vermelho: no máximo "impreciso"
+  const level: Exclude<Predicted, null> =
+    d.verdict === "contradito" && rules.max_level !== "yellow" ? "red" : "yellow";
+  if (level === "red" && !hasRedGradeEvidence(d)) return null;
+  const threshold = (level === "red" ? t.t_red : t.t_yellow) + penalty + rules.extra_threshold;
+  if (d.final_score >= threshold) return level;
+  // faixa de revisão: vermelho de fato/estatística logo abaixo do limiar vai ao
+  // editor em vez de ser descartado, então para o eval ele foi emitido.
+  const inBand =
+    level === "red" &&
+    (d.kind === "fato" || d.kind === "estatistica") &&
+    (d.model_confidence ?? 0) >= RED_REVIEW_MIN_CONFIDENCE &&
+    d.final_score >= threshold - RED_REVIEW_BAND - 1e-9;
+  return inBand ? "red" : null;
 }
 
 /** Aplica novos thresholds a todas as decisões, devolvendo registros re-decididos. */

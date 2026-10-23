@@ -117,7 +117,7 @@ export function scoreDecision(input: ScoreInput): ScoreResult {
   const kind: ClaimKind = input.kind ?? "fato";
   const rules = KIND_RULES[kind];
   const verdictLevel: AlertLevel | null = input.verdict === "contradito" ? "red" : input.verdict === "impreciso" ? "yellow" : null;
-  // opinião e previsão nunca viram vermelho: no máximo "impreciso"
+  // opinião mensurável nunca vira vermelho: no máximo "impreciso"
   const capped = verdictLevel === "red" && rules.max_level === "yellow";
   const level: AlertLevel | null = capped ? "yellow" : verdictLevel;
   const threshold = level
@@ -154,7 +154,7 @@ export function scoreDecision(input: ScoreInput): ScoreResult {
   if (level === "red" && best.source_tier > rules.red_max_tier) {
     return silence(`vermelho_exige_tier_${rules.red_max_tier}`);
   }
-  // opinião e previsão exigem fonte melhor que os outros tipos, mesmo em amarelo
+  // opinião mensurável exige fonte melhor que os outros tipos, mesmo em amarelo
   if (best.source_tier > rules.max_tier) return silence(`tipo_exige_tier_${rules.max_tier}`);
   if (!input.correction.trim()) return silence("sem_correcao");
   if (!input.correction_numbers_ok) return silence("numero_sem_fonte");

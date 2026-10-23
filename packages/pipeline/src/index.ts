@@ -41,6 +41,8 @@ export interface ClaimDecision {
   /** O alerta passa pelo editor mesmo com HITL desligado (ex.: acusação). */
   review: boolean;
   verdict: import("@actually/db").Verdict;
+  /** Confiança do modelo (0–1). Entra na faixa de revisão, então a calibração offline precisa dela. */
+  model_confidence: number;
   final_score: number;
   /** null = silêncio (abaixo do threshold, regra dura ou não checável). */
   alert: AlertLevel | null;
@@ -157,7 +159,8 @@ function toRecord(c: EvidenceCandidate, quote: string, verified: boolean, simila
 
 function silentDecision(claim: ExtractedClaim, reason: string, latency: Record<string, number>, layer: KbLayer | null = null): ClaimDecision {
   return {
-    claim: claim.text_normalized, kind: claim.kind, review: false, verdict: "inconclusivo", final_score: 0, alert: null,
+    claim: claim.text_normalized, kind: claim.kind, review: false, verdict: "inconclusivo",
+    model_confidence: 0, final_score: 0, alert: null,
     silence_reason: reason, layer, correction: null, evidence: [], latency_ms: latency,
   };
 }
@@ -246,6 +249,7 @@ export async function assessClaim(
     kind: claim.kind,
     review: score.review,
     verdict: model.verdict,
+    model_confidence: model.confidence,
     final_score: score.final_score,
     alert: score.alert,
     silence_reason: score.silence_reason,
@@ -609,3 +613,6 @@ export async function evaluateText(
 
 export type { PipelineDeps } from "./deps";
 export { defaultDeps } from "./deps";
+// Regras de decisão usadas também pela calibração offline (eval/src/thresholds.ts),
+// que precisa reproduzir score.ts sem chamar modelo.
+export { KIND_RULES, RED_REVIEW_BAND, RED_REVIEW_MIN_CONFIDENCE } from "./config";

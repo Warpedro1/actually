@@ -7,9 +7,13 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 /**
- * Cron diário da Vercel (vercel.json, 09:00 UTC): agenda a atualização diária
- * (checagens recentes + indicadores + embeddings) se ainda não houver uma hoje,
- * e retoma qualquer tarefa parada. A Vercel manda `Authorization: Bearer CRON_SECRET`.
+ * Atualização diária da base (checagens recentes + indicadores + embeddings) se
+ * ainda não houver uma hoje, e retomada de qualquer tarefa parada.
+ *
+ * O agendamento automático foi retirado do `vercel.json`: hoje a rota só roda
+ * quando alguém a chama com `Authorization: Bearer CRON_SECRET` (ou quando um
+ * agendamento for configurado de novo). A carga pelo /admin não depende dela —
+ * encadeia as próprias rodadas.
  */
 export async function GET(req: Request): Promise<Response> {
   if (!process.env.CRON_SECRET) return jsonError(503, "CRON_SECRET não configurado no servidor");

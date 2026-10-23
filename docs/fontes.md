@@ -1,6 +1,13 @@
 # Fontes e cargas da base de conhecimento
 
-Catálogo do que o sistema consulta, por camada. As cargas são feitas **antes** do debate pelo `apps/kb-ingest` (`pnpm --filter @actually/kb-ingest start -- <comando>`).
+Catálogo do que o sistema consulta, por camada. As cargas são feitas pelo `apps/kb-ingest`, pela CLI
+(`pnpm --filter @actually/kb-ingest start -- <comando>`) ou pelo painel *Base de conhecimento* do /admin,
+em rodadas curtas na Vercel.
+
+A maior parte entra **antes** do debate, mas a base também cresce **durante**: depois de publicar os
+alertas de cada trecho, o pipeline grava na fila `kb_web_finds` as páginas de nível 1–2 que a busca web
+(L4) trouxe, e a etapa `web-finds` as transforma em checagem L1 (agência com selo) ou documento L3 —
+valendo para as falas seguintes.
 
 > **Códigos de séries, URLs exatas, seletores e listas de feeds ficam no código do `apps/kb-ingest`** (ex.: `src/indicators/catalog.ts`), que é a fonte da verdade. Este documento descreve o que entra e por quê; não duplique códigos aqui.
 

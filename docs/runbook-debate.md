@@ -48,7 +48,7 @@ Todos na mesma chamada de voz durante o debate. Preencher os nomes:
 - [ ] Settings conferidas: `t_red`, `t_yellow`, `web_penalty`, `require_red_approval`, `require_yellow_approval`, `show_attribution` (padrão `false`), `failover_after_s` (padrão 10).
 - [ ] Editores com login e 2FA funcionando.
 - [ ] Saldos/limites no `/admin` → **Uso das APIs**: nenhum cartão em “sem permissão”/“erro”; Tavily e Apify com folga no ciclo; banco abaixo de 70%. O que o painel não mostra, conferir no painel do provedor (link no cartão): **saldo de créditos da Anthropic**, Voyage e Deepgram da máquina de captura (se a chave não estiver na Vercel). Estimativa: o custo contado num ensaio de ~2 h × 2 (principal + margem).
-- [ ] Página `/metodologia` com os thresholds e a decisão de HITL em vigor.
+- [ ] Página `/metodologia` conferida: ela mostra os **valores padrão** (`DEFAULT_SETTINGS`), não as settings do debate. Se as settings do debate divergirem do padrão, escrever isso na **observação pública** do debate, no /admin.
 
 ### T-2h
 

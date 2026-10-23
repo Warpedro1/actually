@@ -7,6 +7,7 @@ export function decision(over: Partial<ClaimDecision> = {}): ClaimDecision {
     kind: "fato",
     review: false,
     verdict: "contradito",
+    model_confidence: 0.9,
     final_score: 0.9,
     alert: "red",
     silence_reason: null,
