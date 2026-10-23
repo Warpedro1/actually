@@ -97,7 +97,7 @@ export function DisclaimerBanner() {
   return (
     <div role="note" className="border-b border-border bg-surface-2 text-xs text-muted">
       <p className="mx-auto max-w-6xl px-4 py-1.5">
-        Checagem automatizada — pode errar. Confira sempre a fonte de cada alerta.{" "}
+        Projeto em desenvolvimento — checagem automatizada, pode errar. Confira sempre a fonte de cada alerta.{" "}
         <Link href="/metodologia" className="underline">
           Como funciona
         </Link>

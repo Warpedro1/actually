@@ -1,9 +1,9 @@
 // Versão do aviso jurídico. Mudou o texto do aviso? Suba a versão AQUI e no
 // seletor html[data-disclaimer="..."] de app/globals.css — todo mundo vê de novo.
-export const DISCLAIMER_VERSION = "v1";
+export const DISCLAIMER_VERSION = "v2";
 
 export const DISCLAIMER_TEXT =
-  "Sistema automatizado de checagem. Pode errar. Sempre verifique a fonte indicada em cada alerta.";
+  "Projeto em desenvolvimento. Sistema automatizado de checagem. Pode errar. Sempre verifique a fonte indicada em cada alerta.";
 
 /**
  * Roda no <head> antes da pintura: aplica o tema escolhido e marca se o aviso

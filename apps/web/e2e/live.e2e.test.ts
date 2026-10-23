@@ -66,7 +66,7 @@ async function open(path: string, opts: { accepted?: boolean; mobile?: boolean }
   if (opts.accepted) {
     await ctx.addInitScript(() => {
       try {
-        localStorage.setItem("actually:disclaimer", "v1");
+        localStorage.setItem("actually:disclaimer", "v2");
       } catch {
         // sem storage
       }
