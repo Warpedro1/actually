@@ -12,7 +12,8 @@ export const DEMO_DEBATE = {
   title: "Debate de demonstração",
   status: "live" as const,
   check_mode: "live" as const,
-  public_note: "Página de demonstração: participantes, falas e fontes são fictícios.",
+  // mostra para que serve o campo sem repetir a faixa de demonstração logo abaixo
+  public_note: "Exemplo de observação: este texto é escrito no /admin e aparece para quem entra na página do debate.",
 };
 
 export const DEMO_ATTRIBUTION: Attribution = {

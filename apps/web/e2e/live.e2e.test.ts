@@ -106,7 +106,7 @@ describe("[RF10] aviso jurídico bloqueante", () => {
     // Observação escrita no /admin (public_note) — na demonstração, o aviso de dados fictícios.
     const note = page.getByRole("note", { name: "Aviso" });
     expect(await note.count()).toBe(1);
-    expect(await note.textContent()).toContain("fictícios");
+    expect(await note.textContent()).toContain("escrito no /admin");
 
     // Status do debate + procedência da checagem, abaixo do título.
     const head = page.locator("h1").locator("..");
