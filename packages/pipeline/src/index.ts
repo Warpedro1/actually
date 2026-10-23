@@ -7,7 +7,7 @@ import { defaultDeps, type PipelineDeps } from "./deps";
 import { extractClaims } from "./extract";
 import { errorFields, withTimeout } from "./log";
 import { claimHash } from "./normalize";
-import { prefilter } from "./prefilter";
+import { isOnlyQuestions, prefilter } from "./prefilter";
 import { publishVerification } from "./publish";
 import { numbersSupported, quoteCheck } from "./quoteCheck";
 import { measureQueryOf, retrieveAll } from "./retrieve/index";
@@ -411,18 +411,21 @@ export function createPipeline(deps: PipelineDeps) {
   }
 
   /**
-   * O rótulo do falante está mapeado (e confirmado) como Mediação. Falha ao ler o mapa ⇒
-   * segue como sem mapa (a regra do prompt continua valendo).
+   * O rótulo no mapa de falantes confirmado pelo editor: "mediacao", "mapeado" (candidato,
+   * Outro), "sem_mapa" (o debate já tem mapa, este rótulo não) ou "debate_sem_mapa". Falha
+   * ao ler o mapa ⇒ "debate_sem_mapa": segue como antes (a regra do prompt continua valendo).
    */
-  async function isMediator(debateId: string, label: string): Promise<boolean> {
-    if (!store.getSpeakerMap) return false;
+  async function speakerStatus(debateId: string, label: string): Promise<"mediacao" | "mapeado" | "sem_mapa" | "debate_sem_mapa"> {
+    if (!store.getSpeakerMap) return "debate_sem_mapa";
     try {
       const rows = await withTimeout(store.getSpeakerMap(debateId), TIMEOUTS_MS.context, "speaker_map");
-      const person = rows.find((r) => r.speaker_label === label)?.person ?? "";
-      return MEDIATOR_RE.test(person.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase());
+      if (!rows.length) return "debate_sem_mapa";
+      const person = rows.find((r) => r.speaker_label === label)?.person;
+      if (person === undefined) return "sem_mapa";
+      return MEDIATOR_RE.test(person.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase()) ? "mediacao" : "mapeado";
     } catch (err) {
       logger("warn", "speaker_map_failed", errorFields(err));
-      return false;
+      return "debate_sem_mapa";
     }
   }
 
@@ -448,10 +451,20 @@ export function createPipeline(deps: PipelineDeps) {
       return result(0, 0);
     }
 
-    // fala de quem o editor mapeou como Mediação não é checada (pergunta, regra, dado citado)
-    if (segment.speaker_label && (await isMediator(segment.debate_id, segment.speaker_label))) {
-      logger("info", "extract_dropped", { segment_id: segmentId, reason: "mediacao", speaker_label: segment.speaker_label });
-      return result(0, 0);
+    if (segment.speaker_label) {
+      const speaker = await speakerStatus(segment.debate_id, segment.speaker_label);
+      // fala de quem o editor mapeou como Mediação não é checada (pergunta, regra, dado citado)
+      if (speaker === "mediacao") {
+        logger("info", "extract_dropped", { segment_id: segmentId, reason: "mediacao", speaker_label: segment.speaker_label });
+        return result(0, 0);
+      }
+      // voz que o editor ainda não mapeou (jornalista, sessão nova da captura) só perguntando:
+      // sem número o pré-filtro já descarta; com número ("desde o 1º turno ... não é?") ia ao
+      // extrator, que pode virar a pergunta em afirmação (ensaio de 18/10, jornalista sem mapa)
+      if (speaker === "sem_mapa" && isOnlyQuestions(segment.text)) {
+        logger("info", "unmapped_question_skipped", { segment_id: segmentId, speaker_label: segment.speaker_label });
+        return result(0, 0);
+      }
     }
 
     t = deps.now();

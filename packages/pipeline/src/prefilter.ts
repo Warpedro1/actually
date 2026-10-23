@@ -27,6 +27,12 @@ const FILLER = new Set([
   "povo", "brasileiro", "todos", "todas", "voces", "telespectador", "telespectadores", "mediador", "mediadora", "tempo", "palavra",
 ]);
 
+/** Só perguntas: toda frase do trecho termina em "?" (número não importa aqui). */
+export function isOnlyQuestions(text: string): boolean {
+  const sentences = text.split(/(?<=[.!?…])\s+/).map((s) => s.trim()).filter(Boolean);
+  return sentences.length > 0 && sentences.every((s) => s.endsWith("?"));
+}
+
 export function prefilter(text: string): PrefilterResult {
   const norm = normalizeText(text);
   if (!norm) return { pass: false, reason: "vazio" };
@@ -42,8 +48,7 @@ export function prefilter(text: string): PrefilterResult {
   }
 
   // só perguntas: toda frase termina em "?" e não há número
-  const sentences = text.split(/(?<=[.!?…])\s+/).map((s) => s.trim()).filter(Boolean);
-  if (!hasDigit && sentences.length > 0 && sentences.every((s) => s.endsWith("?"))) {
+  if (!hasDigit && isOnlyQuestions(text)) {
     return { pass: false, reason: "so_pergunta" };
   }
 
