@@ -64,12 +64,25 @@ describe("[RF07] [RF05] scoreDecision — regras duras", () => {
     expect(r).toMatchObject({ alert: null, silence_reason: "sem_citacao_verificada" });
     expect(scoreDecision(base({ verdict: "impreciso", evidence: [] })).silence_reason).toBe("sem_citacao_verificada");
   });
-  it("vermelho exige evidência tier ≤ 2 verificada (tier 3 não basta; não rebaixa para amarelo)", () => {
-    const r = scoreDecision(base({ evidence: [ev({ source_tier: 3 })] }));
-    expect(r).toMatchObject({ alert: null, silence_reason: "vermelho_exige_tier_1_2" });
-    // a fonte tier 1 existe mas a citação dela não foi verificada
-    const r2 = scoreDecision(base({ evidence: [ev({ source_tier: 1, quote_verified: false }), ev({ source_tier: 3 })] }));
-    expect(r2.silence_reason).toBe("vermelho_exige_tier_1_2");
+  it("vermelho de fato/estatística aceita tier 3 (a regra não barra mais), mas o peso do nível 3 ainda cobra concordância", () => {
+    // tier 3 pesa 0,6: uma camada só dá 0,5·0,95 + 0,2·0,6 + 0,2·0,5 + 0,1 = 0,795 < t_red 0,85.
+    // Não é mais a regra de nível que cala, é o limiar — o motivo no log diz isso.
+    const um = scoreDecision(base({ evidence: [ev({ source_tier: 3 })] }));
+    expect(um).toMatchObject({ alert: null, silence_reason: "abaixo_do_threshold" });
+    expect(um.final_score).toBeCloseTo(0.795, 4);
+    // duas camadas de nível 3 que concordam: 0,895 ⇒ vermelho publicável
+    const duas = scoreDecision(base({
+      evidence: [ev({ source_tier: 3 }), ev({ source_tier: 3, layer: "L1", factcheck_verdict: "contradito" })],
+      citations_total: 2,
+      citations_verified: 2,
+    }));
+    expect(duas).toMatchObject({ alert: "red", silence_reason: null });
+    // tier 4 segue barrado pela regra de nível, com qualquer score
+    expect(scoreDecision(base({ evidence: [ev({ source_tier: 4 })] })).silence_reason).toBe("fonte_tier_4");
+  });
+  it("vermelho ainda exige citação verificada, em qualquer nível", () => {
+    const r = scoreDecision(base({ evidence: [ev({ source_tier: 3, quote_verified: false })], citations_verified: 0 }));
+    expect(r.silence_reason).toBe("sem_citacao_verificada");
   });
   it("amarelo aceita tier 3, mas tier 4 nunca sustenta alerta", () => {
     expect(scoreDecision(base({ verdict: "impreciso", evidence: [ev({ source_tier: 3 })], model_confidence: 1 })).alert).toBe("yellow");
@@ -117,7 +130,7 @@ describe("layerAgreement", () => {
 });
 
 describe("[RF02] [RF04] regras por tipo de fala", () => {
-  it("fato e estatística: sem mudança (vermelho com nível 1–2, sem revisão forçada)", () => {
+  it("fato e estatística: vermelho até o nível 3, sem revisão forçada", () => {
     expect(scoreDecision(base({ kind: "fato" }))).toMatchObject({ alert: "red", review: false });
     expect(scoreDecision(base({ kind: "estatistica" }))).toMatchObject({ alert: "red", review: false });
   });
@@ -140,17 +153,17 @@ describe("[RF02] [RF04] regras por tipo de fala", () => {
   it("opinião/previsão só com fonte de nível 1–2, mesmo em amarelo", () => {
     const tier3 = [ev({ source_tier: 3 })];
     expect(scoreDecision(base({ verdict: "impreciso", evidence: tier3, kind: "fato" }))).toMatchObject({ alert: "yellow" });
-    expect(scoreDecision(base({ verdict: "impreciso", evidence: tier3, kind: "previsao" }))).toMatchObject({ alert: null, silence_reason: "tipo_exige_tier_1_2" });
+    expect(scoreDecision(base({ verdict: "impreciso", evidence: tier3, kind: "previsao" }))).toMatchObject({ alert: null, silence_reason: "tipo_exige_tier_2" });
   });
 
   it("acusação: vermelho só com nível 1, amarelo só com nível 1–2, e sempre passa pelo editor", () => {
     expect(scoreDecision(base({ kind: "acusacao" }))).toMatchObject({ alert: "red", review: true });
     expect(scoreDecision(base({ kind: "acusacao", evidence: [ev({ source_tier: 2 })] })))
-      .toMatchObject({ alert: null, silence_reason: "acusacao_vermelho_exige_tier_1" });
+      .toMatchObject({ alert: null, silence_reason: "vermelho_exige_tier_1" });
     expect(scoreDecision(base({ kind: "acusacao", verdict: "impreciso", evidence: [ev({ source_tier: 2 })] })))
       .toMatchObject({ alert: "yellow", review: true });
     expect(scoreDecision(base({ kind: "acusacao", verdict: "impreciso", evidence: [ev({ source_tier: 3 })] })))
-      .toMatchObject({ alert: null, silence_reason: "tipo_exige_tier_1_2" });
+      .toMatchObject({ alert: null, silence_reason: "tipo_exige_tier_2" });
   });
 
   it("silêncio nunca pede revisão", () => {

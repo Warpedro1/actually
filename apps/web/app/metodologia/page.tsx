@@ -155,8 +155,9 @@ export default function MetodologiaPage() {
       <Section id="limiares" title="Limiares de confiança">
         <ul className="list-disc space-y-1 pl-5">
           <li>
-            Vermelho (contradito): pontuação final mínima de <strong>{pct(s.t_red)}</strong>, fonte tier 1–2 e
-            citação verificada.
+            Vermelho (contradito): pontuação final mínima de <strong>{pct(s.t_red)}</strong>, fonte tier 1–3 e
+            citação verificada. Como o tier pesa na pontuação, fonte tier 3 sozinha raramente alcança esse
+            mínimo. Em acusação, o vermelho exige tier 1 e passa sempre pelo editor.
           </li>
           <li>
             Amarelo (impreciso): pontuação final mínima de <strong>{pct(s.t_yellow)}</strong>.

@@ -42,7 +42,7 @@ Não publicamos “verdadeiro”: o silêncio do sistema **não** significa que 
 
 ## Fontes e níveis de confiabilidade
 
-Cada fonte tem um nível (tier). **Alertas vermelhos exigem fonte de nível 1 ou 2.** Fontes de nível 3 podem sustentar, no máximo, um alerta amarelo. Nível 4 nunca sustenta alerta sozinho.
+Cada fonte tem um nível (tier). **Alerta vermelho exige fonte de nível 1, 2 ou 3 com citação conferida**; o nível 4 nunca sustenta alerta. O nível pesa na pontuação (1 vale 1; 2, 0,85; 3, 0,6), então uma fonte de nível 3 sozinha quase nunca alcança o limiar do vermelho: na prática precisa de duas camadas que concordem. Acusação é mais restrita: vermelho só com nível 1, amarelo até o nível 2, e sempre passa pelo editor.
 
 Sites de governo só são nível 1 nos endereços listados abaixo, de órgãos que publicam **dado primário** (estatísticas, contas públicas, legislação), como IBGE, Banco Central, Tesouro, Portal da Transparência, a legislação do Planalto (`planalto.gov.br/ccivil_03`), INPE, DataSUS e ANP. **Comunicação de governo** — notícias e notas do governo federal (Secom, Planalto, ministérios em `gov.br`), de governos estaduais e de prefeituras — é parte interessada no debate, já que um dos candidatos é o atual governo: fica no nível 4, nunca sustenta alerta sozinha e não entra na busca na web.
 

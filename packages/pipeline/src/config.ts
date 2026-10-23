@@ -75,8 +75,8 @@ export const RED_REVIEW_BAND = 0.05;
 export const RED_REVIEW_MIN_CONFIDENCE = 0.7;
 
 export const KIND_RULES = {
-  fato: { max_level: "red", extra_threshold: 0, max_tier: 3, red_max_tier: 2, force_review: false },
-  estatistica: { max_level: "red", extra_threshold: 0, max_tier: 3, red_max_tier: 2, force_review: false },
+  fato: { max_level: "red", extra_threshold: 0, max_tier: 3, red_max_tier: 3, force_review: false },
+  estatistica: { max_level: "red", extra_threshold: 0, max_tier: 3, red_max_tier: 3, force_review: false },
   acusacao: { max_level: "red", extra_threshold: 0, max_tier: 2, red_max_tier: 1, force_review: true },
   opiniao_mensuravel: { max_level: "yellow", extra_threshold: 0.1, max_tier: 2, red_max_tier: 2, force_review: false },
   previsao: { max_level: "yellow", extra_threshold: 0.1, max_tier: 2, red_max_tier: 2, force_review: false },

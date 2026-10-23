@@ -141,10 +141,10 @@ export function scoreDecision(input: ScoreInput): ScoreResult {
   if (!best) return silence("sem_citacao_verificada");
   if (best.source_tier >= 4) return silence("fonte_tier_4");
   if (level === "red" && best.source_tier > rules.red_max_tier) {
-    return silence(kind === "acusacao" ? "acusacao_vermelho_exige_tier_1" : "vermelho_exige_tier_1_2");
+    return silence(`vermelho_exige_tier_${rules.red_max_tier}`);
   }
-  // opinião, previsão e acusação: só com fonte de nível 1–2, mesmo em amarelo
-  if (best.source_tier > rules.max_tier) return silence("tipo_exige_tier_1_2");
+  // opinião, previsão e acusação exigem fonte melhor que fato/estatística, mesmo em amarelo
+  if (best.source_tier > rules.max_tier) return silence(`tipo_exige_tier_${rules.max_tier}`);
   if (!input.correction.trim()) return silence("sem_correcao");
   if (!input.correction_numbers_ok) return silence("numero_sem_fonte");
   if (threshold === null) return silence("abaixo_do_threshold");
