@@ -136,10 +136,13 @@ Por padrão, os alertas dizem “Afirmação feita no debate”, sem nome. A ide
 
 ## Neutralidade
 
-- As **mesmas regras, fontes e limiares** valem para todos os participantes.
-- As regras de decisão (limiares, níveis de fonte, conferência da citação) não dependem de quem falou.
-- Medimos a precisão e a taxa de alarme falso **separadamente por candidato** antes do debate; diferenças grandes são investigadas antes de ir ao ar.
-- Contamos os alertas por candidato durante o debate. Um número diferente de alertas entre candidatos **não** é, por si, sinal de viés: reflete o que cada um afirmou e o que foi possível checar.
+Neutralidade é **julgar os participantes pela mesma régua**, não sobre os mesmos dados.
+
+- As **mesmas regras, o mesmo catálogo de fontes e os mesmos limiares** valem para todos. As regras de decisão (limiares, níveis de fonte, conferência da citação) não dependem de quem falou — está travado em teste (RNF04: a mesma afirmação com falantes diferentes dá a mesma decisão).
+- O **conteúdo** disponível sobre cada um não é simétrico, e não há como torná-lo: as trajetórias são diferentes. Sobre quem já exerceu um cargo existe muito mais dado público e muito mais checagem publicada do que sobre quem não exerceu.
+- Daí decorre que **um número diferente de alertas entre candidatos é esperado e não é sinal de parcialidade**: reflete o que cada um afirmou e o quanto daquilo é verificável com fonte.
+- O que se investiga é **taxa de erro**, não volume: medimos precisão e alarme falso **separadamente por candidato** antes do debate, e diferença grande na taxa de erro é investigada antes de ir ao ar.
+- Durante o debate, a contagem por pessoa no `/admin` serve para achar alertas errados e conferi-los um por um — nunca para igualar os números.
 
 ## Limitações
 

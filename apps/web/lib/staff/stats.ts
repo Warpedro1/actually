@@ -46,7 +46,13 @@ export interface PersonCount {
   rejected: number;
 }
 
-/** Neutralidade: alertas por pessoa (ou speaker não mapeado). */
+/**
+ * Alertas por pessoa (ou por rótulo de voz não mapeado), para o painel do /admin.
+ * Serve para conferir alerta por alerta, não para comparar volume: número
+ * diferente entre participantes é esperado (o acervo público sobre cada
+ * trajetória é diferente). O que indica problema é erro — alerta cuja fonte não
+ * sustenta a correção, ou taxa de erro diferente entre os dois.
+ */
 export function countByPerson(
   alerts: readonly { speaker_label: string | null; status: AlertStatus; verdict: AlertVerdict }[],
   speakers: Record<string, string>,

@@ -44,9 +44,10 @@ export function AdminApp({ client }: { client: SupabaseClient }) {
             <LiveMachines client={client} debates={debates} selected={selected} />
             {selected ? (
               <>
-                <AlertsTable client={client} debateId={selected.id} />
-                <LatencyPanel client={client} debateId={selected.id} />
+                {/* Antes da tabela de alertas: ela lista até 100 linhas e empurraria isto fora da tela. */}
                 <NeutralityPanel client={client} debateId={selected.id} />
+                <LatencyPanel client={client} debateId={selected.id} />
+                <AlertsTable client={client} debateId={selected.id} />
               </>
             ) : (
               <Card>
@@ -253,9 +254,13 @@ function NeutralityPanel({ client, debateId }: { client: SupabaseClient; debateI
   }, [load]);
 
   return (
-    <Card id="neutralidade" title="Neutralidade — alertas por pessoa">
+    <Card id="neutralidade" title="Alertas por pessoa">
       <p className="mb-2 text-xs text-muted">
-        Mesmas regras para todos. Desequilíbrio grande pode indicar problema do sistema (ou não) — vale olhar os casos.
+        Neutralidade é julgar os dois participantes pela mesma régua — as mesmas regras, limiares e níveis de fonte —, não
+        com o mesmo acervo: as trajetórias são diferentes e há muito mais dado público sobre quem já governou.{" "}
+        <strong className="font-semibold text-fg">Número diferente de alertas é esperado e não é parcialidade.</strong> O
+        que indica problema é erro: alerta sem fonte que sustente, ou taxa de erro diferente entre os dois. Esta contagem
+        serve para achar esses casos e conferi-los um por um, não para igualar os números.
       </p>
       <ErrorText>{error}</ErrorText>
       {!rows ? (

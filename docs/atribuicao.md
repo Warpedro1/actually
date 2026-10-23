@@ -75,7 +75,7 @@ alter table alerts
 | Editor atribui errado sob pressão (HITL de atribuição) | Opção “não sei” sempre disponível e sem custo; trecho com tempo para conferir no player. |
 | Afirmação de mediador atribuída a candidato | Mediador mapeado explicitamente; afirmações do mediador podem ser rejeitadas pelo editor. |
 | Correção pública de atribuição errada | Rejeitar o alerta (sai do ar para todos) + nota pública; nunca apagar (trilha de auditoria). Ver [runbook](runbook-debate.md#alerta-errado-publicado). |
-| Assimetria entre candidatos | Mesmo fluxo para os dois; relatório por speaker no eval e contagem por candidato no `/admin`. |
+| Tratamento desigual entre candidatos | Mesmo fluxo, mesmas regras e mesmos limiares para os dois; relatório por speaker no eval (taxa de erro) e contagem por candidato no `/admin` para conferir caso a caso. Diferença de **volume** de alertas é esperada — o acervo público sobre cada trajetória é diferente — e não conta como risco. |
 
 ### Critério para adotar
 

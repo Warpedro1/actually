@@ -198,13 +198,25 @@ export default function MetodologiaPage() {
       </Section>
 
       <Section id="neutralidade" title="Neutralidade">
+        <p>
+          Neutralidade aqui é <strong>julgar os participantes pela mesma régua</strong>: o mesmo processo, o mesmo
+          catálogo de fontes, os mesmos limiares e as mesmas regras de decisão, que não dependem de quem falou.
+        </p>
+        <p>
+          O que não é possível é julgar sobre os <em>mesmos dados</em>. As trajetórias são diferentes — sobre quem já
+          exerceu um cargo existe muito mais dado público e muito mais checagem publicada do que sobre quem não
+          exerceu. Por isso <strong>um número diferente de alertas entre participantes é esperado e não significa
+          parcialidade</strong>: depende do que cada um afirmou e de quanto daquilo é verificável com fonte.
+        </p>
         <ul className="list-disc space-y-1 pl-5">
-          <li>Mesmo processo, mesmas fontes e mesmos limiares para todos os participantes.</li>
           <li>
             Por padrão, os alertas não dizem quem falou (“Afirmação feita no debate”). O nome só aparece quando a
             identificação da voz foi confirmada por um editor.
           </li>
-          <li>A equipe acompanha a contagem de alertas por participante para detectar desequilíbrios do sistema.</li>
+          <li>
+            O que a equipe investiga é <strong>erro</strong>, não volume: alerta cuja fonte não sustenta a correção, e
+            diferença na taxa de erro entre participantes.
+          </li>
           <li>O visual não usa cores associadas a partidos.</li>
         </ul>
       </Section>
