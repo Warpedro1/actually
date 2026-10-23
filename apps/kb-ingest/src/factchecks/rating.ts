@@ -104,8 +104,13 @@ const PREFIX_RULES: [string, Verdict][] = [
 
 export function normalizeRating(rating: string): string {
   return normalizeForMatch(rating)
-    .replace(/^[\s"'(\[]+|[\s"')\].!:;–—-]+$/g, "")
-    .replace(/\s+/g, " ");
+    // selo que chega como slug do feed ("não_é_bem_assim", "parcialmente-falso"): o separador
+    // vira espaço, senão o rótulo não casa com a tabela nem com os prefixos e cai em
+    // inconclusivo — 25 checagens da base ficaram assim.
+    .replace(/[_\-–—]+/g, " ")
+    .replace(/^[\s"'(\[]+|[\s"')\].!:;]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 /** Mapeia o rating textual para o veredito. Desconhecido ⇒ inconclusivo. */

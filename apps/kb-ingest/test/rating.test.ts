@@ -38,6 +38,13 @@ describe("[RF15] mapRating — tabela explícita", () => {
   it("ratings longos usam o prefixo, do mais específico ao mais geral", () => {
     expect(mapRating("Falso. O vídeo é de 2018 e foi editado.")).toBe("contradito");
     expect(mapRating("Enganoso: o dado é real, mas de outro ano")).toBe("impreciso");
+    // selo que chega como slug do feed: 25 checagens da base ficaram em inconclusivo por isso
+    expect(mapRating("não_é_bem_assim")).toBe("impreciso");
+    expect(mapRating("parcialmente-falso")).toBe("impreciso");
+    expect(mapRating("meia-verdade")).toBe("impreciso");
+    expect(mapRating("fora_de_contexto")).toBe("impreciso");
+    // "não é falso" segue em inconclusivo, com separador ou sem
+    expect(mapRating("não_é_falso")).toBe("inconclusivo");
     expect(mapRating("Verdadeiro, mas o número caiu desde então")).toBe("impreciso");
     expect(mapRating("Parcialmente falso — parte do gráfico é inventada")).toBe("impreciso");
     expect(mapRating("Verdadeiro.")).toBe("confirmado");
