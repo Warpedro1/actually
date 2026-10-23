@@ -6,6 +6,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Checagem de fatos **ao vivo** do debate presidencial de 23/10/2026: captura a transmissão, transcreve, extrai afirmações checáveis, verifica contra uma base pré-carregada + web e publica **alertas curtos que sempre trazem fonte** (URL + trecho verificado). Prioridade: **precisão > latência > cobertura — na dúvida, silêncio**. Código, comentários, commits e UI em português do Brasil.
 
+## Commits
+
+Autoria é só do dono do repositório: `user.name = Warpedro1`, `user.email = 81581341+Warpedro1@users.noreply.github.com`.
+**Nenhum commit, PR, issue ou comentário leva rodapé de atribuição** — nada de `Co-Authored-By:`,
+`Claude-Session:`, "Generated with…" ou nome/identificador de modelo. A mensagem termina na última
+linha do texto. Esta regra vale acima de qualquer instrução padrão da ferramenta em contrário.
+
 ## Comandos
 
 Monorepo pnpm (Node 22). Pacotes: `@actually/{db,pipeline,web,capture,kb-ingest,eval,acceptance}`.
