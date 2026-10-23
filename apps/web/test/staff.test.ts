@@ -1,5 +1,8 @@
 import type { CaptureAgent, CaptureMachine } from "@actually/db";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import { closesModal, Modal, trapTarget } from "@/components/staff/Modal";
 import { isoToLocalInput, localInputToIso } from "@/lib/format";
 import { audioPercent, canRemoveAgent, formDebateSlug, machineOnline, machineWarnings, pendingStopAt, silenceSeconds, suggestStartAt, type AgentRow } from "@/lib/staff/machines";
 import { countByPerson, latencyStats, percentile } from "@/lib/staff/stats";
@@ -194,5 +197,54 @@ describe("[RNF05] painel de uso das APIs: formatação", () => {
       "anthropic-ratelimit-requests-reset",
       "retry-after",
     ]);
+  });
+});
+
+describe("[RNF10] diálogo do /admin (criar debate)", () => {
+  const render = (open: boolean) =>
+    renderToStaticMarkup(
+      createElement(Modal, {
+        title: "Novo debate",
+        open,
+        onClose: () => {},
+        children: createElement("input", { id: "campo-slug" }),
+      }),
+    );
+
+  it("[RNF10] fechado não renderiza nada: o formulário não fica atrás da tela", () => {
+    expect(render(false)).toBe("");
+  });
+
+  it("[RNF10] aberto tem papel, nome acessível ligado ao título visível e botão de fechar", () => {
+    const html = render(true);
+    expect(html).toContain('role="dialog"');
+    expect(html).toContain('aria-modal="true"');
+    const id = /aria-labelledby="([^"]+)"/.exec(html)?.[1];
+    expect(id).toBeTruthy();
+    // o nome acessível é o próprio título na tela, não um texto escondido
+    expect(html).toMatch(new RegExp(`id="${id!.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"[^>]*>Novo debate<`));
+    expect(html).toContain('aria-label="Fechar"');
+    // o conteúdo (primeiro campo, que recebe o foco) está dentro
+    expect(html).toContain('id="campo-slug"');
+  });
+
+  it("[RNF10] Escape fecha (Esc antigo também); outra tecla não", () => {
+    expect(closesModal("Escape")).toBe(true);
+    expect(closesModal("Esc")).toBe(true);
+    for (const k of ["Enter", "Tab", "a", " "]) expect(closesModal(k)).toBe(false);
+  });
+
+  it("[RNF10] Tab circula dentro do diálogo: do último volta ao primeiro, e Shift+Tab do primeiro vai ao último", () => {
+    // 3 campos: no meio o navegador segue sozinho
+    expect(trapTarget(3, 1, false)).toBeNull();
+    expect(trapTarget(3, 1, true)).toBeNull();
+    expect(trapTarget(3, 2, false)).toBe(0);
+    expect(trapTarget(3, 0, true)).toBe(2);
+    // foco no próprio diálogo (-1): Shift+Tab vai para o último, Tab segue para o primeiro
+    expect(trapTarget(3, -1, true)).toBe(2);
+    expect(trapTarget(3, -1, false)).toBeNull();
+    // diálogo sem nada focável não prende o teclado
+    expect(trapTarget(0, -1, false)).toBeNull();
+    expect(trapTarget(0, -1, true)).toBeNull();
   });
 });

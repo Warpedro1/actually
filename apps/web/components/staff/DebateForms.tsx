@@ -8,6 +8,7 @@ import { CHECK_MODE_TEXT, STATUS_TEXT, StatusBadge } from "@/components/StatusBa
 import { isoToLocalInput, localInputToIso } from "@/lib/format";
 import { youtubeVideoId } from "@/lib/youtube";
 import { ConfirmBox } from "./ConfirmBox";
+import { Modal } from "./Modal";
 import { Button, Card, ErrorText, Field, inputCls, OkText, Pill, errMsg } from "./ui";
 
 const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -64,7 +65,7 @@ function checkYoutube(url: string): string | null {
   return youtubeVideoId(url) ? null : "URL do YouTube não reconhecida (use o link do vídeo/live).";
 }
 
-/** Criar debate + editar o selecionado (título, URL, horário previsto, status). */
+/** Criar debate (em diálogo) + editar o selecionado (título, URL, horário, status, aviso). */
 export function DebateForms({
   client,
   selected,
@@ -76,10 +77,38 @@ export function DebateForms({
   onSaved: () => Promise<void> | void;
   onCreated: (id: string) => void;
 }) {
+  const [creating, setCreating] = useState(false);
+  // O diálogo fecha ao criar, então o aviso de sucesso aparece aqui fora.
+  const [created, setCreated] = useState<string | null>(null);
+
   return (
-    <div id="debate" className="grid gap-4 lg:grid-cols-2">
+    <div id="debate" className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm text-muted">
+          {selected ? `Editando /${selected.slug}.` : "Nenhum debate selecionado — escolha um acima ou crie um novo."}
+        </p>
+        <Button
+          variant="primary"
+          onClick={() => {
+            setCreated(null);
+            setCreating(true);
+          }}
+        >
+          Novo debate
+        </Button>
+      </div>
+      <OkText>{created}</OkText>
       {selected ? <EditDebate key={selected.id} client={client} debate={selected} onSaved={onSaved} /> : null}
-      <CreateDebate client={client} onCreated={onCreated} />
+      <Modal title="Novo debate" open={creating} onClose={() => setCreating(false)}>
+        <CreateDebate
+          client={client}
+          onCreated={(id, message) => {
+            setCreating(false);
+            setCreated(message);
+            onCreated(id);
+          }}
+        />
+      </Modal>
     </div>
   );
 }
@@ -243,7 +272,7 @@ function EditDebate({ client, debate, onSaved }: { client: SupabaseClient; debat
   );
 }
 
-function CreateDebate({ client, onCreated }: { client: SupabaseClient; onCreated: (id: string) => void }) {
+function CreateDebate({ client, onCreated }: { client: SupabaseClient; onCreated: (id: string, message: string) => void }) {
   const [slug, setSlug] = useState("");
   const [title, setTitle] = useState("");
   const [youtube, setYoutube] = useState("");
@@ -254,7 +283,6 @@ function CreateDebate({ client, onCreated }: { client: SupabaseClient; onCreated
   const [isTest, setIsTest] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [ok, setOk] = useState<string | null>(null);
 
   async function create(e: FormEvent) {
     e.preventDefault();
@@ -278,19 +306,18 @@ function CreateDebate({ client, onCreated }: { client: SupabaseClient; onCreated
       .single();
     setBusy(false);
     if (err) return setError(err.code === "23505" ? "Já existe um debate com esse slug." : errMsg(err));
-    setOk(isTest ? `Criado como teste: prévia em /admin/previa/${slug}` : `Criado e público: /ao-vivo/${slug}`);
+    const message = isTest ? `Criado como teste: prévia em /admin/previa/${slug}` : `Criado e público: /ao-vivo/${slug}`;
     setSlug("");
     setTitle("");
     setYoutube("");
     setScheduled("");
     setNote("");
     setCheckMode("");
-    onCreated((data as { id: string }).id);
+    onCreated((data as { id: string }).id, message);
   }
 
   return (
-    <Card title="Novo debate">
-      <form onSubmit={create} className="flex flex-col gap-3">
+    <form onSubmit={create} className="flex flex-col gap-3">
         <Field label="Slug (endereço)" htmlFor="new-slug" hint={slug ? `Página: /ao-vivo/${slug}` : "Ex.: debate-23-10"}>
           <input
             id="new-slug"
@@ -321,12 +348,10 @@ function CreateDebate({ client, onCreated }: { client: SupabaseClient; onCreated
             </span>
           </span>
         </label>
-        <ErrorText>{error}</ErrorText>
-        <OkText>{ok}</OkText>
-        <Button type="submit" variant="primary" disabled={busy}>
-          Criar debate
-        </Button>
-      </form>
-    </Card>
+      <ErrorText>{error}</ErrorText>
+      <Button type="submit" variant="primary" disabled={busy}>
+        Criar debate
+      </Button>
+    </form>
   );
 }
