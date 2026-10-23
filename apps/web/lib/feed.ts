@@ -1,7 +1,7 @@
 // Montagem do feed público de alertas — funções puras, usadas no servidor
 // (GET /api/alerts) e no cliente (Realtime + polling). Testadas em test/feed.test.ts.
 
-import type { Alert, AlertWithEvidence, DebateSettings, Evidence } from "@actually/db";
+import type { Alert, AlertWithEvidence, CheckMode, DebateSettings, Evidence } from "@actually/db";
 import { formatTime } from "./format";
 
 export type FeedEvidence = AlertWithEvidence["evidence"][number];
@@ -28,6 +28,23 @@ export interface FeedDebate {
   slug: string;
   title: string;
   status: "scheduled" | "live" | "ended";
+  /** Procedência declarada pelo editor; null = não informado (a página não afirma nada). */
+  check_mode: CheckMode | null;
+  /** Observação do editor, exibida acima do feed. */
+  public_note: string | null;
+}
+
+/**
+ * Estado da checagem agora, calculado no servidor (as tabelas de captura são só
+ * de editor). "paused": o debate não acabou, já houve fala capturada e nenhum
+ * agente está vivo — captura caiu ou foi parada.
+ */
+export type CaptureState = "running" | "waiting" | "paused" | "finished";
+
+export interface FeedCapture {
+  state: CaptureState;
+  /** Última fala recebida (relógio do servidor), ou null se nenhuma. */
+  last_segment_at: string | null;
 }
 
 /** Resposta de GET /api/alerts. */
@@ -42,6 +59,8 @@ export interface AlertsPayload {
    */
   retracted_ids: string[];
   server_time: string;
+  /** Estado da checagem (o selo ao lado de "Alertas"). */
+  capture: FeedCapture;
 }
 
 /** Texto do aviso que substitui, na tela de quem já o viu, um alerta retirado. */

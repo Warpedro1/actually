@@ -1,6 +1,8 @@
 "use client";
 
+import type { CheckMode } from "@actually/db";
 import { useEffect, useState, type ReactNode } from "react";
+import { CHECK_MODE_NOTE, CHECK_MODE_TEXT, StatusBadge, type DebateStatus } from "@/components/StatusBadge";
 import type { FeedState, TranscriptState } from "@/lib/live/types";
 import { STORAGE_KEYS, storageGet, storageSet } from "@/lib/storage";
 import { AlertFeed } from "./AlertFeed";
@@ -8,8 +10,6 @@ import { TranscriptPanel } from "./TranscriptPanel";
 import { VideoPlayer } from "./VideoPlayer";
 
 export type ViewMode = "video" | "info";
-
-const STATUS_TEXT = { scheduled: "Agendado", live: "Ao vivo", ended: "Encerrado" } as const;
 
 function ViewModeToggle({ mode, onChange }: { mode: ViewMode; onChange: (m: ViewMode) => void }) {
   const opt = (value: ViewMode, label: string) => (
@@ -36,6 +36,8 @@ function ViewModeToggle({ mode, onChange }: { mode: ViewMode; onChange: (m: View
 export function DebateLayout({
   title,
   status,
+  checkMode,
+  note,
   youtubeUrl,
   feed,
   transcript,
@@ -44,7 +46,11 @@ export function DebateLayout({
   extra,
 }: {
   title: string;
-  status: keyof typeof STATUS_TEXT;
+  status: DebateStatus;
+  /** Procedência da checagem; null = não informado (nada aparece). */
+  checkMode: CheckMode | null;
+  /** Observação do editor exibida acima do feed (`debates.public_note`). */
+  note?: string | null;
   youtubeUrl: string | null;
   feed: FeedState;
   transcript: TranscriptState;
@@ -66,18 +72,47 @@ export function DebateLayout({
 
   const transcriptPanel = <TranscriptPanel transcript={transcript} open={transcriptOpen} onToggle={onTranscriptToggle} />;
 
+  // A casca da página é cacheada (ISR): o status assado no HTML envelhece. O
+  // feed devolve o valor corrente a cada 3 s — quando ele chega, vale ele,
+  // inclusive quando o editor limpou a procedência ou o aviso (null é resposta).
+  const live = feed.debate;
+  const shownStatus = live?.status ?? status;
+  const shownCheckMode = live ? live.check_mode : checkMode;
+  const shownNote = live ? live.public_note : (note ?? null);
+  const checkNote = shownCheckMode ? CHECK_MODE_NOTE[shownCheckMode] : null;
+
   return (
     <div className="mx-auto max-w-6xl px-4 pb-8 pt-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
           <h1 className="truncate text-lg font-semibold sm:text-xl">{title}</h1>
-          <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted">
-            {status === "live" ? <span aria-hidden="true" className="inline-block h-2 w-2 rounded-full bg-red-fg" /> : null}
-            {STATUS_TEXT[status]}
+          <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+            <StatusBadge status={shownStatus} />
+            {shownCheckMode ? (
+              <>
+                <span aria-hidden="true">·</span>
+                <span>{CHECK_MODE_TEXT[shownCheckMode]}</span>
+              </>
+            ) : null}
           </p>
         </div>
         <ViewModeToggle mode={mode} onChange={change} />
       </div>
+
+      {checkNote ? <p className="mt-2 max-w-2xl text-xs text-muted">{checkNote}</p> : null}
+
+      {shownNote ? (
+        <div
+          role="note"
+          aria-labelledby="debate-note-title"
+          className="mt-3 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-fg"
+        >
+          <p id="debate-note-title" className="text-xs font-semibold uppercase tracking-wide text-muted">
+            Aviso
+          </p>
+          <p className="mt-0.5">{shownNote}</p>
+        </div>
+      ) : null}
 
       {extra ? <div className="mt-3">{extra}</div> : null}
 

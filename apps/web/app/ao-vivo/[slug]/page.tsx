@@ -45,6 +45,8 @@ export default async function LivePage({ params }: Props) {
         slug: debate.slug,
         title: debate.title,
         status: debate.status,
+        check_mode: debate.check_mode,
+        public_note: debate.public_note,
         youtube_url: debate.youtube_url,
       }}
       attribution={attribution}

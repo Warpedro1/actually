@@ -97,7 +97,8 @@ export function useDemoFeed(): {
   }, [running, injectNow]);
 
   return {
-    feed: { alerts, mode: "demo", error: null, freshIds, loaded: true },
+    // `debate`/`capture` ficam nulos: o selo da demonstração se identifica pelo modo.
+    feed: { alerts, mode: "demo", error: null, freshIds, loaded: true, debate: null, capture: null },
     transcript: { lines, error: null },
     running,
     setRunning,

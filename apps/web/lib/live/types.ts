@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { FeedAlert } from "../feed";
+import type { FeedAlert, FeedCapture, FeedDebate } from "../feed";
 
 /**
  * Prévia do editor (/admin/previa): o feed usa a sessão do editor em vez do
@@ -21,6 +21,14 @@ export interface FeedState {
   /** Alertas que chegaram depois da carga inicial (animados na entrada). */
   freshIds: ReadonlySet<string>;
   loaded: boolean;
+  /**
+   * Debate conforme a última resposta de /api/alerts — a casca da página é
+   * cacheada (ISR), então o status assado no HTML envelhece; este é o valor
+   * corrente, que chega em até 3 s. Null até a primeira resposta.
+   */
+  debate: FeedDebate | null;
+  /** Estado da checagem agora (calculado no servidor). Null até a 1ª resposta. */
+  capture: FeedCapture | null;
 }
 
 export interface TranscriptLine {

@@ -64,7 +64,22 @@ export interface Debate {
    * vereditos dele não são reaproveitados por outros debates na trava de repetição.
    */
   is_test: boolean;
+  /**
+   * Observação do editor exibida na página pública do debate (migration
+   * 20261023000016, até 500 caracteres). Ex.: "a checagem não foi rodada ao vivo".
+   */
+  public_note: string | null;
+  /**
+   * Procedência da checagem, declarada pelo editor (migration 20261023000016).
+   * Não é derivável dos dados: `started_at` fica nulo se o debate não passou por
+   * "ao vivo", `ended_at` é a hora do clique, e com `source = 'file'` o relógio
+   * do segmento é o do replay. Nulo = não informado; a página não afirma nada.
+   */
+  check_mode: CheckMode | null;
 }
+
+/** live: checado ao vivo · post: publicado depois do debate · mixed: parte e parte. */
+export type CheckMode = "live" | "post" | "mixed";
 
 export interface CaptureAgent {
   id: string;

@@ -140,6 +140,8 @@ function retractionDb(over: { retracted?: string[]; published?: Alert[] } = {}) 
       return { data: over.published ?? [], error: null };
     },
     speaker_map: () => ({ data: [], error: null }),
+    capture_agents: () => ({ data: [], error: null }),
+    segments: () => ({ data: [], error: null }),
     evidence: () => ({
       data: (over.published ?? []).map((a) => ({ verification_id: a.verification_id, ...EV, quote_verified: true })),
       error: null,

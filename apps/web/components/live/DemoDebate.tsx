@@ -13,6 +13,8 @@ export function DemoDebate() {
     <DebateLayout
       title={DEMO_DEBATE.title}
       status={DEMO_DEBATE.status}
+      checkMode={DEMO_DEBATE.check_mode}
+      note={DEMO_DEBATE.public_note}
       youtubeUrl={null}
       feed={feed}
       transcript={transcript}

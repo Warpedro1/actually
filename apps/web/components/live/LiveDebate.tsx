@@ -1,5 +1,6 @@
 "use client";
 
+import type { CheckMode } from "@actually/db";
 import { useState } from "react";
 import type { Attribution } from "@/lib/feed";
 import { useLiveAlerts } from "@/lib/live/useLiveAlerts";
@@ -13,6 +14,8 @@ export interface LiveDebateProps {
     slug: string;
     title: string;
     status: "scheduled" | "live" | "ended";
+    check_mode: CheckMode | null;
+    public_note: string | null;
     youtube_url: string | null;
   };
   attribution: Attribution;
@@ -29,6 +32,8 @@ export function LiveDebate({ debate, attribution, preview }: LiveDebateProps) {
     <DebateLayout
       title={debate.title}
       status={debate.status}
+      checkMode={debate.check_mode}
+      note={debate.public_note}
       youtubeUrl={debate.youtube_url}
       feed={feed}
       transcript={transcript}

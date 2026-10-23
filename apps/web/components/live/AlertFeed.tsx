@@ -1,23 +1,37 @@
 "use client";
 
 import { AlertCard } from "@/components/AlertCard";
-import { VERDICT_LABEL } from "@/lib/feed";
-import type { ConnectionMode, FeedState } from "@/lib/live/types";
+import { VERDICT_LABEL, type CaptureState } from "@/lib/feed";
+import type { FeedState } from "@/lib/live/types";
 
-const MODE_TEXT: Record<ConnectionMode, string> = {
-  connecting: "Conectando…",
-  realtime: "Tempo real",
-  polling: "Atualizando a cada 3 s",
-  demo: "Demonstração — dados fictícios",
+/**
+ * Estado da **checagem**, não do debate: os dois são independentes de verdade
+ * (debate encerrado com replay rodando; debate ao vivo com a captura parada).
+ * O estado do debate fica no selo abaixo do título (StatusBadge).
+ */
+const CAPTURE_TEXT: Record<CaptureState, string> = {
+  running: "Checando agora",
+  waiting: "Checagem agendada",
+  paused: "Checagem pausada",
+  finished: "Checagem encerrada",
 };
 
-export function ConnectionBadge({ mode }: { mode: ConnectionMode }) {
-  const dot =
-    mode === "realtime" ? "bg-ok-fg" : mode === "polling" ? "bg-yellow-fg" : mode === "demo" ? "bg-accent" : "bg-muted";
+const CAPTURE_DOT: Record<CaptureState, string> = {
+  running: "bg-ok-fg",
+  waiting: "bg-muted",
+  paused: "bg-yellow-fg",
+  finished: "bg-muted",
+};
+
+export function CaptureBadge({ feed }: { feed: FeedState }) {
+  // A demonstração se identifica pelo modo: não há captura nenhuma por trás.
+  const demo = feed.mode === "demo";
+  const state = feed.capture?.state;
+  const dot = demo ? "bg-accent" : state ? CAPTURE_DOT[state] : "bg-muted";
   return (
     <span className="inline-flex items-center gap-1.5 text-xs text-muted" role="status">
       <span aria-hidden="true" className={`inline-block h-2 w-2 rounded-full ${dot}`} />
-      {MODE_TEXT[mode]}
+      {demo ? "Demonstração — dados fictícios" : state ? CAPTURE_TEXT[state] : "Conectando…"}
     </span>
   );
 }
@@ -31,7 +45,7 @@ export function AlertFeed({ feed }: { feed: FeedState }) {
         <h2 id="feed-title" className="text-sm font-semibold uppercase tracking-wide text-muted">
           Alertas{feed.alerts.length ? ` (${feed.alerts.length})` : ""}
         </h2>
-        <ConnectionBadge mode={feed.mode} />
+        <CaptureBadge feed={feed} />
       </div>
 
       {/* Anúncio curto para leitores de tela quando chega alerta novo */}

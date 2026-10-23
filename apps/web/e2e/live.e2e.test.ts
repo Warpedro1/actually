@@ -100,6 +100,25 @@ describe("[RF10] aviso jurídico bloqueante", () => {
     expect(await page.textContent("body")).toMatch(/pode errar/i);
     await ctx.close();
   });
+
+  it("[RF10] observação do editor aparece para quem entra, com os dois status: do debate e da checagem", async () => {
+    const { ctx, page } = await open("/ao-vivo/demo", { accepted: true });
+    // Observação escrita no /admin (public_note) — na demonstração, o aviso de dados fictícios.
+    const note = page.getByRole("note", { name: "Aviso" });
+    expect(await note.count()).toBe(1);
+    expect(await note.textContent()).toContain("fictícios");
+
+    // Status do debate + procedência da checagem, abaixo do título.
+    const head = page.locator("h1").locator("..");
+    expect(await head.textContent()).toContain("Ao vivo");
+    expect(await head.textContent()).toContain("Checagem ao vivo");
+
+    // Estado da checagem, ao lado de "Alertas" (único role=status da página pública).
+    const badge = page.getByRole("status");
+    expect(await badge.count()).toBe(1);
+    expect(await badge.textContent()).toContain("Demonstração");
+    await ctx.close();
+  });
 });
 
 describe("[RF11] com vídeo / só informações", () => {

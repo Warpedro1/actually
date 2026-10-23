@@ -11,6 +11,8 @@ export const DEMO_DEBATE = {
   slug: "demo",
   title: "Debate de demonstração",
   status: "live" as const,
+  check_mode: "live" as const,
+  public_note: "Página de demonstração: participantes, falas e fontes são fictícios.",
 };
 
 export const DEMO_ATTRIBUTION: Attribution = {
@@ -188,6 +190,8 @@ export function demoAdminData(now: number) {
     ended_at: null,
     scheduled_at: ago(1800),
     is_test: false,
+    public_note: null,
+    check_mode: "live",
   };
   const agents: AgentRow[] = [
     {

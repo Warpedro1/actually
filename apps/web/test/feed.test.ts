@@ -14,9 +14,9 @@ import {
   type Attribution,
   type FeedAlert,
 } from "@/lib/feed";
-import { loadPublishedAlerts } from "@/lib/server/alerts";
+import { captureStateFrom, loadPublishedAlerts } from "@/lib/server/alerts";
 import { youtubeEmbedUrl, youtubeVideoId } from "@/lib/youtube";
-import { createMockDb } from "./supabaseMock";
+import { argOf, createMockDb } from "./supabaseMock";
 
 function alert(id: string, over: Partial<Alert> = {}): Alert {
   return {
@@ -161,7 +161,15 @@ describe("loadPublishedAlerts (GET /api/alerts)", () => {
   it("monta payload com debate, alertas, atribuição e respeita since", async () => {
     const mock = createMockDb({
       debates: () => ({
-        data: { id: "d1", slug: "s", title: "Debate", status: "live", settings: { show_attribution: true } },
+        data: {
+          id: "d1",
+          slug: "s",
+          title: "Debate",
+          status: "live",
+          check_mode: "live",
+          public_note: "Aviso do editor.",
+          settings: { show_attribution: true },
+        },
         error: null,
       }),
       alerts: (q) =>
@@ -169,15 +177,47 @@ describe("loadPublishedAlerts (GET /api/alerts)", () => {
           ? { data: [], error: null }
           : { data: [alert("a", { speaker_label: "S1" })], error: null },
       speaker_map: () => ({ data: [{ speaker_label: "S1", person: "Flávio Bolsonaro" }], error: null }),
+      capture_agents: () => ({ data: [{ id: "ag1" }], error: null }),
+      segments: () => ({ data: [{ received_at: "2026-10-23T23:40:00.000Z" }], error: null }),
       evidence: () => ({ data: [{ verification_id: "v-a", ...EV, quote_verified: true }], error: null }),
     });
     const payload = await loadPublishedAlerts(mock.db as never, "s", "2026-10-23T23:00:00.000Z");
-    expect(payload!.debate).toEqual({ id: "d1", slug: "s", title: "Debate", status: "live" });
+    // Status, procedência e aviso vêm em toda resposta: é o que corrige o selo
+    // assado no HTML cacheado (ISR) sem request a mais.
+    expect(payload!.debate).toEqual({
+      id: "d1",
+      slug: "s",
+      title: "Debate",
+      status: "live",
+      check_mode: "live",
+      public_note: "Aviso do editor.",
+    });
     expect(payload!.alerts[0]!.person).toBe("Flávio Bolsonaro");
     expect(payload!.attribution.show).toBe(true);
     const alertsCall = mock.calls.find((c) => c.table === "alerts")!;
     expect(alertsCall.ops).toContainEqual({ op: "gte", args: ["published_at", "2026-10-23T23:00:00.000Z"] });
     expect(alertsCall.ops).toContainEqual({ op: "eq", args: ["status", "published"] });
+  });
+  it("[RNF05] estado da checagem: agente vivo ⇒ checando agora, e nada da máquina vai para o público", async () => {
+    const mock = createMockDb({
+      debates: () => ({ data: { id: "d1", slug: "s", title: "Debate", status: "ended", settings: {} }, error: null }),
+      alerts: () => ({ data: [], error: null }),
+      speaker_map: () => ({ data: [], error: null }),
+      capture_agents: () => ({ data: [{ id: "ag1" }], error: null }),
+      segments: () => ({ data: [{ received_at: "2026-10-23T23:40:00.000Z" }], error: null }),
+    });
+    const payload = await loadPublishedAlerts(mock.db as never, "s");
+    // Debate encerrado com replay rodando: os dois estados são independentes.
+    expect(payload!.capture).toEqual({ state: "running", last_segment_at: "2026-10-23T23:40:00.000Z" });
+    // O `reported` da máquina tem trecho de transcrição e caminho de arquivo local:
+    // o payload público só pode trazer estado e hora.
+    const agentCall = mock.calls.find((c) => c.table === "capture_agents")!;
+    expect(argOf(agentCall, "select")).toBe("id");
+    expect(agentCall.ops).toContainEqual({ op: "eq", args: ["active", true] });
+    expect(agentCall.ops.some((o) => o.op === "gte" && o.args[0] === "last_heartbeat")).toBe(true);
+    const segCall = mock.calls.find((c) => c.table === "segments")!;
+    expect(argOf(segCall, "select")).toBe("received_at");
+    expect(segCall.ops).toContainEqual({ op: "limit", args: [1] });
   });
   it("null para debate inexistente", async () => {
     const mock = createMockDb({ debates: () => ({ data: null, error: null }) });
@@ -188,6 +228,8 @@ describe("loadPublishedAlerts (GET /api/alerts)", () => {
       debates: () => ({ data: { id: "d1", slug: "ensaio", title: "Ensaio", status: "live", settings: {}, is_test: true }, error: null }),
       alerts: () => ({ data: [], error: null }),
       speaker_map: () => ({ data: [], error: null }),
+      capture_agents: () => ({ data: [], error: null }),
+      segments: () => ({ data: [], error: null }),
     };
     const pub = createMockDb(handlers);
     expect(await loadPublishedAlerts(pub.db as never, "ensaio")).toBeNull();
@@ -195,6 +237,22 @@ describe("loadPublishedAlerts (GET /api/alerts)", () => {
     expect(pub.calls.some((c) => c.table === "alerts")).toBe(false);
     const prev = createMockDb(handlers);
     expect((await loadPublishedAlerts(prev.db as never, "ensaio", undefined, { includeTest: true }))!.debate.slug).toBe("ensaio");
+  });
+});
+
+describe("[RF10] estado da checagem (captureStateFrom)", () => {
+  it("agente vivo manda, independente do status do debate", () => {
+    for (const st of ["scheduled", "live", "ended"] as const) {
+      expect(captureStateFrom(st, true, null)).toBe("running");
+    }
+  });
+  it("sem agente: encerrado ⇒ encerrada; com fala anterior ⇒ pausada; sem fala ⇒ agendada", () => {
+    expect(captureStateFrom("ended", false, "2026-10-23T23:40:00.000Z")).toBe("finished");
+    expect(captureStateFrom("ended", false, null)).toBe("finished");
+    // debate ao vivo e nada capturando, mas já houve fala: caiu ou foi parada
+    expect(captureStateFrom("live", false, "2026-10-23T23:40:00.000Z")).toBe("paused");
+    expect(captureStateFrom("live", false, null)).toBe("waiting");
+    expect(captureStateFrom("scheduled", false, null)).toBe("waiting");
   });
 });
 

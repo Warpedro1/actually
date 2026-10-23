@@ -12,6 +12,8 @@ import {
   type AlertsPayload,
   type Attribution,
   type FeedAlert,
+  type FeedCapture,
+  type FeedDebate,
 } from "../feed";
 import { publicBrowserClient } from "../supabase/browser";
 import { addedIds, type ConnectionMode, type FeedState, type LivePreview } from "./types";
@@ -52,6 +54,8 @@ export function useLiveAlerts(slug: string, debateId: string, initialAttribution
   const [error, setError] = useState<string | null>(null);
   const [freshIds, setFreshIds] = useState<ReadonlySet<string>>(new Set());
   const [loaded, setLoaded] = useState(false);
+  const [debate, setDebate] = useState<FeedDebate | null>(null);
+  const [capture, setCapture] = useState<FeedCapture | null>(null);
 
   const alertsRef = useRef<FeedAlert[]>([]);
   const attributionRef = useRef<Attribution>(initialAttribution);
@@ -93,6 +97,11 @@ export function useLiveAlerts(slug: string, debateId: string, initialAttribution
       }
       const payload = (await res.json()) as AlertsPayload;
       commit(payload.alerts, payload.attribution, payload.retracted_ids ?? []);
+      // Status, procedência e aviso do debate vêm em toda resposta: é o que
+      // corrige o selo assado no HTML cacheado, sem request a mais.
+      if (payload.debate) setDebate(payload.debate);
+      // `capture` pode faltar numa resposta antiga ainda no cache da CDN.
+      if (payload.capture) setCapture(payload.capture);
       setError(null);
       return true;
     } catch (err) {
@@ -225,5 +234,5 @@ export function useLiveAlerts(slug: string, debateId: string, initialAttribution
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, [sync]);
 
-  return { alerts, mode, error, freshIds, loaded };
+  return { alerts, mode, error, freshIds, loaded, debate, capture };
 }

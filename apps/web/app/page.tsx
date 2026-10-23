@@ -1,15 +1,10 @@
 import Link from "next/link";
+import { StatusBadge } from "@/components/StatusBadge";
 import { formatDateTime } from "@/lib/format";
 import { SUPABASE_MISSING_MESSAGE } from "@/lib/env";
 import { listDebates } from "@/lib/server/debates";
 
 export const revalidate = 15;
-
-const STATUS = {
-  live: { text: "Ao vivo", cls: "border-red-border bg-red-bg text-red-fg" },
-  scheduled: { text: "Agendado", cls: "border-border bg-surface-2 text-muted" },
-  ended: { text: "Encerrado", cls: "border-border bg-surface-2 text-muted" },
-} as const;
 
 export default async function Home() {
   const res = await listDebates();
@@ -47,9 +42,7 @@ export default async function Home() {
                       {d.scheduled_at ? `Início previsto: ${formatDateTime(d.scheduled_at)}` : "Horário a confirmar"}
                     </span>
                   </span>
-                  <span className={`shrink-0 rounded-full border px-2.5 py-0.5 text-xs font-semibold ${STATUS[d.status].cls}`}>
-                    {STATUS[d.status].text}
-                  </span>
+                  <StatusBadge status={d.status} />
                 </Link>
               </li>
             ))}

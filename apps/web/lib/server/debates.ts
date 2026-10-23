@@ -4,11 +4,14 @@ import { cache } from "react";
 import { attributionFrom, type Attribution } from "../feed";
 import { publicServerClient } from "../supabase/server";
 
-export type PublicDebate = Pick<Debate, "id" | "slug" | "title" | "status" | "youtube_url" | "scheduled_at" | "created_at">;
+export type PublicDebate = Pick<
+  Debate,
+  "id" | "slug" | "title" | "status" | "check_mode" | "public_note" | "youtube_url" | "scheduled_at" | "created_at"
+>;
 
 export type LoadResult<T> = { ok: true; data: T } | { ok: false; reason: "unconfigured" | "error"; message: string };
 
-const FIELDS = "id, slug, title, status, youtube_url, scheduled_at, created_at";
+const FIELDS = "id, slug, title, status, check_mode, public_note, youtube_url, scheduled_at, created_at";
 const STATUS_ORDER = { live: 0, scheduled: 1, ended: 2 } as const;
 
 /** Lista pública: ao vivo primeiro, depois agendados, depois encerrados. */

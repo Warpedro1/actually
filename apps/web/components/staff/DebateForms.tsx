@@ -1,16 +1,63 @@
 "use client";
 
-import type { Debate } from "@actually/db";
+import type { CheckMode, Debate } from "@actually/db";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import Link from "next/link";
 import { useEffect, useState, type FormEvent } from "react";
+import { CHECK_MODE_TEXT, STATUS_TEXT, StatusBadge } from "@/components/StatusBadge";
 import { isoToLocalInput, localInputToIso } from "@/lib/format";
 import { youtubeVideoId } from "@/lib/youtube";
 import { ConfirmBox } from "./ConfirmBox";
 import { Button, Card, ErrorText, Field, inputCls, OkText, Pill, errMsg } from "./ui";
 
 const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-const STATUS_TEXT = { scheduled: "Agendado", live: "Ao vivo", ended: "Encerrado" } as const;
+/** Mesmo limite do `check` em `debates.public_note` (migration 20261023000016). */
+export const PUBLIC_NOTE_MAX = 500;
+
+/**
+ * Procedência da checagem: declaração do editor, porque não dá para derivar dos
+ * horários (ver a migration). Vazio = não informado, e a página pública não
+ * afirma nada.
+ */
+const CHECK_MODES: (CheckMode | "")[] = ["", "live", "post", "mixed"];
+const checkModeLabel = (m: CheckMode | "") => (m === "" ? "Não informado (a página não mostra nada)" : CHECK_MODE_TEXT[m]);
+
+function PublicNoteField({ id, value, onChange }: { id: string; value: string; onChange: (v: string) => void }) {
+  return (
+    <Field
+      label="Observação pública (opcional)"
+      htmlFor={id}
+      hint={`Aparece para quem abre a página do debate, acima dos alertas. ${value.length}/${PUBLIC_NOTE_MAX} caracteres.`}
+    >
+      <textarea
+        id={id}
+        rows={3}
+        maxLength={PUBLIC_NOTE_MAX}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className={`${inputCls} min-h-20 resize-y`}
+      />
+    </Field>
+  );
+}
+
+function CheckModeField({ id, value, onChange }: { id: string; value: CheckMode | ""; onChange: (v: CheckMode | "") => void }) {
+  return (
+    <Field
+      label="Procedência da checagem"
+      htmlFor={id}
+      hint="Mostrado ao lado do status, na página pública. Checagem feita depois do debate tem mais fonte disponível, então o público precisa saber qual foi o caso."
+    >
+      <select id={id} value={value} onChange={(e) => onChange(e.target.value as CheckMode | "")} className={inputCls}>
+        {CHECK_MODES.map((m) => (
+          <option key={m} value={m}>
+            {checkModeLabel(m)}
+          </option>
+        ))}
+      </select>
+    </Field>
+  );
+}
 
 function checkYoutube(url: string): string | null {
   if (!url.trim()) return null;
@@ -41,6 +88,8 @@ function EditDebate({ client, debate, onSaved }: { client: SupabaseClient; debat
   const [title, setTitle] = useState(debate.title);
   const [youtube, setYoutube] = useState(debate.youtube_url ?? "");
   const [scheduled, setScheduled] = useState(isoToLocalInput(debate.scheduled_at));
+  const [note, setNote] = useState(debate.public_note ?? "");
+  const [checkMode, setCheckMode] = useState<CheckMode | "">(debate.check_mode ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
@@ -50,6 +99,8 @@ function EditDebate({ client, debate, onSaved }: { client: SupabaseClient; debat
     setTitle(debate.title);
     setYoutube(debate.youtube_url ?? "");
     setScheduled(isoToLocalInput(debate.scheduled_at));
+    setNote(debate.public_note ?? "");
+    setCheckMode(debate.check_mode ?? "");
   }, [debate]);
 
   async function update(patch: Partial<Debate>, success: string) {
@@ -68,7 +119,13 @@ function EditDebate({ client, debate, onSaved }: { client: SupabaseClient; debat
     const yt = checkYoutube(youtube);
     if (yt) return setError(yt);
     void update(
-      { title: title.trim(), youtube_url: youtube.trim() || null, scheduled_at: localInputToIso(scheduled) },
+      {
+        title: title.trim(),
+        youtube_url: youtube.trim() || null,
+        scheduled_at: localInputToIso(scheduled),
+        public_note: note.trim() || null,
+        check_mode: checkMode || null,
+      },
       "Debate atualizado.",
     );
   }
@@ -78,7 +135,8 @@ function EditDebate({ client, debate, onSaved }: { client: SupabaseClient; debat
     if (!window.confirm(`Mudar o status para "${STATUS_TEXT[status]}"?`)) return;
     const patch: Partial<Debate> = { status };
     if (status === "live" && !debate.started_at) patch.started_at = new Date().toISOString();
-    if (status === "ended") patch.ended_at = new Date().toISOString();
+    // Só a primeira vez: reabrir e encerrar de novo não deve mover o fim do debate.
+    if (status === "ended" && !debate.ended_at) patch.ended_at = new Date().toISOString();
     void update(patch, `Status: ${STATUS_TEXT[status]}.`);
   }
 
@@ -109,7 +167,11 @@ function EditDebate({ client, debate, onSaved }: { client: SupabaseClient; debat
     <Card title={`Debate /${debate.slug}`}>
       <div className="mb-4 flex flex-col gap-2 rounded-lg border border-border p-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <Pill tone={debate.is_test ? "warn" : "ok"}>{debate.is_test ? "Teste — só editores veem" : "Público"}</Pill>
+          <span className="flex flex-wrap items-center gap-2">
+            {/* mesmo selo que o público vê */}
+            <StatusBadge status={debate.status} />
+            <Pill tone={debate.is_test ? "warn" : "ok"}>{debate.is_test ? "Teste — só editores veem" : "Público"}</Pill>
+          </span>
           <span className="flex flex-wrap gap-3 text-sm">
             <Link href={`/admin/previa/${debate.slug}`} className="underline">
               Prévia (como o público vê)
@@ -169,6 +231,8 @@ function EditDebate({ client, debate, onSaved }: { client: SupabaseClient; debat
         <Field label="Início previsto (Brasília)" htmlFor="ed-sched" hint="Base da sugestão de início da captura (15 min antes).">
           <input id="ed-sched" type="datetime-local" value={scheduled} onChange={(e) => setScheduled(e.target.value)} className={inputCls} />
         </Field>
+        <CheckModeField id="ed-mode" value={checkMode} onChange={setCheckMode} />
+        <PublicNoteField id="ed-note" value={note} onChange={setNote} />
         <ErrorText>{error}</ErrorText>
         <OkText>{ok}</OkText>
         <Button type="submit" variant="primary" disabled={busy}>
@@ -184,6 +248,8 @@ function CreateDebate({ client, onCreated }: { client: SupabaseClient; onCreated
   const [title, setTitle] = useState("");
   const [youtube, setYoutube] = useState("");
   const [scheduled, setScheduled] = useState("");
+  const [note, setNote] = useState("");
+  const [checkMode, setCheckMode] = useState<CheckMode | "">("");
   // Até o debate oficial quase tudo é ensaio: nasce como teste (só editores veem, vereditos isolados).
   const [isTest, setIsTest] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -199,7 +265,15 @@ function CreateDebate({ client, onCreated }: { client: SupabaseClient; onCreated
     setError(null);
     const { data, error: err } = await client
       .from("debates")
-      .insert({ slug, title: title.trim(), youtube_url: youtube.trim() || null, scheduled_at: localInputToIso(scheduled), is_test: isTest })
+      .insert({
+        slug,
+        title: title.trim(),
+        youtube_url: youtube.trim() || null,
+        scheduled_at: localInputToIso(scheduled),
+        public_note: note.trim() || null,
+        check_mode: checkMode || null,
+        is_test: isTest,
+      })
       .select("id")
       .single();
     setBusy(false);
@@ -209,6 +283,8 @@ function CreateDebate({ client, onCreated }: { client: SupabaseClient; onCreated
     setTitle("");
     setYoutube("");
     setScheduled("");
+    setNote("");
+    setCheckMode("");
     onCreated((data as { id: string }).id);
   }
 
@@ -233,6 +309,8 @@ function CreateDebate({ client, onCreated }: { client: SupabaseClient; onCreated
         <Field label="Início previsto (Brasília, opcional)" htmlFor="new-sched">
           <input id="new-sched" type="datetime-local" value={scheduled} onChange={(e) => setScheduled(e.target.value)} className={inputCls} />
         </Field>
+        <CheckModeField id="new-mode" value={checkMode} onChange={setCheckMode} />
+        <PublicNoteField id="new-note" value={note} onChange={setNote} />
         <label className="flex items-start gap-2 text-sm">
           <input type="checkbox" className="mt-1" checked={isTest} onChange={(e) => setIsTest(e.target.checked)} />
           <span>

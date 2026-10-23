@@ -72,7 +72,15 @@ export function PreviewApp({ client, slug }: { client: SupabaseClient; slug: str
         </Link>
       </div>
       <LiveDebate
-        debate={{ id: debate.id, slug: debate.slug, title: debate.title, status: debate.status, youtube_url: debate.youtube_url }}
+        debate={{
+          id: debate.id,
+          slug: debate.slug,
+          title: debate.title,
+          status: debate.status,
+          check_mode: debate.check_mode,
+          public_note: debate.public_note,
+          youtube_url: debate.youtube_url,
+        }}
         attribution={attribution}
         preview={preview}
       />
