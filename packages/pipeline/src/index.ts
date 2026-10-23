@@ -235,6 +235,8 @@ export async function assessClaim(
     correction: model.correction,
     correction_numbers_ok: nums.ok,
     kind: claim.kind,
+    // a afirmação pode exigir editor por si mesma (fato pressuposto por pergunta), fora do tipo
+    force_review: claim.force_review === true,
     settings,
   });
   if (!nums.ok) deps.logger("warn", "correction_number_unsupported", { unsupported: nums.unsupported });

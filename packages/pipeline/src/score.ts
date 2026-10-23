@@ -25,6 +25,11 @@ export interface ScoreInput {
   correction_numbers_ok: boolean;
   /** Tipo da fala (regras em KIND_RULES). Ausente = "fato". */
   kind?: ClaimKind;
+  /**
+   * A afirmação exige editor por si mesma, fora da regra do tipo: hoje, o fato pressuposto
+   * por uma pergunta ("caiu o roubo de celular?"), que é mais arriscado que uma fala direta.
+   */
+  force_review?: boolean;
   settings: Pick<DebateSettings, "t_red" | "t_yellow" | "web_penalty">;
 }
 
@@ -163,5 +168,12 @@ export function scoreDecision(input: ScoreInput): ScoreResult {
     return { final_score, alert: "red", silence_reason: null, layer, components: { ...components, review_band: true }, review: true };
   }
 
-  return { final_score, alert: level, silence_reason: null, layer, components, review: rules.force_review };
+  return {
+    final_score,
+    alert: level,
+    silence_reason: null,
+    layer,
+    components,
+    review: rules.force_review || input.force_review === true,
+  };
 }

@@ -116,6 +116,20 @@ describe("[RF02] [RF03] [RF04] [RF05] runPipeline", () => {
     expect(store.alerts[0]!.status).toBe("published");
   });
 
+  it("[RF08] fato pressuposto por pergunta vai ao editor mesmo com o HITL desligado", async () => {
+    // "o que você fez com os 134 milhões?" virando acusação publicada é o risco que a marca
+    // force_review da claim existe para impedir — e ela precisa chegar até o status do alerta.
+    const { store, pipeline } = setup(
+      { extract: extracting(L2_CLAIM), verify: () => L2_VERDICT },
+      { series: [PNAD], values: PNAD_VALUES },
+      { require_red_approval: false, require_yellow_approval: false },
+    );
+    await pipeline.runPipeline(store.addSegment("Pergunto ao meu adversário: o desemprego em 2023 foi de 12%?").id);
+    expect(store.alerts).toHaveLength(1);
+    expect(store.alerts[0]!.status).toBe("pending_review");
+    expect(store.verifications[0]!.score_components).toMatchObject({ kind: "fato" });
+  });
+
   it("alerta só sai com citação verificada: trecho inventado ⇒ silêncio", async () => {
     const { store, pipeline, deps } = setup(
       { extract: extracting(DOC_CLAIM), verify: () => docVerdict("O Mais Médicos foi criado em 2013 por Dilma Rousseff no governo dela") },
