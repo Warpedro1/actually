@@ -47,7 +47,32 @@ describe("[RF07] scoreDecision — fórmula", () => {
     expect(r2.components.agreement).toBe(1);
   });
   it("duas camadas com citação verificada ⇒ concordância 1", () => {
-    expect(scoreDecision(base({ evidence: [ev(), ev({ layer: "L1", factcheck_verdict: "contradito" })], citations_total: 2, citations_verified: 2 })).components.agreement).toBe(1);
+    const fc = ev({ layer: "L1", url: "https://www.aosfatos.org/noticias/x/", factcheck_verdict: "contradito" });
+    expect(scoreDecision(base({ evidence: [ev(), fc], citations_total: 2, citations_verified: 2 })).components.agreement).toBe(1);
+  });
+});
+
+describe("[RF07] concordância: o mesmo veículo em duas camadas é uma fonte só", () => {
+  const lupa = "https://www.agencialupa.org/checagem/2026/10/23/ao-vivo-checagem";
+  const two = (a: EvidenceRecord, b: EvidenceRecord) =>
+    scoreDecision(base({ evidence: [a, b], citations_total: 2, citations_verified: 2 }));
+  it("checagem por fala na L1 + a página dela na L3 ⇒ 0,5, sem o acréscimo", () => {
+    const fc = ev({ layer: "L1", url: `${lupa}#:~:text=N%C3%B3s%20herdamos`, factcheck_verdict: "contradito" });
+    const r = two(fc, ev({ url: lupa }));
+    expect(r.components.agreement).toBe(0.5);
+    const other = two(fc, ev());
+    expect(other.components.agreement).toBe(1);
+    expect(other.final_score - r.final_score).toBeCloseTo(0.1, 4);
+  });
+  it("versões AMP e normal da mesma matéria contam como o mesmo veículo", () => {
+    const uol = "https://noticias.uol.com.br/confere/ultimas-noticias/2026/10/24/debate-globo-checagem-flavio-lula";
+    const fc = ev({ layer: "L1", url: `${uol}.amp.htm#:~:text=Agora`, factcheck_verdict: "contradito" });
+    expect(two(fc, ev({ url: `${uol}.ghtm` })).components.agreement).toBe(0.5);
+  });
+  it("a mesma agência achada de novo pela web não confirma a checagem dela", () => {
+    const fc = ev({ layer: "L1", url: `${lupa}#:~:text=x`, factcheck_verdict: "contradito" });
+    const web = ev({ layer: "L4", evidence_type: "web", url: "https://lupa.uol.com.br/jornalismo/2026/10/01/outra" });
+    expect(two(fc, web).components.agreement).toBe(0.5);
   });
 });
 
@@ -70,9 +95,12 @@ describe("[RF07] [RF05] scoreDecision — regras duras", () => {
     const um = scoreDecision(base({ evidence: [ev({ source_tier: 3 })] }));
     expect(um).toMatchObject({ alert: null, silence_reason: "abaixo_do_threshold" });
     expect(um.final_score).toBeCloseTo(0.795, 4);
-    // duas camadas de nível 3 que concordam: 0,895 ⇒ vermelho publicável
+    // duas camadas de nível 3, de veículos diferentes, que concordam: 0,895 ⇒ vermelho publicável
     const duas = scoreDecision(base({
-      evidence: [ev({ source_tier: 3 }), ev({ source_tier: 3, layer: "L1", factcheck_verdict: "contradito" })],
+      evidence: [
+        ev({ source_tier: 3 }),
+        ev({ source_tier: 3, layer: "L1", url: "https://www.metropoles.com/x", factcheck_verdict: "contradito" }),
+      ],
       citations_total: 2,
       citations_verified: 2,
     }));

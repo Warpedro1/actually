@@ -3,7 +3,7 @@
 // nunca pode virar tier 1–2 — nem sustentar vermelho, nem entrar na busca web (L4).
 // Dado primário federal continua tier 1, mas só por domínio/caminho específico.
 import { describe, expect, it } from "vitest";
-import { SOURCE_TIERS, isAgencyCheck, lookupSource, tierForUrl, webSearchDomains } from "../src/tiers";
+import { SOURCE_TIERS, isAgencyCheck, lookupSource, sourceIdentity, tierForUrl, webSearchDomains } from "../src/tiers";
 
 const UFS = [
   "ac", "al", "am", "ap", "ba", "ce", "df", "es", "go", "ma", "mg", "ms", "mt", "pa",
@@ -175,6 +175,20 @@ describe("[RF07] tiers: checagem de agência (dispensa o acréscimo da web no li
     expect(isAgencyCheck("https://www.ibge.gov.br/x")).toBe(false);
     expect(isAgencyCheck("https://exemplo.com/checagem")).toBe(false);
     expect(isAgencyCheck("não é url")).toBe(false);
+  });
+});
+
+describe("[RF07] tiers: identidade da fonte (concordância entre camadas)", () => {
+  it("mesmo veículo por domínios, versões e trechos diferentes; veículos diferentes sob o mesmo jornal", () => {
+    expect(sourceIdentity("https://www.agencialupa.org/checagem/x#:~:text=a")).toBe(sourceIdentity("https://lupa.uol.com.br/jornalismo/y"));
+    const uol = "https://noticias.uol.com.br/confere/ultimas-noticias/2026/10/24/debate-globo-checagem-flavio-lula";
+    expect(sourceIdentity(`${uol}.amp.htm#:~:text=Agora`)).toBe(sourceIdentity(`${uol}.ghtm`));
+    expect(sourceIdentity("https://www.estadao.com.br/estadao-verifica/x")).not.toBe(sourceIdentity("https://www.estadao.com.br/politica/x"));
+  });
+  it("fora do catálogo vale o host sem www.; texto que não é URL vale ele mesmo", () => {
+    expect(sourceIdentity("https://www.exemplo.com/a")).toBe("exemplo.com");
+    expect(sourceIdentity("https://exemplo.com/b#x")).toBe("exemplo.com");
+    expect(sourceIdentity("não é url")).toBe("não é url");
   });
 });
 

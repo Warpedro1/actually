@@ -1,6 +1,6 @@
 // Score final + regras duras. FUNÇÃO PURA: tudo que decide se um alerta sai
 // está aqui, testável sem rede. Na dúvida, silêncio.
-import { isAgencyCheck, type DebateSettings, type KbLayer, type SourceTier, type Verdict } from "@actually/db";
+import { isAgencyCheck, sourceIdentity, type DebateSettings, type KbLayer, type SourceTier, type Verdict } from "@actually/db";
 import { KIND_RULES, RED_REVIEW_BAND, RED_REVIEW_MIN_CONFIDENCE } from "./config";
 import type { AlertLevel } from "./index";
 import type { ClaimKind, EvidenceRecord, IndicatorComparison } from "./types";
@@ -53,7 +53,7 @@ function bestEvidence(list: EvidenceRecord[]): EvidenceRecord | null {
 
 /**
  * Concordância entre camadas/comparador:
- * - 1    → comparador L2 concorda, ou ≥ 2 camadas independentes com citação verificada;
+ * - 1    → comparador L2 concorda, ou ≥ 2 camadas com citação verificada, de veículos diferentes;
  * - 0.5  → uma camada só (neutro);
  * - 0.25 → algum sinal concorda só parcialmente (contradito x impreciso);
  * - 0    → conflito (um sinal diz confirmado e o modelo acusa, ou vice-versa).
@@ -80,7 +80,9 @@ export function layerAgreement(
   }
   if (conflict) return { agreement: 0, conflict, l2_divergent };
   const layers = new Set(verified.map((e) => e.layer));
-  let agreement = layers.size >= 2 ? 1 : 0.5;
+  // o mesmo veículo em duas camadas (checagem por fala na L1 e a página dela na L3) não se confirma
+  const sources = new Set(verified.map((e) => sourceIdentity(e.url)));
+  let agreement = layers.size >= 2 && sources.size >= 2 ? 1 : 0.5;
   if (comparison?.expected_verdict === verdict) agreement = 1;
   if (partial) agreement = Math.min(agreement, 0.25);
   return { agreement, conflict, l2_divergent };

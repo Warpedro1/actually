@@ -96,8 +96,8 @@ export default function MetodologiaPage() {
           </li>
           <li>
             <strong>Pontuação e decisão.</strong> A confiança final combina a confiança do modelo, a qualidade da
-            fonte, a concordância entre camadas e a citação verificada. Abaixo do limiar, nada é publicado
-            sem revisão humana.
+            fonte, a concordância entre camadas (só conta quando vem de veículos diferentes) e a citação verificada.
+            Abaixo do limiar, nada é publicado sem revisão humana.
           </li>
         </ol>
         <p>Os alertas têm dois níveis:</p>

@@ -105,7 +105,7 @@ Cada verificação grava `latency_ms` por etapa; o `/admin` e o `eval latency-re
 
 ### Decisão do alerta (score)
 
-- `final_score` combina confiança do modelo, tier da fonte, concordância entre camadas e citação verificada.
+- `final_score` combina confiança do modelo, tier da fonte, concordância entre camadas e citação verificada. A concordância só vale 1 com ≥ 2 camadas **de veículos diferentes** (`sourceIdentity` em `packages/db/src/tiers.ts`): a checagem por fala na L1 e a página da mesma agência na L3 contam como uma fonte só.
 - **Vermelho** (contradito pelas fontes): `final_score ≥ t_red` **e** evidência de fonte com tier ≤ `KIND_RULES[kind].red_max_tier` (hoje **3** em fato, estatística e acusação; **2** em opinião mensurável, que além disso nunca passa de amarelo) e citação verificada. Como o tier pesa no score (peso 0,6 no nível 3), uma camada só de nível 3 chega no máximo a 0,82 — abaixo do `t_red` padrão: nível 3 vira vermelho com duas camadas concordando, ou com `t_red` menor.
 - **Amarelo** (impreciso): `final_score ≥ t_yellow` e citação verificada.
 - Se a melhor evidência veio da web (L4), soma-se `web_penalty` ao threshold — exceto quando há citação verificada de checagem de agência (nível 1, tipo `checagem` em `SOURCE_TIERS`), vinda da web ou entrada fraca junto com ela.

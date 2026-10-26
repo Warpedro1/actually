@@ -119,6 +119,15 @@ export function tierForUrl(url: string): SourceTier {
   return lookupSource(url)?.tier ?? 4;
 }
 
+/**
+ * Quem publicou: o nome do veículo no catálogo ou, fora dele, o host sem "www.".
+ * Duas evidências com o mesmo valor vêm da mesma fonte — a checagem por fala e a página
+ * inteira da agência, ou a versão AMP e a normal da mesma matéria — e não se confirmam.
+ */
+export function sourceIdentity(url: string): string {
+  return lookupSource(url)?.name ?? hostAndPath(url)?.host ?? url;
+}
+
 /** Página de agência de checagem profissional (nível 1, tipo "checagem"). */
 export function isAgencyCheck(url: string): boolean {
   const src = lookupSource(url);
