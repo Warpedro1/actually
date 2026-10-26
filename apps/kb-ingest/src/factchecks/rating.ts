@@ -47,6 +47,10 @@ export const RATING_TABLE: Record<string, Verdict> = {
   "nao e bem assim": "impreciso",
   "e #nao e bem assim": "impreciso",
   "#nao e bem assim": "impreciso",
+  // o selo do Fato ou Fake (g1) aparece grudado na página ("#NÃOÉBEMASSIM", "É #NÃOÉBEMASSIM")
+  naoebemassim: "impreciso",
+  "#naoebemassim": "impreciso",
+  "e #naoebemassim": "impreciso",
   // confirmado
   verdadeiro: "confirmado",
   verdadeira: "confirmado",
@@ -83,6 +87,9 @@ const PREFIX_RULES: [string, Verdict][] = [
   ["parcialmente falso", "impreciso"],
   ["parcialmente falsa", "impreciso"],
   ["parcialmente verdadeiro", "impreciso"],
+  // antes de qualquer regra que comece por "nao"; a trava de "nao" em mapRating não pega
+  // "naoebemassim" porque o \b não separa "nao" de "ebemassim"
+  ["naoebemassim", "impreciso"],
   ["nao e bem assim", "impreciso"],
   ["sem contexto", "impreciso"],
   ["fora de contexto", "impreciso"],

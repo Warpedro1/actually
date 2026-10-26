@@ -21,6 +21,9 @@ describe("[RF15] mapRating — tabela explícita", () => {
     ["Verdadeiro mas", "impreciso"],
     ["Parcialmente falso", "impreciso"],
     ["#NÃO É BEM ASSIM", "impreciso"],
+    ["#NÃOÉBEMASSIM", "impreciso"],
+    ["É #NÃOÉBEMASSIM", "impreciso"],
+    ["NÃOÉBEMASSIM", "impreciso"],
     ["Verdadeiro", "confirmado"],
     ["#FATO", "confirmado"],
     ["Comprovado", "confirmado"],
@@ -43,6 +46,9 @@ describe("[RF15] mapRating — tabela explícita", () => {
     expect(mapRating("parcialmente-falso")).toBe("impreciso");
     expect(mapRating("meia-verdade")).toBe("impreciso");
     expect(mapRating("fora_de_contexto")).toBe("impreciso");
+    // selo do g1 grudado, como sai na página: o prefixo não cai na trava de "não"
+    expect(mapRating("#NÃOÉBEMASSIM. O dado é de 2019")).toBe("impreciso");
+    expect(mapRating("É #NÃOÉBEMASSIM: o programa começou antes")).toBe("impreciso");
     // "não é falso" segue em inconclusivo, com separador ou sem
     expect(mapRating("não_é_falso")).toBe("inconclusivo");
     expect(mapRating("Verdadeiro, mas o número caiu desde então")).toBe("impreciso");
