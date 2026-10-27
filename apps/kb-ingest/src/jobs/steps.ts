@@ -25,6 +25,7 @@ import { requireDb, selectAll, upsertRows, type Ctx } from "../lib/ctx";
 import { embedDocuments } from "../lib/embed";
 import { mapLimit } from "../lib/http";
 import { yearWindows } from "../senado/api";
+import { runReplay } from "./replay";
 
 export type ApifyTarget =
   | { type: "crawl"; job: string }
@@ -49,7 +50,25 @@ export type KbStep =
   | { kind: "apify-wait"; target: ApifyTarget; runId: string; datasetId: string; startedAt: string }
   | { kind: "apify-items"; target: ApifyTarget; datasetId: string; offset: number }
   | { kind: "embed-missing"; table: "kb_chunks" | "kb_factchecks" }
-  | { kind: "status" };
+  | { kind: "status" }
+  | ReplayStep;
+
+/**
+ * Reprocessamento da transcrição de um debate num debate de teste novo (preset
+ * "reprocessar", criado pelo site). `ids` = trechos da origem que faltam, na ordem
+ * da fala; `agents` = agente de origem → agente criado no debate novo.
+ */
+export interface ReplayStep {
+  kind: "replay";
+  target_debate_id: string;
+  agents: Record<string, string>;
+  ids: number[];
+  /** Trechos já tratados (para o painel). */
+  done: number;
+  total: number;
+  /** Somado ao captured_at da origem: mantém o espaçamento entre as falas. */
+  shift_ms: number;
+}
 
 export interface StepEnv {
   /** Epoch ms. Depois disso a etapa não começa item novo; o resto vira continuação. */
@@ -59,6 +78,11 @@ export interface StepEnv {
   apify?: ApifyManifest;
   /** Padrão: sources/feeds.yaml embutido. */
   pinnedFeeds?: { name: string; url: string }[];
+  /**
+   * Roda o pipeline num trecho já gravado. Só o site tem o pipeline e o injeta
+   * (lib/server/kb.ts); sem isso o reprocessamento não roda.
+   */
+  runSegment?: (segmentId: number | string) => Promise<{ claims: number; alerts: number }>;
 }
 
 /** Um run do Apify que passa disso é abortado (o teto de custo já limita o gasto). */
@@ -121,6 +145,8 @@ export function describeStep(s: KbStep): string {
       return `Embeddings faltando em ${s.table}`;
     case "status":
       return "Resumo da base";
+    case "replay":
+      return `Reprocessar transcrição: ${s.done} de ${s.total} trechos`;
   }
 }
 
@@ -320,6 +346,8 @@ export async function runStep(ctx: Ctx, step: KbStep, env: StepEnv): Promise<KbS
       );
       return [];
     }
+    case "replay":
+      return runReplay(ctx, step, env);
   }
 }
 

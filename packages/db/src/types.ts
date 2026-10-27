@@ -482,6 +482,24 @@ export interface KbJob {
   lease_until: string | null;
 }
 
+/** Uma passada da captura num debate (um agente), para escolher o que reprocessar (GET /api/kb/replay). */
+export interface ReplayPass {
+  agent_id: string;
+  name: string;
+  segments: number;
+  /** Do primeiro t_start ao último t_end, em segundos (relógio do agente). */
+  duration_s: number;
+  first_at: string;
+  last_at: string;
+}
+
+/** Resposta de POST /api/kb/replay. */
+export interface ReplayCreated {
+  job_id: string;
+  debate: { id: string; slug: string; title: string };
+  segments: number;
+}
+
 /** Retorno da RPC kb_counts() (só service role): quanto a base cobre. */
 export interface KbCounts {
   source_tiers: number;

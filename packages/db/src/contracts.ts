@@ -150,3 +150,14 @@ export const KbJobCreate = z.discriminatedUnion("preset", [
 ]);
 export type KbJobCreate = z.infer<typeof KbJobCreate>;
 export type KbJobPreset = KbJobCreate["preset"];
+
+/**
+ * POST /api/kb/replay — reprocessar a transcrição de um debate num debate de teste novo
+ * (tarefa "reprocessar" na mesma fila da carga da base).
+ */
+export const ReplayCreate = z.object({
+  debate_id: z.string().uuid(),
+  /** Passadas da captura (agentes) a reprocessar; os trechos seguem a ordem da fala. */
+  agent_ids: z.array(z.string().uuid()).min(1).max(20),
+});
+export type ReplayCreate = z.infer<typeof ReplayCreate>;

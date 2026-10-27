@@ -1,6 +1,7 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import type { KbJob, KbJobCreate } from "@actually/db";
+import { runPipeline } from "@actually/pipeline";
 import { describeStep, jobCtx, planJob, runJobs, type JobPatch, type JobRow, type JobStore, type KbStep, type RunResult } from "@actually/kb-ingest/jobs";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getServiceClient } from "./db";
@@ -81,6 +82,14 @@ export async function runKb(origin: string): Promise<RunResult | null> {
       makeCtx: (log) => jobCtx(db, log),
       budgetMs: KB_BUDGET_MS,
       leaseS: KB_LEASE_S,
+      // reprocessamento da transcrição ("reprocessar"): o pipeline roda aqui, como na rota de ingestão
+      stepEnv: {
+        runSegment: async (id) => {
+          const r = await runPipeline(Number(id));
+          if (r.web_finds > 0) await kickWebFinds(db, origin);
+          return r;
+        },
+      },
     });
     if (r.more) await chainRun(origin);
     return r;

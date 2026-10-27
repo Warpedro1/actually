@@ -14,7 +14,8 @@ import { mapUntil } from "../src/lib/http";
 import { drainUsage, flushUsage, recordUsage } from "../src/lib/usage";
 import { planJob, PlanError } from "../src/jobs/presets";
 import { MAX_ATTEMPTS, runJobs, type JobPatch, type JobRow, type JobStore } from "../src/jobs/runner";
-import { defaultApifyManifest, describeStep, type KbStep } from "../src/jobs/steps";
+import { defaultApifyManifest, describeStep, runStep, type KbStep, type ReplayStep } from "../src/jobs/steps";
+import { FakeDb, testCtx } from "./fakeDb";
 
 const TODAY = "2026-10-20";
 const ALL_KEYS = { GOOGLE_FACTCHECK_API_KEY: "g", VOYAGE_API_KEY: "v", APIFY_TOKEN: "a", TAVILY_API_KEY: "t" };
@@ -321,5 +322,68 @@ describe("[RF15] uso das APIs na carga da base", () => {
     await flushUsage(() => ({ rpc: async () => ({ error: { message: "fora" } }) }) as never, (...a) => warnings.push(...a));
     expect(String(warnings[0])).toMatch(/fora/);
     expect(drainUsage()).toEqual([]);
+  });
+});
+
+describe("[RNF08] reprocessamento da transcrição (preset reprocessar)", () => {
+  const T0 = Date.parse("2026-10-24T14:00:00Z");
+  const SHIFT = 3 * 86_400_000;
+  const src = (id: number, agent: string, seq: number, s: number) => ({
+    id, debate_id: "origem", agent_id: agent, seq, speaker_label: `s1-a:S${seq % 2}`, text: `fala ${id}`,
+    t_start: s, t_end: s + 4, captured_at: new Date(T0 + s * 1000).toISOString(),
+  });
+  const step = (ids: number[], over: Partial<ReplayStep> = {}): ReplayStep => ({
+    kind: "replay", target_debate_id: "novo", agents: { a1: "n1", a2: "n2" }, ids, done: 0, total: ids.length, shift_ms: SHIFT, ...over,
+  });
+  const setup = () => {
+    const db = new FakeDb({ segments: [src(1, "a1", 0, 0), src(2, "a1", 1, 5), src(3, "a2", 0, 10), src(4, "a1", 2, 15)] });
+    const ran: unknown[] = [];
+    const runSegment = async (id: number | string) => (ran.push(id), { claims: 1, alerts: 0 });
+    return { db, ran, runSegment, ...testCtx(db) };
+  };
+  const copies = (db: FakeDb) => db.rows("segments").filter((r) => r.debate_id === "novo");
+
+  it("[RNF08] copia na ordem pedida, com o agente novo e o horário deslocado, e roda o pipeline em cada cópia", async () => {
+    const { db, ran, runSegment, ctx, logs } = setup();
+    const more = await runStep(ctx, step([1, 2, 3, 4]), { deadline: Infinity, runSegment });
+    expect(more).toEqual([]);
+    const out = copies(db);
+    expect(out.map((r) => [r.agent_id, r.seq, r.text])).toEqual([["n1", 0, "fala 1"], ["n1", 1, "fala 2"], ["n2", 0, "fala 3"], ["n1", 2, "fala 4"]]);
+    expect(out[1]).toMatchObject({ speaker_label: "s1-a:S1", t_start: 5, t_end: 9, captured_at: new Date(T0 + 5000 + SHIFT).toISOString() });
+    // o espaçamento entre as falas é o da origem: a janela de contexto vê os mesmos vizinhos
+    expect(Date.parse(String(out[3]!.captured_at)) - Date.parse(String(out[0]!.captured_at))).toBe(15_000);
+    expect(ran).toEqual(out.map((r) => r.id));
+    expect(logs.at(-1)).toBe("trechos 1–4 de 4: 4 afirmações, 0 alertas");
+  });
+
+  it("[RNF08] prazo esgotado: devolve a continuação com o que falta; a retomada não copia de novo", async () => {
+    const { db, ran, runSegment, ctx } = setup();
+    let t = 0;
+    const slow = async (id: number | string) => ((t += 60_000), runSegment(id));
+    const [cont] = await runStep(ctx, step([1, 2, 3, 4]), { deadline: 100_000, now: () => t, runSegment: slow });
+    expect(cont).toMatchObject({ kind: "replay", ids: [3, 4], done: 2, total: 4 });
+    expect(describeStep(cont!)).toBe("Reprocessar transcrição: 2 de 4 trechos");
+
+    expect(await runStep(ctx, cont!, { deadline: Infinity, runSegment })).toEqual([]);
+    expect(copies(db)).toHaveLength(4);
+    expect(ran).toHaveLength(4);
+    // a função caiu antes de gravar o progresso: o executor repete a mesma etapa, e o que já
+    // foi copiado é pulado — sem cópia nem pipeline em dobro
+    expect(await runStep(ctx, cont!, { deadline: Infinity, runSegment })).toEqual([]);
+    expect(copies(db)).toHaveLength(4);
+    expect(ran).toHaveLength(4);
+  });
+
+  it("[RNF08] falha no pipeline de um trecho conta e segue; sem o pipeline (CLI) a etapa recusa", async () => {
+    const { db, runSegment, ctx, logs, warns } = setup();
+    const flaky = async (id: number | string) => {
+      if (copies(db).length === 2) throw new Error("Anthropic fora");
+      return runSegment(id);
+    };
+    expect(await runStep(ctx, step([1, 2, 3]), { deadline: Infinity, runSegment: flaky })).toEqual([]);
+    expect(copies(db)).toHaveLength(3);
+    expect(warns.some((w) => /pipeline falhou — Anthropic fora/.test(w))).toBe(true);
+    expect(logs.at(-1)).toMatch(/2 afirmações, 0 alertas; 1 com falha/);
+    await expect(runStep(ctx, step([4]), { deadline: Infinity })).rejects.toThrow(/só roda no servidor do site/);
   });
 });

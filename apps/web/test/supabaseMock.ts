@@ -22,7 +22,7 @@ export function createMockDb(handlers: Record<string, Handler>) {
     const q: QueryCall = { table, ops: [] };
     calls.push(q);
     const b: Record<string, unknown> = {};
-    for (const op of ["select", "insert", "upsert", "update", "eq", "neq", "not", "in", "gte", "order", "limit", "maybeSingle", "single"]) {
+    for (const op of ["select", "insert", "upsert", "update", "eq", "neq", "not", "in", "gte", "order", "limit", "range", "maybeSingle", "single"]) {
       b[op] = (...args: unknown[]) => {
         q.ops.push({ op, args });
         return b;

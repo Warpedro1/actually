@@ -112,6 +112,14 @@ Na Vercel: `VOYAGE_API_KEY`,
 `GOOGLE_FACTCHECK_API_KEY` (checagens do Google) e `APIFY_TOKEN` (sites das agências, busca e vídeos do
 YouTube). O `transcribe` com Deepgram continua só na CLI (precisa de arquivo de áudio).
 
+**Reprocessar a transcrição de um debate** — /admin → *Debates* → *Reprocessar…*. Passa de novo pelo
+pipeline atual os trechos já transcritos de um debate, num debate de teste novo (mesmas configurações e
+mesmo mapa de vozes), sem áudio nem Deepgram. Serve para medir uma versão nova do sistema contra a rodada
+original com o mesmo texto. Escolha uma passada da captura só (rodar o mesmo arquivo de novo cria outra
+passada que repete o começo). A tarefa entra na mesma fila da base e espera as que estiverem na frente
+(rode *Embeddings faltando* antes, se a base acabou de receber checagens); leva mais ou menos o tempo da
+gravação. A latência medida no debate novo não se compara com a do ao vivo.
+
 **Pela CLI, na sua máquina** — com o `.env` preenchido (service role, Voyage, Google Fact Check, Deepgram, Apify):
 
 ```bash

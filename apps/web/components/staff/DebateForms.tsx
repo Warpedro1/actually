@@ -1,6 +1,6 @@
 "use client";
 
-import type { CheckMode, Debate } from "@actually/db";
+import type { CheckMode, Debate, ReplayCreated } from "@actually/db";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import Link from "next/link";
 import { useEffect, useState, type FormEvent } from "react";
@@ -9,6 +9,7 @@ import { isoToLocalInput, localInputToIso } from "@/lib/format";
 import { youtubeVideoId } from "@/lib/youtube";
 import { ConfirmBox } from "./ConfirmBox";
 import { Modal } from "./Modal";
+import { ReplayDialog } from "./ReplayDialog";
 import { Button, Card, ErrorText, Field, inputCls, OkText, Pill, errMsg } from "./ui";
 
 const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -123,6 +124,8 @@ function EditDebate({ client, debate, onSaved }: { client: SupabaseClient; debat
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
   const [askVisibility, setAskVisibility] = useState(false);
+  const [replaying, setReplaying] = useState(false);
+  const [replayed, setReplayed] = useState<ReplayCreated | null>(null);
 
   useEffect(() => {
     setTitle(debate.title);
@@ -237,6 +240,48 @@ function EditDebate({ client, debate, onSaved }: { client: SupabaseClient; debat
           </div>
         )}
       </div>
+      <div className="mb-4 flex flex-col gap-2 rounded-lg border border-border p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="text-sm font-medium">Reprocessar a transcrição</span>
+          <Button
+            disabled={busy}
+            onClick={() => {
+              setReplayed(null);
+              setReplaying(true);
+            }}
+          >
+            Reprocessar…
+          </Button>
+        </div>
+        <p className="text-xs text-muted">
+          Passa de novo pelo pipeline os trechos já transcritos deste debate, num debate de teste novo: compara a versão atual do sistema
+          com a rodada original, sem áudio.
+        </p>
+        {replayed ? (
+          <OkText>
+            Debate de teste criado com {replayed.segments} trechos na fila.{" "}
+            <Link href={`/admin/previa/${replayed.debate.slug}`} className="underline">
+              Prévia de /{replayed.debate.slug}
+            </Link>{" "}
+            ·{" "}
+            <a href="#base" className="underline">
+              acompanhar na aba Base de conhecimento
+            </a>
+          </OkText>
+        ) : null}
+      </div>
+      <Modal title="Reprocessar a transcrição" open={replaying} onClose={() => setReplaying(false)}>
+        <ReplayDialog
+          client={client}
+          debate={debate}
+          onCancel={() => setReplaying(false)}
+          onCreated={(r) => {
+            setReplaying(false);
+            setReplayed(r);
+            void onSaved();
+          }}
+        />
+      </Modal>
       <div role="group" aria-label="Status" className="mb-4 grid grid-cols-3 gap-2">
         {(Object.keys(STATUS_TEXT) as Debate["status"][]).map((s) => (
           <Button

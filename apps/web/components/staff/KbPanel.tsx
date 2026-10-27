@@ -312,6 +312,7 @@ const PRESET_NAME: Record<string, string> = {
   "atualizacao-diaria": "atualização diária",
   "capturas-web": "capturas da web",
   "checagens-agencias": "checagens das agências",
+  reprocessar: "reprocessamento da transcrição",
 };
 
 /** Data AAAA-MM-DD de `days` dias atrás (padrão da busca nas agências). */
