@@ -257,6 +257,37 @@ describe("[RF05] números: correção só com número da fonte; negado só se o 
   });
 });
 
+describe("[RF05] trava de número de ponta a ponta (ensaio da Band reprocessado em 27/10)", () => {
+  it("\"quatro meses\" na fonte sustenta \"4 meses\"; data de citação sem par sai do texto e o alerta publica", async () => {
+    const store = new MemoryStore({ series: [], values: [] });
+    const seg = store.addSegment("O PT já governa esse país há 20 anos dos últimos 24.", { speaker_label: "s1-4f9a12:S1" });
+    const quote = "o PT governará por 17 anos, quatro meses e 12 dias em um período de 24 anos";
+    const anthropic = fakeAnthropic({
+      extract: () => ({ output: { claims: [claim(seg.text, "O PT governou o Brasil em 20 dos últimos 24 anos.")] } }),
+      verify: () => ({
+        output: {
+          rationale: "r", verdict: "impreciso", confidence: 0.95,
+          correction: "Segundo o Estadão Verifica (12/10/2026), o PT somou 17 anos, 4 meses e 12 dias na Presidência nos últimos 24 anos, não 20.",
+          summary: "O PT somou cerca de 17 anos na Presidência nos últimos 24, não 20.",
+          citations: [{ evidence_index: 1, quote }],
+        },
+      }),
+    });
+    const deps = makeDeps({
+      store, anthropic,
+      webSearch: async () => [{
+        url: "https://www.estadao.com.br/estadao-verifica/checamos-o-debate-entre-lula-e-flavio-na-band", title: "Checamos o debate",
+        content: quote, raw_content: `Com isso, ao todo, ${quote}.`, published_date: null, score: 1,
+      }],
+    });
+    await createPipeline(deps).runPipeline(seg.id);
+    expect(store.verifications.at(-1)!.score_components).not.toMatchObject({ silence_reason: "numero_sem_fonte" });
+    expect(store.alerts).toHaveLength(1);
+    // a data da matéria não confere com nada verificado: sai, e o resto do texto fica igual
+    expect(store.alerts[0]!.correction).toBe("Segundo o Estadão Verifica, o PT somou 17 anos, 4 meses e 12 dias na Presidência nos últimos 24 anos, não 20.");
+  });
+});
+
 describe("[RF03] busca web: página com o texto corrompido não vira evidência", () => {
   it("texto longo sem nenhum acento é descartado; texto normal fica", () => {
     expect(accentsLost("Compete Unio estabelecer a Poltica Nacional de Segurana Pblica e Defesa Social ".repeat(8))).toBe(true);

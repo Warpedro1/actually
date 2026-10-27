@@ -9,7 +9,7 @@ import { errorFields, withTimeout } from "./log";
 import { claimHash } from "./normalize";
 import { isOnlyQuestions, prefilter } from "./prefilter";
 import { publishVerification } from "./publish";
-import { numbersSupported, quoteCheck } from "./quoteCheck";
+import { dropUnverifiedCitationDates, numbersSupported, quoteCheck } from "./quoteCheck";
 import { measureQueryOf, retrieveAll } from "./retrieve/index";
 import { scoreDecision, type ScoreResult } from "./score";
 import type { EvidenceCandidate, EvidenceRecord, ExtractedClaim, ModelVerdict, RetrievalResult } from "./types";
@@ -207,8 +207,8 @@ export async function assessClaim(
 
   t = deps.now();
   const ev = buildEvidence(model, candidates, retrieval);
-  // números da fala não sustentam a correção; só valem negados ("…, não 12%"), e só se o
-  // falante os disse: ano ou número sem unidade vem da fala literal dele (a reformulação pode
+  // números da fala não sustentam a correção; só valem contrapostos ("…, não 12%", "mais que
+  // 6.000"), e só se o falante os disse: ano ou número sem unidade vem da fala literal dele (a reformulação pode
   // ter inventado o "2003"; o contexto tem a mediação e o adversário — e o rótulo do falante,
   // "[s1-4f9a12:S0]", que viraria número); com unidade, a reformulação também vale
   // ("7 e meio por 100" → 7,5%)
@@ -219,8 +219,13 @@ export async function assessClaim(
     .map(brDate)
     .filter((d): d is string => d !== null);
   const numberSources = [...ev.verifiedTexts, ...dates];
-  const numsCorrection = numbersSupported(model.correction, numberSources, said);
-  const numsSummary = numbersSupported(model.summary, numberSources, said);
+  // data de citação sem par nas fontes ("Segundo o g1 (10/04/2026)") sai do texto publicado
+  // em vez de calar o alerta: é a data da matéria, não um dado sobre a fala
+  const correction = dropUnverifiedCitationDates(model.correction, numberSources);
+  const summary = dropUnverifiedCitationDates(model.summary, numberSources);
+  const checked = correction === model.correction && summary === model.summary ? model : { ...model, correction, summary };
+  const numsCorrection = numbersSupported(checked.correction, numberSources, said);
+  const numsSummary = numbersSupported(checked.summary, numberSources, said);
   const nums = {
     ok: numsCorrection.ok && numsSummary.ok,
     unsupported: [...numsCorrection.unsupported, ...numsSummary.unsupported],
@@ -235,7 +240,7 @@ export async function assessClaim(
     citations_verified: ev.verified,
     comparison: retrieval.comparison,
     forced_reason: model.forced_reason,
-    correction: model.correction,
+    correction: checked.correction,
     correction_numbers_ok: nums.ok,
     kind: claim.kind,
     // a afirmação pode exigir editor por si mesma (fato pressuposto por pergunta), fora do tipo
@@ -254,7 +259,7 @@ export async function assessClaim(
     alert: score.alert,
     silence_reason: score.silence_reason,
     layer: score.layer ?? candidates[0]?.layer ?? null,
-    correction: model.correction || null,
+    correction: checked.correction || null,
     evidence: ev.records.map((e) => ({
       url: e.url, source_name: e.source_name, source_tier: e.source_tier as SourceTier,
       quote: e.quote, quote_verified: e.quote_verified,
@@ -263,7 +268,7 @@ export async function assessClaim(
   };
   // refusal também é gravado (auditoria); erros/timeouts não — a afirmação pode ser tentada de novo
   const verify_ran = model.forced_reason === null || model.forced_reason === "refusal";
-  return { decision, model, score, evidence: ev.records, retrieval, verify_ran, latency_ms: latency, unsupported_numbers: nums.unsupported };
+  return { decision, model: checked, score, evidence: ev.records, retrieval, verify_ran, latency_ms: latency, unsupported_numbers: nums.unsupported };
 }
 
 async function embedClaims(deps: PipelineDeps, claims: ExtractedClaim[]): Promise<(number[] | null)[]> {

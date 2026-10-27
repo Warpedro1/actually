@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { bestWindowDistance, levenshtein, normalizeForQuote, numbersSupported, quoteCheck } from "../src/quoteCheck";
+import {
+  bestWindowDistance, dropUnverifiedCitationDates, levenshtein, normalizeForQuote, numbersSupported, quoteCheck, wordNumbers,
+} from "../src/quoteCheck";
 
 const SOURCE = `A taxa de desocupação no Brasil ficou em 7,8% na média de 2023, segundo a PNAD Contínua divulgada pelo IBGE.
 O número de pessoas desocupadas recuou para 8,5 milhões — o menor contingente desde 2015.
@@ -184,5 +186,74 @@ describe("[RF05] numbersSupported", () => {
     expect(numbersSupported("Caiu? Não. 12% em 2023.", ev, said).ok).toBe(false);
     // sem `refuted`, a fala não conta de jeito nenhum
     expect(numbersSupported("Desocupação de 2023 foi 7,8%, não 12%.", ev).ok).toBe(false);
+  });
+});
+
+// Casos reais em que a trava calou alerta certo (ensaio da Band reprocessado e debate da Globo, out/2026)
+describe("[RF05] trava de número: o que não é dado novo não cala o alerta", () => {
+  it("número por extenso na fonte sustenta o mesmo número em dígitos (\"quatro meses\")", () => {
+    const ev = ["Com isso, ao todo, o PT governará por 17 anos, quatro meses e 12 dias em um período de 24 anos"];
+    const said = { refuted: ["O PT já governa esse país há 20 anos dos últimos 24."] };
+    const correction = "Segundo o Estadão Verifica, o PT somou cerca de 17 anos (17 anos, 4 meses e 12 dias) na Presidência nos últimos 24 anos, não 20.";
+    expect(numbersSupported(correction, ev, said)).toEqual({ ok: true, unsupported: [] });
+    expect(wordNumbers("vinte e cinco obras, dois mil e quinhentos reais, mil novecentos e oitenta")).toEqual([25, 2500, 1980]);
+    // artigo não é número; "mil" e "quinhentos" de um número em dígitos não viram números soltos
+    expect(wordNumbers("uma obra de R$ 3 mil e quinhentos")).toEqual([]);
+    expect(numbersSupported("Foi 1 obra.", ["uma obra"]).ok).toBe(false);
+  });
+
+  it("número da fala contraposto ao dado correto vale; confirmado como dado, não", () => {
+    const tres = { refuted: ["nós fizemos 3 ou 4 vezes mais do que o governo dele fizeram"] };
+    expect(
+      numbersSupported("Investimento cresceu, mas não chegou a 3 ou 4 vezes o do governo anterior.", ["cresceram com Lula, mas não chegaram a triplicar ou quadruplicar"], tres),
+    ).toEqual({ ok: true, unsupported: [] });
+    const obras = ["em agosto de 2022, existiam 8.674 construções paralisadas e, em abril de 2023, 8.603 obras"];
+    expect(numbersSupported("Havia 8.674 em agosto de 2022 e 8.603 em abril de 2023, mais que 6.000.", obras, { refuted: ["nós herdamos 6000 obras paradas"] }).ok).toBe(true);
+    expect(numbersSupported("TCU registrou 11.469 obras paralisadas, abaixo de 11.500.", ["havia 11.469 obras paralisadas"], { refuted: ["existem mais de 11500 obras paralisadas"] }).ok).toBe(true);
+    expect(numbersSupported("As evidências não mostram 20 metros.", ["de 40 metros para 30 metros"], { refuted: ["hoje tem 20"] }).ok).toBe(true);
+    // contraposto, mas não foi o que o falante disse
+    expect(numbersSupported("Havia 8.674, mais que 7.000.", obras, { refuted: ["nós herdamos 6000 obras paradas"] })).toEqual({ ok: false, unsupported: ["7.000"] });
+    // o número do falante apresentado como certo continua sem fonte
+    expect(numbersSupported("O valor de R$ 3,5 bilhões confere.", ["o governo devolveu dinheiro"], { refuted: ["já pagamos 3,5 bilhões"] }).ok).toBe(false);
+  });
+
+  it("rodovia e ato normativo valem como nome: BR-319 da fala; EC 123 = Emenda Constitucional 123", () => {
+    const ev = ["as intervenções posteriores são de recuperação e reconstrução de uma estrada existente"];
+    const said = { refuted: ["que liga Porto Velho a Manaus, que é a BR 319."] };
+    expect(numbersSupported("A BR-319 recebe recuperação de estrada existente.", ev, said).ok).toBe(true);
+    // o ano que o trecho verificado não traz continua barrando
+    expect(numbersSupported("A BR-319 foi inaugurada em 1976.", ev, said)).toEqual({ ok: false, unsupported: ["1976"] });
+    expect(numbersSupported("O valor veio pela EC 123, de 2022.", ["a Emenda Constitucional 123, de 14 de julho de 2022, estabeleceu"]).ok).toBe(true);
+    // número de lei dito pelo falante não vale só por ter sido dito: qual lei é dado
+    expect(numbersSupported("Foi a Lei 12.870.", ["programa criado em 2013"], { refuted: ["a Lei 12.870 criou o programa"] }).ok).toBe(false);
+    expect(numbersSupported("Criado pela Lei 12.870.", ["Lei 12.871, de 22 de outubro de 2013"]).ok).toBe(false);
+  });
+
+  it("data comparada inteira e em qualquer formato, nunca pelos pedaços", () => {
+    const viagem = ["Em 7 de maio de 2026, Lula esteve pessoalmente nos Estados Unidos", "19/10/2026"];
+    expect(numbersSupported("Segundo o g1 (Fato ou Fake, 19/10/2026), Lula esteve nos EUA em 7/5/2026.", viagem).ok).toBe(true);
+    expect(numbersSupported("Segundo o Poder360 (24.set.2026), o governo bloqueou bens.", ["24/09/2026"]).ok).toBe(true);
+    // 10, 4 e 2026 soltos na fonte não sustentam 10/04/2026
+    expect(numbersSupported("A medida saiu em 10/04/2026.", ["10 obras em 4 estados em 2026"])).toEqual({ ok: false, unsupported: ["10/04/2026"] });
+    // dia e mês citados sem ano valem para a data com ano
+    expect(numbersSupported("Mauro Vieira se reuniu com Rubio em 16/10/2026.", ["em 16 de outubro, Mauro Vieira"]).ok).toBe(true);
+    expect(numbersSupported("Criado em 21 de outubro.", ["Lei 12.871, de 22 de outubro de 2013"]).ok).toBe(false);
+    // mês/ano sem par: o ano ainda vale como número, como antes
+    expect(numbersSupported("8.603 obras em abril de 2023.", ["8.603 obras em 2023"]).ok).toBe(true);
+  });
+
+  it("data de citação que não confere sai do texto; a que confere fica", () => {
+    const src = ["A carga aqui está acima da média de nações da América Latina"];
+    expect(dropUnverifiedCitationDates("Segundo o g1 (10/04/2026), a carga de 2025 é recorde.", src)).toBe("Segundo o g1, a carga de 2025 é recorde.");
+    expect(dropUnverifiedCitationDates("Segundo o g1 (Fato ou Fake, 19/10/2026), Lula foi aos EUA.", src)).toBe("Segundo o g1 (Fato ou Fake), Lula foi aos EUA.");
+    expect(dropUnverifiedCitationDates("Segundo o FBSP (2024), o medo cresceu.", ["23/10/2026"])).toBe("Segundo o FBSP, o medo cresceu.");
+    // confere com a data de publicação da evidência
+    for (const ok of ["Segundo a Lupa (18/10/2026), a lei prevê 20 a 40 anos.", "Segundo o FBSP/Datafolha (2026), o medo cresceu."]) {
+      expect(dropUnverifiedCitationDates(ok, ["18/10/2026"])).toBe(ok);
+    }
+    // parêntese que não é data, ou data fora de citação: intactos
+    for (const keep of ["Segundo o Tesouro (via Fato ou Fake, g1), houve superávit.", "A MP foi publicada (18/01/2019) no governo Bolsonaro."]) {
+      expect(dropUnverifiedCitationDates(keep, src)).toBe(keep);
+    }
   });
 });
