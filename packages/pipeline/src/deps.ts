@@ -16,7 +16,7 @@ export interface PipelineDeps {
   anthropic: AnthropicLike;
   embed: EmbedFn;
   rerank: RerankFn;
-  /** null = L4 desligada (sem chave). */
+  /** null = L4 desligada (sem chave). Por debate, settings.web_search desliga em retrieveAll. */
   webSearch: WebSearchFn | null;
   store: PipelineStore;
   logger: Logger;

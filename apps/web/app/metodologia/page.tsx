@@ -130,7 +130,8 @@ export default function MetodologiaPage() {
           <li>
             <strong>Busca na web</strong>, restrita a domínios de tier 1 e 2, usada só quando as camadas anteriores não
             bastam — e com exigência de confiança maior. As páginas que ela encontra passam a fazer parte da base, para
-            as próximas checagens.
+            as próximas checagens. A equipe pode desligar a busca na web em um debate; quando faz isso, informa na
+            observação pública do debate.
           </li>
         </ol>
       </Section>

@@ -2,6 +2,7 @@
 // (web) começa junto e só é aguardada quando a base vem fraca (sem evidência,
 // ou só com evidência de relevância baixa): aí entra como complemento. Camada da
 // base que estoura o prazo enquanto a L4 ainda roda pode chegar até a L4 terminar.
+// Com a busca desligada no debate (settings.web_search), a L4 nem começa.
 import type { KbLayer } from "@actually/db";
 import { TIMEOUTS_MS, WEB_SKIP_MIN_RELEVANCE } from "../config";
 import type { PipelineDeps } from "../deps";
@@ -120,13 +121,16 @@ export async function retrieveAll(
   deps: PipelineDeps,
   claim: ExtractedClaim,
   embedding: number[] | null,
+  opts: { web?: boolean } = {},
 ): Promise<RetrievalResult> {
   const query = claim.text_normalized;
   const measureQuery = measureQueryOf(claim);
 
   // a web começa já (latência); o resultado só é usado se a base vier fraca.
   // runLayer nunca rejeita e tem timeout: se não for aguardada, termina sozinha.
-  const search = deps.webSearch;
+  // Desligada no debate: a Tavily não é chamada e tudo segue o caminho de "sem chave"
+  const search = opts.web === false ? null : deps.webSearch;
+  const web_off = opts.web === false ? "debate" : search ? null : "sem_chave";
   const web = search ? runLayer("L4", deps, () => retrieveWeb(measureQuery, search, deps.rerank)) : null;
   // com a L4 rodando, a camada da base que estoura o prazo ainda pode chegar (awaitLate)
   const keepLate = web !== null;
@@ -188,5 +192,5 @@ export async function retrieveAll(
   // o que a web trouxe vale para a base mesmo quando não entrou aqui (index.ts grava
   // depois dos alertas); a camada não rejeita, então ninguém precisa esperar por isto
   const web_found = web ? web.then((w) => w.candidates) : null;
-  return { candidates, comparison, layers, used_web: usedWeb, web_found };
+  return { candidates, comparison, layers, used_web: usedWeb, web_found, web_off };
 }

@@ -481,6 +481,44 @@ describe("[RNF03] falhas e timeouts ⇒ silêncio, sem exceção", () => {
     expect(store.verifications[0]?.latency_ms).toHaveProperty("retrieve_L4");
   });
 
+  it("[RF03] busca desligada no debate ⇒ a Tavily não é chamada e o verificador recebe só a base", async () => {
+    const web = fakeWeb([WEB_RESULT]);
+    const store = new MemoryStore({ chunks: [DOC_CHUNK] }, { require_red_approval: false, web_search: false });
+    let verifyMsg = "";
+    const deps = makeDeps({
+      store, webSearch: web, rerank: fakeRerank({ score: 0.6 }),
+      anthropic: fakeAnthropic({ extract: extracting(DOC_CLAIM), verify: (u) => ((verifyMsg = u), docVerdict(DOC_TEXT)) }),
+    });
+    await createPipeline(deps).runPipeline(store.addSegment(DOC_SEGMENT).id);
+    expect(web.calls).toBe(0);
+    expect(verifyMsg).toContain(DOC_CHUNK.url);
+    expect(verifyMsg).not.toContain(WEB_RESULT.url);
+    expect(store.verifications[0]?.latency_ms).not.toHaveProperty("retrieve_L4");
+    // o registro diz por que a web não rodou (separa de "a web não achou nada")
+    expect(store.verifications[0]?.score_components).toMatchObject({ web_search_off: "debate", used_web: false });
+    expect(deps.logs.find((l) => l.event === "segment_done")?.fields).toMatchObject({ web_search_off: "debate" });
+  });
+
+  it("[RF07] desligar a busca no /admin vale a partir do próximo trecho", async () => {
+    const web = fakeWeb([WEB_RESULT]);
+    const store = new MemoryStore({ chunks: [DOC_CHUNK] }, { require_red_approval: false });
+    const later = claimOut("O Mais Médicos foi criado em 2016 pelo governo Temer", "O programa Mais Médicos foi criado em 2016 pelo governo Michel Temer.");
+    let n = 0;
+    const deps = makeDeps({
+      store, webSearch: web, rerank: fakeRerank({ score: 0.6 }),
+      anthropic: fakeAnthropic({ extract: () => (++n === 1 ? extracting(DOC_CLAIM)() : extracting(later)()), verify: () => docVerdict(DOC_TEXT) }),
+    });
+    const pipeline = createPipeline(deps);
+    await pipeline.runPipeline(store.addSegment(DOC_SEGMENT).id);
+    expect(web.calls).toBe(1);
+    expect(store.verifications[0]?.score_components).not.toHaveProperty("web_search_off");
+    store.debate.settings = { ...store.debate.settings, web_search: false };
+    await pipeline.runPipeline(store.addSegment("O Mais Médicos foi criado em 2016 pelo governo Temer.").id);
+    expect(web.calls).toBe(1);
+    expect(store.verifications).toHaveLength(2);
+    expect(store.verifications[1]?.score_components).toMatchObject({ web_search_off: "debate" });
+  });
+
   it("[RF03] base fraca + web: candidatos da base marcados como fracos; sem resultado da web, nada muda", async () => {
     const { retrieveAll } = await import("../src/retrieve/index");
     const claim = { text_original: "x", text_normalized: DOC_CLAIM.text_normalized, topic: "saude" as const, kind: "fato" as const,
@@ -558,6 +596,15 @@ describe("[RF02] evaluateText (modo seco)", () => {
     const { pipeline } = setup({ extract: extracting(BF_CLAIM), verify: () => BF_VERDICT }, { factchecks: [FACTCHECK] });
     const out = await pipeline.evaluateText("Hoje o Bolsa Família atende 30 milhões de famílias.", "", { settings: { t_yellow: 0.95 } });
     expect(out[0]).toMatchObject({ alert: null, silence_reason: "abaixo_do_threshold" });
+  });
+
+  it("[RF07] settings.web_search=false: o modo seco não busca na web", async () => {
+    const web = fakeWeb([WEB_RESULT]);
+    const store = new MemoryStore({});
+    const deps = makeDeps({ store, webSearch: web, anthropic: fakeAnthropic({ extract: extracting(BF_CLAIM), verify: () => BF_VERDICT }) });
+    const out = await createPipeline(deps).evaluateText("Hoje o Bolsa Família atende 30 milhões de famílias.", "", { settings: { web_search: false } });
+    expect(web.calls).toBe(0);
+    expect(out[0]).toMatchObject({ alert: null, silence_reason: "sem_evidencia" });
   });
 
   it("refusal ⇒ silêncio", async () => {

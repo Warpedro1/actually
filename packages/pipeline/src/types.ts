@@ -127,6 +127,8 @@ export interface RetrievalResult {
    * aprende (fila kb_web_finds). Nunca rejeita (a camada tem timeout); null = sem L4.
    */
   web_found: Promise<EvidenceCandidate[]> | null;
+  /** Por que a L4 não rodou: desligada no debate (settings.web_search) ou sem chave da Tavily; null = rodou. */
+  web_off: "debate" | "sem_chave" | null;
 }
 
 /** Saída validada do verificador. */

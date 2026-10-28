@@ -46,18 +46,22 @@ async function run(opts: {
   kb?: KbFixture;
   delays?: DelayFixture;
   web?: WebSearchFn | null;
+  /** settings.web_search do debate (padrão: ligada). */
+  webEnabled?: boolean;
+  /** Relevância que o rerank falso devolve (padrão 0,9: base forte). */
+  relevance?: number;
   claim?: ExtractedClaim;
   embedding?: boolean;
 }): Promise<{ r: RetrievalResult; ms: number; logs: { event: string; fields?: Record<string, unknown> }[] }> {
   const store = new MemoryStore(opts.kb ?? {}, {}, opts.delays ?? {});
   const deps = makeDeps({
-    store, now: () => Date.now(), rerank: fakeRerank({ score: 0.9 }), webSearch: opts.web ?? null,
+    store, now: () => Date.now(), rerank: fakeRerank({ score: opts.relevance ?? 0.9 }), webSearch: opts.web ?? null,
     anthropic: fakeAnthropic({ extract: () => ({ output: { claims: [] } }), verify: () => ({ output: {} as never }) }),
   });
   const claim = opts.claim ?? CLAIM;
   const t0 = Date.now();
   let ms = -1;
-  const p = retrieveAll(deps, claim, opts.embedding === false ? null : fakeVector(claim.text_normalized))
+  const p = retrieveAll(deps, claim, opts.embedding === false ? null : fakeVector(claim.text_normalized), { web: opts.webEnabled })
     .then((r) => ((ms = Date.now() - t0), r));
   await vi.advanceTimersByTimeAsync(30_000);
   return { r: await p, ms, logs: deps.logs };
@@ -102,6 +106,37 @@ describe("[RNF01] [RF03] prazos da base com a L4 em andamento", () => {
     expect(r.candidates).toEqual([]);
     expect(layer(r, "L3")?.error).toMatch(/timeout/);
     expect(logs.some((l) => l.event === "layer_failed" && l.fields?.layer === "L3")).toBe(true);
+    expect(r.web_off).toBe("sem_chave");
+  });
+
+  it("busca desligada no debate com a Tavily configurada: não chama a web e vale o prazo da camada", async () => {
+    const web = fakeWeb([WEB_RESULT], { delayMs: 5_000 });
+    const { r, ms } = await run({ kb: { chunks: [DOC_CHUNK] }, delays: { matchChunks: 4_000 }, web, webEnabled: false });
+    expect(web.calls).toBe(0);
+    expect(ms).toBe(TIMEOUTS_MS.L3);
+    expect(layer(r, "L4")).toBeUndefined();
+    expect(r.used_web).toBe(false);
+    expect(r.web_found).toBeNull();
+    expect(r.web_off).toBe("debate");
+  });
+
+  it("busca desligada com a base fraca: o verificador recebe só a base, sem marca de evidência fraca", async () => {
+    // com a busca ligada, o mesmo documento de relevância baixa vai junto com a web, marcado como fraco
+    const on = await run({ kb: { chunks: [DOC_CHUNK] }, web: fakeWeb([WEB_RESULT]), relevance: 0.6 });
+    expect(on.r.candidates.map((c) => [c.layer, c.weak ?? false])).toEqual([["L3", true], ["L4", false]]);
+
+    const web = fakeWeb([WEB_RESULT]);
+    const { r } = await run({ kb: { chunks: [DOC_CHUNK] }, web, webEnabled: false, relevance: 0.6 });
+    expect(web.calls).toBe(0);
+    expect(r.candidates.map((c) => c.layer)).toEqual(["L3"]);
+    expect(r.candidates[0]?.weak).toBeUndefined();
+  });
+
+  it("busca ligada (padrão): a web roda e web_off fica vazio", async () => {
+    const web = fakeWeb([WEB_RESULT]);
+    const { r } = await run({ kb: { chunks: [DOC_CHUNK] }, web });
+    expect(web.calls).toBe(1);
+    expect(r.web_off).toBeNull();
   });
 
   it("web que terminou antes do prazo da base: vale o prazo de hoje (nada mais a esperar)", async () => {

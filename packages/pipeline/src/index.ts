@@ -178,7 +178,7 @@ export async function assessClaim(
 ): Promise<Assessment> {
   const latency: Record<string, number> = {};
   let t = deps.now();
-  const retrieval = await retrieveAll(deps, claim, embedding);
+  const retrieval = await retrieveAll(deps, claim, embedding, { web: settings.web_search !== false });
   latency.retrieve = deps.now() - t;
   for (const l of retrieval.layers) latency[`retrieve_${l.layer}`] = l.latency_ms;
 
@@ -389,6 +389,8 @@ export function createPipeline(deps: PipelineDeps) {
         ...(claim.kind_model ? { kind_model: claim.kind_model } : {}),
         ...(claim.kind_rule ? { kind_rule: claim.kind_rule } : {}),
         ...(a.unsupported_numbers?.length ? { unsupported_numbers: a.unsupported_numbers.join("|").slice(0, 200) } : {}),
+        // a L4 não rodou: separa "desligada no debate" e "sem chave" de "a web não achou nada"
+        ...(a.retrieval.web_off ? { web_search_off: a.retrieval.web_off } : {}),
         ...(a.decision.alert ? {} : a.model.summary ? { summary_silenced: a.model.summary.slice(0, 280) } : {}),
       },
       layer,
@@ -480,6 +482,8 @@ export function createPipeline(deps: PipelineDeps) {
     }
     const { segment, debate } = loaded;
     const settings = resolveSettings(debate.settings);
+    // no log do trecho, para cobrir também as afirmações que não gravam verificação
+    const webOff = settings.web_search === false ? { web_search_off: "debate" } : {};
 
     let t = deps.now();
     const pf = prefilter(segment.text);
@@ -532,7 +536,7 @@ export function createPipeline(deps: PipelineDeps) {
     latency.extract = deps.now() - t;
     if (!claims.length) {
       latency.e2e = sinceSpeech(segment);
-      logger("info", "segment_done", { segment_id: segmentId, claims: 0, alerts: 0, latency_ms: latency });
+      logger("info", "segment_done", { segment_id: segmentId, claims: 0, alerts: 0, ...webOff, latency_ms: latency });
       return result(0, 0);
     }
 
@@ -556,7 +560,7 @@ export function createPipeline(deps: PipelineDeps) {
     latency.total = deps.now() - t0;
     latency.e2e = sinceSpeech(segment);
     const n = alerts.reduce((s, x) => s + x, 0);
-    logger("info", "segment_done", { segment_id: segmentId, claims: claims.length, alerts: n, latency_ms: latency });
+    logger("info", "segment_done", { segment_id: segmentId, claims: claims.length, alerts: n, ...webOff, latency_ms: latency });
     // só agora, com os alertas do trecho já gravados: a espera pela web não atrasa nenhum
     const webFinds = webFound ? await queueWebFinds(deps, segment, webFound) : 0;
     return result(claims.length, n, webFinds);

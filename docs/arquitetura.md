@@ -93,6 +93,7 @@ fala termina ─► Deepgram finaliza ─► POST /api/ingest/segment ─► gra
  3 Trava de repetição: hash igual OU similaridade ≥ 0,92 E mesmos números/períodos ──► reusa veredito, alerta “Repetido”
  4 Retrieval em paralelo: L1 checagens | L2 indicadores (SQL) | L3 documentos (híbrido vetor + texto, RRF)
       └─ base fraca ou nada conclusivo? ─► L4 web (Tavily restrito a domínios tier 1–2), em paralelo
+         (desligável por debate: web_search = false no /admin ⇒ a L4 nem começa)
  5 Verificação (Sonnet, saída estruturada): veredito, correção de 1 linha, trecho citado, confiança
  6 Verificação programática da citação: o trecho precisa existir no texto da fonte (normalizado/fuzzy);
       L2: evidência gerada em código a partir do ponto da série, comparação numérica com tolerância
@@ -111,6 +112,7 @@ Cada verificação grava `latency_ms` por etapa; o `/admin` e o `eval latency-re
 - Se a melhor evidência veio da web (L4), soma-se `web_penalty` ao threshold — exceto quando há citação verificada de checagem de agência (nível 1, tipo `checagem` em `SOURCE_TIERS`), vinda da web ou entrada fraca junto com ela.
 - `confirmado` e `inconclusivo` nunca viram alerta; ficam só no log.
 - Defaults: `t_red = 0,85`, `t_yellow = 0,75`, `web_penalty = 0,05`; calibrados com `eval` (ver `eval/README.md`).
+- `web_search` (padrão ligado) desliga a L4 no debate: a base passa a ser a única fonte, a Tavily não é chamada e cada verificação grava `web_search_off` em `score_components`. Documento que a base aprendeu da web (`origin = 'web'`) continua pagando `web_penalty`.
 
 ## Camadas de conhecimento
 
@@ -119,7 +121,7 @@ Cada verificação grava `latency_ms` por etapa; o `/admin` e o `eval latency-re
 | **L1** — checagens | `kb_factchecks` | Checagens publicadas (agências, Google Fact Check Tools) | híbrida: HNSW (vetor) + GIN (texto), fundidas por RRF (`match_factchecks`) |
 | **L2** — indicadores | `indicator_series`, `indicator_values` | Séries oficiais (BCB SGS, IBGE SIDRA, INPE…) com aliases | `find_indicator` (trigram sem acento) + SQL por período; comparação numérica em código |
 | **L3** — documentos | `kb_documents`, `kb_chunks` | Debates, programas de governo, entrevistas, votações, discursos | híbrida (`match_chunks`), filtro opcional por pessoa |
-| **L4** — web | — | Busca ao vivo (Tavily) restrita a domínios tier 1–2 | só se L1–L3 não forem conclusivos; paga `web_penalty` (menos checagem de agência). Começa junto com L1–L3; camada da base que estoura o prazo enquanto a L4 roda ainda pode chegar até a L4 terminar |
+| **L4** — web | — | Busca ao vivo (Tavily) restrita a domínios tier 1–2 | só se L1–L3 não forem conclusivos; paga `web_penalty` (menos checagem de agência); desligável por debate (`web_search`). Começa junto com L1–L3; camada da base que estoura o prazo enquanto a L4 roda ainda pode chegar até a L4 terminar |
 
 Catálogo completo em [fontes.md](fontes.md). Tiers em `packages/db/src/tiers.ts` (`SOURCE_TIERS`).
 

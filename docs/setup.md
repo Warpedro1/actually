@@ -39,7 +39,7 @@ Passo a passo para subir o ambiente do zero. Ordem: Supabase → chaves → Verc
 |---|---|---|
 | `ANTHROPIC_API_KEY` | console.anthropic.com → API Keys | pipeline (Vercel), eval |
 | `VOYAGE_API_KEY` | dash.voyageai.com | pipeline (embeddings/rerank), kb-ingest, eval |
-| `TAVILY_API_KEY` | app.tavily.com | pipeline (L4) |
+| `TAVILY_API_KEY` | app.tavily.com | pipeline (L4). Vazia, desliga a busca na web em todos os debates, acima do botão “Busca na web” de cada debate no /admin |
 | `GOOGLE_FACTCHECK_API_KEY` | Google Cloud Console → habilitar *Fact Check Tools API* → Credenciais → chave de API (restrita a essa API) | kb-ingest (L1), na máquina ou no painel do /admin |
 | `DEEPGRAM_API_KEY` | console.deepgram.com | capture agent, `kb-ingest transcribe`; na Vercel, só para o saldo no painel *Uso das APIs* (chave com permissão de leitura de cobrança) |
 | `ANTHROPIC_ADMIN_KEY` | console.anthropic.com → Settings → Admin keys (`sk-ant-admin…`; só organizações, não contas individuais) | só Vercel: custo oficial do mês no painel *Uso das APIs*. Nunca no pipeline |

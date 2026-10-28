@@ -21,6 +21,11 @@ export interface DebateSettings {
   t_yellow: number;
   /** Somado ao threshold quando a melhor evidência veio da web (L4). */
   web_penalty: number;
+  /**
+   * Busca na web (L4, Tavily). false = a base (L1–L3) é a única fonte e a Tavily não é
+   * chamada. Sem TAVILY_API_KEY no servidor a L4 fica desligada de qualquer jeito.
+   */
+  web_search: boolean;
   /** Mostra o nome do candidato quando o speaker estiver mapeado. */
   show_attribution: boolean;
   /** Similaridade mínima para a trava de repetição. */
@@ -37,6 +42,7 @@ export const DEFAULT_SETTINGS: DebateSettings = {
   t_red: 0.85,
   t_yellow: 0.75,
   web_penalty: 0.05,
+  web_search: true,
   show_attribution: false,
   dedup_similarity: 0.92,
   context_window_s: 60,

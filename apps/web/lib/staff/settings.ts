@@ -40,6 +40,11 @@ export function hitlTurnedOff(patch: SettingsPatch): HitlKey[] {
   return HITL_KEYS.filter((k) => patch[k] === false);
 }
 
+/** O patch desliga a busca na web (L4). */
+export function webSearchTurnedOff(patch: SettingsPatch): boolean {
+  return patch.web_search === false;
+}
+
 const show = (v: unknown) => (typeof v === "boolean" ? (v ? "ligado" : "desligado") : String(v));
 
 /** Uma linha por chave alterada: "rótulo: antes → depois". */
@@ -58,6 +63,12 @@ export function confirmMessages(base: DebateSettings, patch: SettingsPatch, labe
       "",
       ...describeChanges(base, patch, labels),
       "",
+      ...(webSearchTurnedOff(patch)
+        ? [
+            "Sem a busca na web, a base de conhecimento passa a ser a única fonte. A checagem fica mais rápida, mas saem menos alertas. Em debate público, registre isso na observação pública.",
+            "",
+          ]
+        : []),
       "As demais configurações ficam como estão no banco.",
     ].join("\n"),
   ];

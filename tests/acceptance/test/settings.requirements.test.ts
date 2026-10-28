@@ -38,6 +38,17 @@ describe("[RF07] [RF08] settings por patch no banco", () => {
     expect(after).toMatchObject({ t_red: 0.9, show_attribution: true, require_red_approval: true, t_yellow: 0.75 });
   });
 
+  it("[RF07] busca na web: chave que o banco ainda não tem é gravada, religada, e as outras ficam", async () => {
+    const debate = await setup();
+    const snapshot = await read(debate);
+    expect(snapshot).not.toHaveProperty("web_search"); // debates criados antes da chave
+    await save(debate, snapshot, { web_search: false });
+    const off = await read(debate);
+    expect(off).toMatchObject({ web_search: false, require_red_approval: true, t_red: 0.85 });
+    await save(debate, off, { web_search: true });
+    expect(await read(debate)).toMatchObject({ web_search: true, require_red_approval: true, t_red: 0.85 });
+  });
+
   it("[RF08] aba obsoleta mexendo em t_red não desliga o HITL ligado depois em outra sessão", async () => {
     const debate = await setup();
     await db.query(`update debates set settings = settings || '{"require_red_approval": false}' where id = $1`, [debate]);

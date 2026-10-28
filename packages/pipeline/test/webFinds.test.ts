@@ -53,9 +53,10 @@ const BLOG = page("https://blog.exemplo.com/mais-medicos", "Opinião sobre o Mai
 
 function setup(opts: {
   web: WebSearchFn; verify?: (u: string) => FakeReply<VerifyOutput>; claims?: ClaimOut[];
-  chunks?: boolean; learnFromWeb?: boolean; delays?: Record<string, number>;
+  chunks?: boolean; learnFromWeb?: boolean; delays?: Record<string, number>; webSearchSetting?: boolean;
 }) {
-  const store = new MemoryStore(opts.chunks ? { chunks: [DOC_CHUNK] } : {}, { require_red_approval: false }, opts.delays ?? {});
+  const settings = { require_red_approval: false, ...(opts.webSearchSetting === undefined ? {} : { web_search: opts.webSearchSetting }) };
+  const store = new MemoryStore(opts.chunks ? { chunks: [DOC_CHUNK] } : {}, settings, opts.delays ?? {});
   const deps = makeDeps({
     store, webSearch: opts.web, rerank: fakeRerank({ score: 0.9 }),
     learnFromWeb: "learnFromWeb" in opts ? opts.learnFromWeb : true,
@@ -69,6 +70,16 @@ afterEach(() => {
 });
 
 describe("[RF15] a base aprende com a web (fila kb_web_finds)", () => {
+  it("busca desligada no debate: a Tavily não é chamada e nada vai para a fila", async () => {
+    const web = fakeWeb([G1]);
+    const { store, pipeline } = setup({ web, chunks: true, webSearchSetting: false });
+    const res = await pipeline.runPipeline(store.addSegment(DOC_SEGMENT).id);
+    expect(res).toMatchObject({ claims: 1, alerts: 1, web_finds: 0 });
+    expect(web.calls).toBe(0);
+    expect(store.webFinds).toEqual([]);
+    expect(store.calls).not.toContain("saveWebFinds");
+  });
+
   it("base forte: a web não entra na verificação, mas a página inteira vai para a fila", async () => {
     let verifyMsg = "";
     const web = fakeWeb([G1, SHORT, BLOG]);

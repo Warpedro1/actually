@@ -1,6 +1,6 @@
 import { DEFAULT_SETTINGS, resolveSettings, type DebateSettings } from "@actually/db";
 import { describe, expect, it } from "vitest";
-import { confirmMessages, expectedFor, hitlTurnedOff, saveSettingsPatch, settingsPatch } from "@/lib/staff/settings";
+import { confirmMessages, expectedFor, hitlTurnedOff, saveSettingsPatch, settingsPatch, webSearchTurnedOff } from "@/lib/staff/settings";
 import { argOf, createMockDb, type QueryCall } from "./supabaseMock";
 
 /**
@@ -99,5 +99,34 @@ describe("[RF07] [RF08] settings do debate gravadas por patch", () => {
     const t = confirmMessages(base, { t_red: 0.9 }, { t_red: "Limiar dos vermelhos (t_red)" });
     expect(t).toHaveLength(1);
     expect(t[0]).toContain("Limiar dos vermelhos (t_red): 0.85 → 0.9");
+  });
+
+  it("[RF07] busca na web ligada por padrão, inclusive em debate antigo sem a chave", () => {
+    expect(DEFAULT_SETTINGS.web_search).toBe(true);
+    expect(resolveSettings({ t_red: 0.9 }).web_search).toBe(true);
+  });
+
+  it("[RF07] debate antigo sem a chave: desligar a busca manda só web_search, com valor esperado null", async () => {
+    const db = fakeDb({ t_red: 0.75 });
+    const r = await tab({ t_red: 0.75 }).save(db.db, { web_search: false });
+    expect(r.status).toBe("saved");
+    expect(argOf(db.calls[0], "rpc")).toEqual({ p_debate_id: "d1", p_patch: { web_search: false }, p_expected: { web_search: null } });
+    expect(db.state.settings).toEqual({ t_red: 0.75, web_search: false });
+  });
+
+  it("[RF07] desligar a busca na web: resumo e aviso de cobertura menor, num diálogo só", () => {
+    const base = resolveSettings({});
+    expect(webSearchTurnedOff({ web_search: false })).toBe(true);
+    expect(webSearchTurnedOff({ web_search: true })).toBe(false);
+    const msgs = confirmMessages(base, { web_search: false }, { web_search: "Busca na web" });
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0]).toContain("Busca na web: ligado → desligado");
+    expect(msgs[0]).toMatch(/base de conhecimento passa a ser a única fonte/);
+    expect(msgs[0]).toMatch(/observação pública/);
+    // religar: só o resumo, sem o aviso
+    const on = confirmMessages(resolveSettings({ web_search: false }), { web_search: true }, { web_search: "Busca na web" });
+    expect(on).toHaveLength(1);
+    expect(on[0]).toContain("Busca na web: desligado → ligado");
+    expect(on[0]).not.toMatch(/única fonte/);
   });
 });

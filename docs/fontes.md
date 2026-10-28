@@ -67,7 +67,8 @@ Textos longos, divididos em trechos com embeddings (Voyage) e índice de texto, 
 
 ## L4 — Busca web (ao vivo)
 
-- **Tavily**, chamada só quando L1–L3 não são conclusivas.
+- **Tavily**, chamada junto com L1–L3; o resultado só entra quando a base não traz evidência forte.
+- **Desligável por debate** no /admin → Debates → Configurações (“Busca na web”). Desligada, a base é a única fonte e nada vai para `kb_web_finds`. Sem `TAVILY_API_KEY` no servidor, fica desligada em todos os debates.
 - `include_domains` = domínios **tier 1 e 2** de `SOURCE_TIERS` (`webSearchDomains()`); resultados de outros domínios são descartados.
 - A evidência web paga `web_penalty` no threshold (menos a checagem de agência nível 1 com citação verificada) e passa pela mesma conferência de citação (o trecho precisa existir na página baixada).
 

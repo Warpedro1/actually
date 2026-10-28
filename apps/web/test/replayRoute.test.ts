@@ -72,7 +72,7 @@ function useDb(segments = SEGMENTS) {
     debates: (q) =>
       has(q, "insert")
         ? insert(q, "novo-debate")
-        : ok({ id: SRC, slug: "lula-flavio-globo", title: "Debate da Globo", youtube_url: "https://youtu.be/x", settings: { t_red: 0.75 } }),
+        : ok({ id: SRC, slug: "lula-flavio-globo", title: "Debate da Globo", youtube_url: "https://youtu.be/x", settings: { t_red: 0.75, web_search: false } }),
     segments: (q) => {
       const agents = argOf(q, "in") === "agent_id" ? (q.ops.find((o) => o.op === "in")!.args[1] as string[]) : null;
       return ok(agents ? segments.filter((s) => agents.includes(s.agent_id)) : segments);
@@ -144,7 +144,8 @@ describe("[RNF02] reprocessar a transcrição para medir de novo", () => {
       is_test: true,
       status: "ended",
       check_mode: "post",
-      settings: { t_red: 0.75 },
+      // inclusive a busca na web desligada na origem
+      settings: { t_red: 0.75, web_search: false },
       youtube_url: "https://youtu.be/x",
     });
     expect(String((inserted.debates![0] as { public_note: string }).public_note)).toMatch(/Não é checagem ao vivo/);

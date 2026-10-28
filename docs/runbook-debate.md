@@ -45,10 +45,10 @@ Todos na mesma chamada de voz durante o debate. Preencher os nomes:
 - [ ] Eval rodado com a configuração final; decisão de HITL registrada em [human-in-the-loop.md](human-in-the-loop.md#registro-da-decisão).
 - [ ] Debate oficial criado no `/admin` (slug, título, `scheduled_at`, URL do YouTube quando sair) **com “Debate de teste” desmarcado** — ele nasce marcado por padrão. Conferir o selo “Público” no cartão do debate.
 - [ ] Ensaios: sempre como **debate de teste** (só editores veem, pela prévia `/admin/previa/<slug>`; os vereditos não valem para o oficial). Nunca tornar público um ensaio antes do dia 23.
-- [ ] Settings conferidas: `t_red`, `t_yellow`, `web_penalty`, `require_red_approval`, `require_yellow_approval`, `show_attribution` (padrão `false`), `failover_after_s` (padrão 10).
+- [ ] Settings conferidas: `t_red`, `t_yellow`, `web_penalty`, `web_search` (busca na web, padrão ligada), `require_red_approval`, `require_yellow_approval`, `show_attribution` (padrão `false`), `failover_after_s` (padrão 10).
 - [ ] Editores com login e 2FA funcionando.
 - [ ] Saldos/limites no `/admin` → **Uso das APIs**: nenhum cartão em “sem permissão”/“erro”; Tavily e Apify com folga no ciclo; banco abaixo de 70%. O que o painel não mostra, conferir no painel do provedor (link no cartão): **saldo de créditos da Anthropic**, Voyage e Deepgram da máquina de captura (se a chave não estiver na Vercel). Estimativa: o custo contado num ensaio de ~2 h × 2 (principal + margem).
-- [ ] Página `/metodologia` conferida: ela mostra os **valores padrão** (`DEFAULT_SETTINGS`), não as settings do debate. Se as settings do debate divergirem do padrão, escrever isso na **observação pública** do debate, no /admin.
+- [ ] Página `/metodologia` conferida: ela mostra os **valores padrão** (`DEFAULT_SETTINGS`), não as settings do debate. Se as settings do debate divergirem do padrão, escrever isso na **observação pública** do debate, no /admin. Busca na web desligada sempre vai para a observação pública: o público precisa saber que a base foi a única fonte.
 
 ### T-2h
 
@@ -133,7 +133,7 @@ O pipeline fica em **silêncio** (afirmações viram log com motivo de silêncio
 
 - **Não improvisar**: não publicar alertas manualmente, não trocar de modelo/fornecedor, não baixar thresholds para compensar.
 - Conferir a página de status do serviço; registrar o intervalo no log de incidentes.
-- Tavily fora afeta só L4 (web): L1–L3 continuam funcionando.
+- Tavily fora afeta só L4 (web): L1–L3 continuam funcionando. Desmarcar “Busca na web” no `/admin` → Debates → Configurações evita esperar o prazo da L4 (até 7 s por afirmação com base fraca), sem redeploy; avisar na observação pública e religar quando a Tavily voltar.
 - Voyage fora afeta embeddings (trava de repetição, L1 e L3 vetoriais): espere bem menos alertas.
 - Anthropic fora = nenhum alerta. Se passar de ~10 min, o responsável decide se publica um aviso no site (“checagem automática temporariamente indisponível”).
 - Deepgram fora = sem transcrição nas duas máquinas = sem alertas; mesmo procedimento.
@@ -158,6 +158,7 @@ O pipeline fica em **silêncio** (afirmações viram log com motivo de silêncio
 | Ligar `require_red_approval`/`require_yellow_approval` | Erro publicado, ou precisão em dúvida |
 | Desligar HITL | Só pelo responsável, seguindo a tabela de decisão; nunca por cansaço do editor |
 | `show_attribution` | Ligar só com mapa confirmado; desligar ao primeiro erro de atribuição |
+| Desligar/ligar `web_search` (busca na web) | Tavily fora ou lenta, créditos no fim, latência alta; avisar na observação pública |
 | Trocar agente ativo / fonte / URL | Problemas de captura |
 
 Toda mudança: anunciar na chamada e registrar (horário, quem, por quê).
